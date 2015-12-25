@@ -69,7 +69,7 @@ module Story = struct
     (* Debugging *)
 
     let display_bytes story offset length =
-        display_string_bytes story.raw_bytes offset length;;
+        display_string_bytes story offset length;;
 
     (* Decoding memory *)
     
@@ -80,12 +80,17 @@ module Story = struct
         let mask = lnot (-1 lsl length) in
         (word lsr (high - length + 1)) land mask;;
         
-    let read_byte_address = read_ushort;;
+    let read_byte_address story address = 
+        read_ushort story.raw_bytes address;;
     
-    let read_word = read_ushort;;
+    let read_word story address = 
+        read_ushort story.raw_bytes address;;
     
-    let read_word_address bytes n =
-        (read_ushort bytes n) * 2;;
+    let read_word_address story address =
+        (read_ushort story.raw_bytes address) * 2;;
+        
+    let read_ubyte story address =
+        read_ubyte story.raw_bytes address;;
         
     (* Header *)
 
@@ -96,39 +101,39 @@ module Story = struct
         
     let version_offset = 0;;
     let version story = 
-        read_ubyte story.raw_bytes version_offset;;
+        read_ubyte story version_offset;;
 
     (* TODO: Flags *)
         
     let high_memory_base_offset = 4;;
     let high_memory_base story =
-        read_byte_address story.raw_bytes high_memory_base_offset;;
+        read_byte_address story high_memory_base_offset;;
         
     let initial_program_counter_offset = 6;;
     let initial_program_counter story =
-        read_byte_address story.raw_bytes initial_program_counter_offset;;
+        read_byte_address story initial_program_counter_offset;;
 
     let dictionary_base_offset = 8;;
     let dictionary_base story =
-        read_byte_address story.raw_bytes dictionary_base_offset;;
+        read_byte_address story dictionary_base_offset;;
        
     let object_table_base_offset = 10;;
     let object_table_base story = 
-        read_byte_address story.raw_bytes object_table_base_offset;;
+        read_byte_address story object_table_base_offset;;
         
     let global_variables_table_base_offset = 12;;
     let global_variables_table_base story = 
-        read_byte_address story.raw_bytes global_variables_table_base_offset ;;
+        read_byte_address story global_variables_table_base_offset ;;
        
     let static_memory_base_offset = 14;;
     let static_memory_base story = 
-        read_byte_address story.raw_bytes static_memory_base_offset ;;
+        read_byte_address story static_memory_base_offset ;;
 
     (* TODO: Flags 2 *)
     
     let abbreviations_table_base_offset = 24;;
     let abbreviations_table_base story = 
-        read_byte_address story.raw_bytes abbreviations_table_base_offset ;;
+        read_byte_address story abbreviations_table_base_offset ;;
         
     let display_header story =
         Printf.printf "Version                     : %d\n" (version story);
@@ -148,7 +153,7 @@ module Story = struct
     
     let abbreviation_address story n = 
         if n < 0 || n >= abbreviation_table_length then failwith "bad offset into abbreviation table";
-        read_word_address story.raw_bytes ((abbreviations_table_base story) + (n * 2));;
+        read_word_address story ((abbreviations_table_base story) + (n * 2));;
         
     type string_mode = Alphabet of int | Abbreviation of int;;
        
@@ -193,7 +198,7 @@ module Story = struct
             | (Abbreviation a, n) -> (read_zstring story (abbreviation_address story (a + n)), Alphabet 0) in
          
         let rec aux mode1 current_address =
-            let word = read_word story.raw_bytes current_address in
+            let word = read_word story current_address in
             let is_end = fetch_bit 15 word in
             let zchar1 = fetch_bits 14 5 word in
             let zchar2 = fetch_bits 9 5 word in
@@ -229,7 +234,7 @@ module Story = struct
        are numbered starting at 1; is this right? *)
     let default_property_value story n =
         if n < 1 || n > default_property_table_size then failwith "invalid index into default property table"
-        else  read_word story.raw_bytes ((default_property_table_base story) + (n - 1) * default_property_table_entry_size);;
+        else  read_word story ((default_property_table_base story) + (n - 1) * default_property_table_entry_size);;
         
     let display_default_property_table story =
         let rec display_loop i =
@@ -250,30 +255,48 @@ module Story = struct
        the bottom of the object tree table. *)
        
     let object_attributes_word_1 story n = 
-        read_word story.raw_bytes ((object_tree_base story) + (n - 1) * object_table_entry_size);;
+        read_word story ((object_tree_base story) + (n - 1) * object_table_entry_size);;
         
     let object_attributes_word_2 story n = 
-        read_word story.raw_bytes ((object_tree_base story) + (n - 1) * object_table_entry_size + 2);;
+        read_word story ((object_tree_base story) + (n - 1) * object_table_entry_size + 2);;
         
     let object_parent story n = 
-        read_ubyte story.raw_bytes ((object_tree_base story) + (n - 1) * object_table_entry_size + 4);;
+        read_ubyte story ((object_tree_base story) + (n - 1) * object_table_entry_size + 4);;
     
     let object_sibling story n = 
-        read_ubyte story.raw_bytes ((object_tree_base story) + (n - 1) * object_table_entry_size + 5);;
+        read_ubyte story ((object_tree_base story) + (n - 1) * object_table_entry_size + 5);;
         
     let object_child story n = 
-        read_ubyte story.raw_bytes ((object_tree_base story) + (n - 1) * object_table_entry_size + 6);;
+        read_ubyte story ((object_tree_base story) + (n - 1) * object_table_entry_size + 6);;
         
     let object_property_address story n = 
-        read_word story.raw_bytes ((object_tree_base story) + (n - 1) * object_table_entry_size + 7);;
+        read_word story ((object_tree_base story) + (n - 1) * object_table_entry_size + 7);;
        
     let object_count story =
         ((object_property_address story 1) - (object_tree_base story)) / object_table_entry_size;;
        
     let object_name story n = 
-        let length = read_ubyte story.raw_bytes (object_property_address story n) in
+        let length = read_ubyte story (object_property_address story n) in
         if length = 0 then "<unnamed>" 
         else read_zstring story ((object_property_address story n) + 1);;
+        
+    let property_addresses story object_number =
+        let rec aux acc address =
+            let b = read_ubyte story address in
+            if b = 0 then 
+                acc 
+            else 
+                let property_length = (fetch_bits 7 3 b) + 1 in
+                let property_number = (fetch_bits 4 5 b) in
+                aux ((property_number, property_length, address + 1) :: acc) (address + 1 + property_length) in
+        let property_header_address = object_property_address story object_number in
+        let property_name_word_length = read_ubyte story property_header_address in
+        let first_property_address = property_header_address + 1 + property_name_word_length * 2 in
+        aux [] first_property_address;;
+            
+           
+    let display_properties story object_number =
+        List.iter (fun (property_number, length, address) -> Printf.printf "%02x " property_number) (property_addresses story object_number);; 
        
     let display_object_table story =
         let count = object_count story in 
@@ -287,7 +310,9 @@ module Story = struct
                 let child = object_child story i in
                 let properties = object_property_address story i in
                 let name = object_name story i in
-                Printf.printf "%02x: %04x%04x %02x %02x %02x %04x %s\n" i flags1 flags2 parent sibling child properties name;
+                Printf.printf "%02x: %04x%04x %02x %02x %02x %04x %s " i flags1 flags2 parent sibling child properties name;
+                display_properties story i;
+                Printf.printf "\n";
                 display_loop (i + 1)) in
         display_loop 1;;
         
@@ -315,4 +340,5 @@ Story.display_header s;
 (* Story.display_bytes s (Story.object_tree_base s) 64;; *)
 (* Story.display_abbreviation_table s;; *)
 (* Story.display_default_property_table s;; *)
+Story.display_object_table s;;
 Story.display_object_tree s;;
