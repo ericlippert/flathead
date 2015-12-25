@@ -82,6 +82,8 @@ module Story = struct
         
     let read_byte_address = read_ushort;;
     
+    let read_word = read_ushort;;
+    
     let read_word_address bytes n =
         (read_ushort bytes n) * 2;;
         
@@ -191,7 +193,7 @@ module Story = struct
             | (Abbreviation a, n) -> (read_zstring story (abbreviation_address story (a + n)), Alphabet 0) in
          
         let rec aux mode1 current_address =
-            let word = read_ushort story.raw_bytes current_address in
+            let word = read_word story.raw_bytes current_address in
             let is_end = fetch_bit 15 word in
             let zchar1 = fetch_bits 14 5 word in
             let zchar2 = fetch_bits 9 5 word in
@@ -213,8 +215,88 @@ module Story = struct
                 Printf.printf "%02x: %04x  %s\n" i address value;
                 display_loop (i + 1)) in
         display_loop 0;;
+        
+        
+    (* Object table *)
+    
+    (* TODO: 63 in version 4 and above *)
+    let default_property_table_size = 31;;
+    let default_property_table_entry_size = 2;;
+    
+    let default_property_table_base = object_table_base;;
+    
+    (* TODO: The spec implies that default properties
+       are numbered starting at 1; is this right? *)
+    let default_property_value story n =
+        if n < 1 || n > default_property_table_size then failwith "invalid index into default property table"
+        else  read_word story.raw_bytes ((default_property_table_base story) + (n - 1) * default_property_table_entry_size);;
+        
+    let display_default_property_table story =
+        let rec display_loop i =
+            if i > default_property_table_size then ()
+            else (
+                Printf.printf "%02x: %04x\n" i (default_property_value story i);
+                display_loop (i + 1)) in
+        display_loop 1;;
+        
+    let object_tree_base story =
+        (default_property_table_base story) + default_property_table_entry_size * default_property_table_size;;
+         
+    (* TODO: Object table entry is larger in version 4 *)
+    let object_table_entry_size = 9;;    
+    
+    (* Oddly enough, the Z machine does not ever say how big the object table is. 
+       Assume that the address of the first property block in the first object is
+       the bottom of the object tree table. *)
+       
+    let object_attributes_word_1 story n = 
+        read_word story.raw_bytes ((object_tree_base story) + (n - 1) * object_table_entry_size);;
+        
+    let object_attributes_word_2 story n = 
+        read_word story.raw_bytes ((object_tree_base story) + (n - 1) * object_table_entry_size + 2);;
+        
+    let object_parent story n = 
+        read_ubyte story.raw_bytes ((object_tree_base story) + (n - 1) * object_table_entry_size + 4);;
+    
+    let object_sibling story n = 
+        read_ubyte story.raw_bytes ((object_tree_base story) + (n - 1) * object_table_entry_size + 5);;
+        
+    let object_child story n = 
+        read_ubyte story.raw_bytes ((object_tree_base story) + (n - 1) * object_table_entry_size + 6);;
+        
+    let object_property_address story n = 
+        read_word story.raw_bytes ((object_tree_base story) + (n - 1) * object_table_entry_size + 7);;
+       
+    let object_count story =
+        ((object_property_address story 1) - (object_tree_base story)) / object_table_entry_size;;
+       
+    let object_name story n = 
+        let length = read_ubyte story.raw_bytes (object_property_address story n) in
+        if length = 0 then "<unnamed>" 
+        else read_zstring story ((object_property_address story n) + 1);;
+       
+    let display_object_table story =
+        let count = object_count story in 
+        Printf.printf "%d\n" count;
+        let rec display_loop i =
+            if i > count then ()
+            else (
+                let flags1 = object_attributes_word_1 story i in
+                let flags2 = object_attributes_word_2 story i in
+                let parent = object_parent story i in
+                let sibling = object_sibling story i in
+                let child = object_child story i in
+                let properties = object_property_address story i in
+                let name = object_name story i in
+                Printf.printf "%02x: %04x%04x %02x %02x %02x %04x %s\n" i flags1 flags2 parent sibling child properties name;
+                display_loop (i + 1)) in
+        display_loop 1;;
+          
 end
 
 let s = Story.load_story "ZORK1.DAT";;
 Story.display_header s;
-Story.display_abbreviation_table s;;
+(* Story.display_bytes s (Story.object_tree_base s) 64;; *)
+(* Story.display_abbreviation_table s;; *)
+(* Story.display_default_property_table s;; *)
+Story.display_object_table s;;
