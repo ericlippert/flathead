@@ -277,7 +277,6 @@ module Story = struct
        
     let display_object_table story =
         let count = object_count story in 
-        Printf.printf "%d\n" count;
         let rec display_loop i =
             if i > count then ()
             else (
@@ -291,6 +290,23 @@ module Story = struct
                 Printf.printf "%02x: %04x%04x %02x %02x %02x %04x %s\n" i flags1 flags2 parent sibling child properties name;
                 display_loop (i + 1)) in
         display_loop 1;;
+        
+    let null_object = 0;;
+        
+    let object_roots story =
+        let rec aux i acc =
+            if i < 1 then acc
+            else aux (i -1) (if (object_parent story i) = null_object then (i :: acc) else acc) in
+        aux (object_count story) [];;
+       
+    let display_object_tree story =
+        let rec aux indent i =
+            if i = null_object then () 
+            else (
+                Printf.printf "%s %02x %s\n" indent i (object_name story i);
+                aux ("    " ^ indent) (object_child story i);
+                aux indent (object_sibling story i)) in
+        List.iter (aux "") (object_roots story);;
           
 end
 
@@ -299,4 +315,4 @@ Story.display_header s;
 (* Story.display_bytes s (Story.object_tree_base s) 64;; *)
 (* Story.display_abbreviation_table s;; *)
 (* Story.display_default_property_table s;; *)
-Story.display_object_table s;;
+Story.display_object_tree s;;
