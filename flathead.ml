@@ -66,12 +66,17 @@ module Story = struct
         raw_bytes : string
     };;
 
+    (* *)   
     (* Debugging *)
+    (* *)   
 
     let display_bytes story offset length =
-        display_string_bytes story offset length;;
+        display_string_bytes story.raw_bytes offset length;;
+        
 
+    (* *)   
     (* Decoding memory *)
+    (* *)   
     
     let fetch_bit n word =
         (word land (1 lsl n)) lsr n = 1;;
@@ -92,7 +97,9 @@ module Story = struct
     let read_ubyte story address =
         read_ubyte story.raw_bytes address;;
         
+    (* *)   
     (* Header *)
+    (* *)   
 
     (* TODO: Header features beyond v3 *)
     
@@ -146,7 +153,9 @@ module Story = struct
         Printf.printf "Initial program counter     : %04x\n" (initial_program_counter story);
         ;;
         
+    (* *)   
     (* Abbreviation table and string decoding *)
+    (* *)
     
     (* TODO: Assumes v3 abbreviation table *)
     let abbreviation_table_length = 96;;
@@ -155,7 +164,11 @@ module Story = struct
         if n < 0 || n >= abbreviation_table_length then failwith "bad offset into abbreviation table";
         read_word_address story ((abbreviations_table_base story) + (n * 2));;
         
-    type string_mode = Alphabet of int | Abbreviation of int;;
+    type string_mode = 
+        | Alphabet of int 
+        | Abbreviation of int
+        | Leading 
+        | Trailing of int ;;
        
     let alphabet_table = [| 
         " "; "?"; "?"; "?"; "?"; "?"; "a"; "b"; "c"; "d"; "e"; "f"; "g"; "h"; "i"; "j"; 
@@ -193,9 +206,11 @@ module Story = struct
             | (Alphabet _, 3) -> ("", Abbreviation 64)
             | (Alphabet _, 4) -> ("", Alphabet 1)
             | (Alphabet _, 5) -> ("", Alphabet 2)
-            | (Alphabet 2, 6) -> failwith "TODO: Multi-byte characters not yet implemented"
-            | (Alphabet a, n) -> (alphabet_table.(a * 32 + n), Alphabet 0)
-            | (Abbreviation a, n) -> (read_zstring story (abbreviation_address story (a + n)), Alphabet 0) in
+            | (Alphabet 2, 6) -> ("", Leading)
+            | (Alphabet a, _) -> (alphabet_table.(a * 32 + zchar), Alphabet 0)
+            | (Abbreviation a, _) -> (read_zstring story (abbreviation_address story (a + zchar)), Alphabet 0) 
+            | (Leading, _) -> ("", (Trailing zchar)) 
+            | (Trailing high, _) -> (String.make 1 (Char.chr (high * 32 + zchar)), Alphabet 0) in
          
         let rec aux mode1 current_address =
             let word = read_word story current_address in
@@ -210,6 +225,19 @@ module Story = struct
             text1 ^ text2 ^ text3 ^ text_next in
             
         aux (Alphabet 0) address;;
+        
+    let display_zchar_bytes story offset length =
+        let rec aux i =
+            if i > length then ()
+            else (
+                let word = read_word story (offset + i) in
+                let is_end = fetch_bits 15 1 word in
+                let zchar1 = fetch_bits 14 5 word in
+                let zchar2 = fetch_bits 9 5 word in
+                let zchar3 = fetch_bits 4 5 word in
+                Printf.printf "(%01x %02x %02x %02x) " is_end zchar1 zchar2 zchar3;
+                aux (i + 2)) in
+        aux 0;;
        
     let display_abbreviation_table story =
         let rec display_loop i =
@@ -221,8 +249,9 @@ module Story = struct
                 display_loop (i + 1)) in
         display_loop 0;;
         
-        
+    (* *)   
     (* Object table *)
+    (* *)   
     
     (* TODO: 63 in version 4 and above *)
     let default_property_table_size = 31;;
@@ -294,7 +323,6 @@ module Story = struct
         let first_property_address = property_header_address + 1 + property_name_word_length * 2 in
         aux [] first_property_address;;
             
-           
     let display_properties story object_number =
         List.iter (fun (property_number, length, address) -> Printf.printf "%02x " property_number) (property_addresses story object_number);; 
        
@@ -332,13 +360,56 @@ module Story = struct
                 aux ("    " ^ indent) (object_child story i);
                 aux indent (object_sibling story i)) in
         List.iter (aux "") (object_roots story);;
-          
+    
+    (* *)   
+    (* Dictionary *)
+    (* *)   
+    
+    (* TODO: Only supports version 3 *)
+    
+    let word_separators_count story = 
+        read_ubyte story (dictionary_base story);;
+    
+    let word_separators story = 
+        let base = dictionary_base story in
+        let count = read_ubyte story base in
+        let rec aux acc i = 
+            if i < 1 then acc 
+            else aux ((read_ubyte story (base + i)) :: acc) (i - 1) in
+        aux [] count;;
+    
+    let dictionary_entry_length story =
+        read_ubyte story ((dictionary_base story) + (word_separators_count story) + 1);;
+        
+    let dictionary_entry_count story =     
+        read_word story ((dictionary_base story) + (word_separators_count story) + 2);;
+    
+    let dictionary_table_base story =
+        (dictionary_base story) + (word_separators_count story) + 4;;
+        
+    let dictionary_entry story dictionary_number =
+        read_zstring story ((dictionary_table_base story) + dictionary_number * (dictionary_entry_length story));;
+    
+    let display_dictionary story =
+        let entry_count = dictionary_entry_count story in 
+        Printf.printf "Separator count: %d\n" (word_separators_count story);
+        Printf.printf "Entry length:    %d\n" (dictionary_entry_length story);
+        Printf.printf "Entry count:     %d\n" entry_count;
+        let rec display_loop i =
+            if i >= entry_count then ()
+            else (
+                Printf.printf "%04x: %s\n" i (dictionary_entry story i);
+                display_loop (i + 1); ) in
+        display_loop 0;;
 end
 
-let s = Story.load_story "ZORK1.DAT";;
-Story.display_header s;
-(* Story.display_bytes s (Story.object_tree_base s) 64;; *)
-(* Story.display_abbreviation_table s;; *)
-(* Story.display_default_property_table s;; *)
-Story.display_object_table s;;
-Story.display_object_tree s;;
+open Story;;
+
+let s = load_story "ZORK1.DAT";;
+display_header s;
+(* display_bytes s (object_tree_base s) 64;; *)
+(* display_abbreviation_table s;; *)
+(* display_default_property_table s;; *)
+(* display_object_table s;; *)
+(* display_object_tree s;; *)
+display_dictionary s;; 
