@@ -575,6 +575,17 @@ let opcode_name opcode =
     | VAR_253 -> "copy_table"
     | VAR_254 -> "print_table"
     | VAR_255 -> "check_arg_count";;
+    
+type instruction =
+{
+    opcode : bytecode;
+    address : int;
+    length : int;
+    operands : operand list;
+    store : variable_location option;
+    branch : (bool * int) option;
+    text : string option;
+};;
 
 let decode_instruction story address =
 
@@ -750,20 +761,29 @@ let decode_instruction story address =
     
     let total_length = opcode_length + type_length + operand_length + store_length + branch_length + text_length in
     
-    (* TODO: Put this in a record *)
-    (opcode, address, total_length, operands, store, branch, text);;
+    {opcode; address; length = total_length; operands; store; branch; text};;
+    
+    let display_operand operand =
+        match operand with
+        | Large large -> Printf.sprintf "%04x " large
+        | Small small -> Printf.sprintf "%02x " small
+        | Variable Stack -> "stack "
+        | Variable Local local -> Printf.sprintf "local%02x " local 
+        | Variable Global global -> Printf.sprintf "global%02x " global;;
+        
+    let display_operands operands = 
+        List.fold_left (fun acc operand -> acc ^ (display_operand operand)) "" operands;;
 
-    let display_instruction story address =
-        let (op, addr, len, operands, store, branch, text) = decode_instruction story address in
-        Printf.sprintf "%04x-%04x: %s\n" addr (addr + len - 1) (opcode_name op);;
+    let display_instruction instr =
+        Printf.sprintf "%04x-%04x: %s %s\n" instr.address (instr.address + instr.length - 1) (opcode_name instr.opcode) (display_operands instr.operands);;
         
     let display_instructions story address count =
         let rec aux acc addr c =
             if c = 0 then acc
             else (
-                let (_, _, len, _, _, _, _) = decode_instruction story addr in
-                let s = display_instruction story addr in
-                aux (acc  ^ s) (addr + len) (c - 1)) in
+                let instr = decode_instruction story addr in
+                let s = display_instruction instr in
+                aux (acc  ^ s) (addr + instr.length) (c - 1)) in
         aux "" address count;;
 end
 
