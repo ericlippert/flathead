@@ -8,27 +8,30 @@ let display_file_bytes filename start length =
     let blocksize = 16 in
     let file = open_in_bin filename in
     seek_in file start;
-    let rec print_loop i =
+    let rec print_loop i acc =
         if i = length then 
-            ()
+            acc
         else (
-            if i mod blocksize = 0 then Printf.printf "\n%06x: " (i + start);
+            let s = if i mod blocksize = 0 then Printf.sprintf "\n%06x: " (i + start) else "" in
             let b = input_byte file in
-            Printf.printf "%02x " b;
-            print_loop (i + 1)) in
-    print_loop 0; 
-    Printf.printf "\n";
-    close_in file;;
+            let s2 = Printf.sprintf "%02x " b in
+            print_loop (i + 1) (acc ^ s ^ s2)) in
+    let result = (print_loop 0 "") ^ "\n" in
+    close_in file;
+    result;;
 
 (* Debugging method to display bytes in a string *)
 
 let display_string_bytes bytes start length =
     let blocksize = 16 in
-    for i = 0 to (length - 1) do
-        if i mod blocksize = 0 then Printf.printf "\n%06x: " (i + start);
-        Printf.printf "%02x " (int_of_char bytes.[i + start]);
-    done;
-    Printf.printf "\n";;
+    let rec print_loop i acc =
+        if i = length then
+            acc
+        else (
+            let s = if i mod blocksize = 0 then Printf.sprintf "\n%06x: " (i + start) else "" in
+            let s2 = Printf.sprintf "%02x " (int_of_char bytes.[i + start]) in
+            print_loop (i + 1) (acc ^ s ^ s2)) in
+    (print_loop 0 "") ^ "\n";;
 
 (* Takes a file name and produces a string containing the whole binary file. *)
 
@@ -142,15 +145,14 @@ module Story = struct
         read_byte_address story abbreviations_table_base_offset ;;
         
     let display_header story =
-        Printf.printf "Version                     : %d\n" (version story);
-        Printf.printf "Abbreviations table base    : %04x\n" (abbreviations_table_base story);
-        Printf.printf "Object table base           : %04x\n" (object_table_base story);
-        Printf.printf "Global variables table base : %04x\n" (global_variables_table_base story);
-        Printf.printf "Static memory base          : %04x\n" (static_memory_base story);
-        Printf.printf "Dictionary base             : %04x\n" (dictionary_base story);
-        Printf.printf "High memory base            : %04x\n" (high_memory_base story);
-        Printf.printf "Initial program counter     : %04x\n" (initial_program_counter story);
-        ;;
+        Printf.sprintf "Version                     : %d\n" (version story) ^
+        Printf.sprintf "Abbreviations table base    : %04x\n" (abbreviations_table_base story) ^
+        Printf.sprintf "Object table base           : %04x\n" (object_table_base story) ^
+        Printf.sprintf "Global variables table base : %04x\n" (global_variables_table_base story) ^
+        Printf.sprintf "Static memory base          : %04x\n" (static_memory_base story) ^
+        Printf.sprintf "Dictionary base             : %04x\n" (dictionary_base story) ^
+        Printf.sprintf "High memory base            : %04x\n" (high_memory_base story) ^
+        Printf.sprintf "Initial program counter     : %04x\n" (initial_program_counter story);;
         
     (* *)   
     (* Abbreviation table and string decoding *)
@@ -233,27 +235,27 @@ module Story = struct
         aux (Alphabet 0) address;;
         
     let display_zchar_bytes story offset length =
-        let rec aux i =
-            if i > length then ()
+        let rec aux i acc =
+            if i > length then acc
             else (
                 let word = read_word story (offset + i) in
                 let is_end = fetch_bits 15 1 word in
                 let zchar1 = fetch_bits 14 5 word in
                 let zchar2 = fetch_bits 9 5 word in
                 let zchar3 = fetch_bits 4 5 word in
-                Printf.printf "(%01x %02x %02x %02x) " is_end zchar1 zchar2 zchar3;
-                aux (i + 2)) in
-        aux 0;;
+                let s = Printf.sprintf "(%01x %02x %02x %02x) " is_end zchar1 zchar2 zchar3 in
+                aux (i + 2) (acc ^ s)) in
+        aux 0 "";;
        
     let display_abbreviation_table story =
-        let rec display_loop i =
-            if i = abbreviation_table_length then ()
+        let rec display_loop i acc =
+            if i = abbreviation_table_length then acc
             else (
                 let address = abbreviation_address story i in
                 let value = read_zstring story address in
-                Printf.printf "%02x: %04x  %s\n" i address value;
-                display_loop (i + 1)) in
-        display_loop 0;;
+                let s = Printf.sprintf "%02x: %04x  %s\n" i address value in
+                display_loop (i + 1) (acc ^ s)) in
+        display_loop 0 "";;
         
     (* *)   
     (* Object table *)
@@ -272,12 +274,12 @@ module Story = struct
         else  read_word story ((default_property_table_base story) + (n - 1) * default_property_table_entry_size);;
         
     let display_default_property_table story =
-        let rec display_loop i =
-            if i > default_property_table_size then ()
+        let rec display_loop i acc =
+            if i > default_property_table_size then acc
             else (
-                Printf.printf "%02x: %04x\n" i (default_property_value story i);
-                display_loop (i + 1)) in
-        display_loop 1;;
+                let s = Printf.sprintf "%02x: %04x\n" i (default_property_value story i) in
+                display_loop (i + 1) (acc ^ s)) in
+        display_loop 1 "";;
         
     let object_tree_base story =
         (default_property_table_base story) + default_property_table_entry_size * default_property_table_size;;
@@ -330,12 +332,12 @@ module Story = struct
         aux [] first_property_address;;
             
     let display_properties story object_number =
-        List.iter (fun (property_number, length, address) -> Printf.printf "%02x " property_number) (property_addresses story object_number);; 
+        List.fold_left (fun s (property_number, length, address) -> s ^ (Printf.sprintf "%02x " property_number)) "" (property_addresses story object_number);; 
        
     let display_object_table story =
         let count = object_count story in 
-        let rec display_loop i =
-            if i > count then ()
+        let rec display_loop i acc =
+            if i > count then acc
             else (
                 let flags1 = object_attributes_word_1 story i in
                 let flags2 = object_attributes_word_2 story i in
@@ -344,11 +346,10 @@ module Story = struct
                 let child = object_child story i in
                 let properties = object_property_address story i in
                 let name = object_name story i in
-                Printf.printf "%02x: %04x%04x %02x %02x %02x %04x %s " i flags1 flags2 parent sibling child properties name;
-                display_properties story i;
-                Printf.printf "\n";
-                display_loop (i + 1)) in
-        display_loop 1;;
+                let s = (Printf.sprintf "%02x: %04x%04x %02x %02x %02x %04x %s " i flags1 flags2 parent sibling child properties name) ^
+                    (display_properties story i) ^ "\n" in
+                display_loop (i + 1) (acc ^ s)) in
+        display_loop 1 "";;
         
     let null_object = 0;;
         
@@ -359,13 +360,13 @@ module Story = struct
         aux (object_count story) [];;
        
     let display_object_tree story =
-        let rec aux indent i =
-            if i = null_object then () 
+        let rec aux acc indent i =
+            if i = null_object then acc 
             else (
-                Printf.printf "%s %02x %s\n" indent i (object_name story i);
-                aux ("    " ^ indent) (object_child story i);
-                aux indent (object_sibling story i)) in
-        List.iter (aux "") (object_roots story);;
+                let o = (Printf.sprintf "%s %02x %s\n" indent i (object_name story i)) in
+                let c = aux (acc ^ o) ("    " ^ indent) (object_child story i) in
+                aux c indent (object_sibling story i)) in
+        List.fold_left (fun s i -> s ^ (aux "" "" i)) "" (object_roots story);;
     
     (* *)   
     (* Dictionary *)
@@ -398,15 +399,15 @@ module Story = struct
     
     let display_dictionary story =
         let entry_count = dictionary_entry_count story in 
-        Printf.printf "Separator count: %d\n" (word_separators_count story);
-        Printf.printf "Entry length:    %d\n" (dictionary_entry_length story);
-        Printf.printf "Entry count:     %d\n" entry_count;
-        let rec display_loop i =
-            if i >= entry_count then ()
+        let s = (Printf.sprintf "Separator count: %d\n" (word_separators_count story)) ^
+        (Printf.sprintf "Entry length:    %d\n" (dictionary_entry_length story)) ^
+        (Printf.sprintf "Entry count:     %d\n" entry_count) in
+        let rec display_loop i acc =
+            if i >= entry_count then acc
             else (
-                Printf.printf "%04x: %s\n" i (dictionary_entry story i);
-                display_loop (i + 1); ) in
-        display_loop 0;;
+                let r = (Printf.sprintf "%04x: %s\n" i (dictionary_entry story i)) in
+                display_loop (i + 1) (acc ^ r) ) in
+        display_loop 0 s;;
 
 (* *)
 (* Bytecode *)
@@ -571,8 +572,7 @@ let opcode_name opcode =
     | VAR_252 -> "encode_text"
     | VAR_253 -> "copy_table"
     | VAR_254 -> "print_table"
-    | VAR_255 -> "check_arg_count"
-    | _ -> "NYI";;
+    | VAR_255 -> "check_arg_count";;
 
 let has_branch opcode = 
     match opcode with
@@ -754,25 +754,30 @@ let decode_instruction story address =
 
     let display_instruction story address =
         let (op, addr, len, operands, store, branch, text) = decode_instruction story address in
-        Printf.printf "%04x-%04x: %s\n" addr (addr + len - 1) (opcode_name op);;
+        Printf.sprintf "%04x-%04x: %s\n" addr (addr + len - 1) (opcode_name op);;
         
-    let rec display_instructions story address count =
-        if count = 0 then ()
-        else (
-            let (_, _, len, _, _, _, _) = decode_instruction story address in
-            display_instruction story address; 
-            display_instructions story (address + len) (count - 1));;
+    let display_instructions story address count =
+        let rec aux acc addr c =
+            if c = 0 then acc
+            else (
+                let (_, _, len, _, _, _, _) = decode_instruction story addr in
+                let s = display_instruction story addr in
+                aux (acc  ^ s) (addr + len) (c - 1)) in
+        aux "" address count;;
 end
 
 open Story;;
 
 let s = load_story "ZORK1.DAT";;
-display_header s;
-display_bytes s (0x4f7e) 64;; 
-display_instructions s (initial_program_counter s) 30;;
+print_endline (display_header s);
+print_endline (display_bytes s (0x4f7e) 64);; 
+print_endline (display_instructions s (initial_program_counter s) 50);;
 
-(* display_abbreviation_table s;; *)
-(* display_default_property_table s;; *)
-(* display_object_table s;; *)
-(* display_object_tree s;; *)
-(* display_dictionary s;;  *)
+(*
+print_endline (display_abbreviation_table s);;
+print_endline (display_default_property_table s);; 
+print_endline (display_object_table s);;
+print_endline (display_object_tree s);;
+print_endline (display_dictionary s);;  
+
+*)
