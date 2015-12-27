@@ -456,11 +456,13 @@ type bytecode =
     | VAR_240 | VAR_241 | VAR_242 | VAR_243 | VAR_244 | VAR_245 | VAR_246 | VAR_247
     | VAR_248 | VAR_249 | VAR_250 | VAR_251 | VAR_252 | VAR_253 | VAR_254 | VAR_255
     | ILLEGAL;;
+   
+(* The tables which follow are maps from the opcode identification number
+   to the opcode type; the exact order matters. *)
     
 let one_operand_bytecodes = [|
     OP1_128; OP1_129; OP1_130; OP1_131; OP1_132; OP1_133; OP1_134; OP1_135;
     OP1_136; OP1_137; OP1_138; OP1_139; OP1_140; OP1_141; OP1_142; OP1_143  |];;
-    
     
 let zero_operand_bytecodes = [| 
     OP0_176; OP0_177; OP0_178; OP0_179; OP0_180; OP0_181; OP0_182; OP0_183;
@@ -574,65 +576,64 @@ let opcode_name opcode =
     | VAR_254 -> "print_table"
     | VAR_255 -> "check_arg_count";;
 
-let has_branch opcode = 
-    match opcode with
-    | OP2_1 
-    | OP2_2 
-    | OP2_3 
-    | OP2_4 
-    | OP2_5 
-    | OP2_6 
-    | OP2_7 
-    | OP2_10 
-    | OP1_128
-    | OP1_129
-    | OP1_130
-    | OP0_181 
-    | OP0_182  
-    | OP0_189 
-    | OP0_191
-    | VAR_247
-    | VAR_255 -> true
-    | _ -> false;;
-    
-let has_store opcode =
-    match opcode with
-    | OP2_8
-    | OP2_9
-    | OP2_15
-    | OP2_16
-    | OP2_17
-    | OP2_18
-    | OP2_19
-    | OP2_20
-    | OP2_21
-    | OP2_22
-    | OP2_23
-    | OP2_24
-    | OP2_25
-    | OP1_129
-    | OP1_130
-    | OP1_131
-    | OP1_132
-    | OP1_136
-    | OP1_142
-    | OP1_143
-    | VAR_224
-    | VAR_231
-    | VAR_236
-    | VAR_246
-    | VAR_247
-    | VAR_248 -> true
-    | _ -> false;;
-
-(* TODO: Move these into decode_instruction *)    
-let has_text opcode =
-    match opcode with
-    | OP0_178
-    | OP0_179 -> true
-    | _ -> false;;
-     
 let decode_instruction story address =
+
+    let has_branch opcode = 
+        match opcode with
+        | OP2_1 
+        | OP2_2 
+        | OP2_3 
+        | OP2_4 
+        | OP2_5 
+        | OP2_6 
+        | OP2_7 
+        | OP2_10 
+        | OP1_128
+        | OP1_129
+        | OP1_130
+        | OP0_181 
+        | OP0_182  
+        | OP0_189 
+        | OP0_191
+        | VAR_247
+        | VAR_255 -> true
+        | _ -> false in
+
+    let has_store opcode =
+        match opcode with
+        | OP2_8
+        | OP2_9
+        | OP2_15
+        | OP2_16
+        | OP2_17
+        | OP2_18
+        | OP2_19
+        | OP2_20
+        | OP2_21
+        | OP2_22
+        | OP2_23
+        | OP2_24
+        | OP2_25
+        | OP1_129
+        | OP1_130
+        | OP1_131
+        | OP1_132
+        | OP1_136
+        | OP1_142
+        | OP1_143
+        | VAR_224
+        | VAR_231
+        | VAR_236
+        | VAR_246
+        | VAR_247
+        | VAR_248 -> true
+        | _ -> false in
+
+    let has_text opcode =
+        match opcode with
+        | OP0_178
+        | OP0_179 -> true
+        | _ -> false in
    
     let decode_types n = 
         match n with 
