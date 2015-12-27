@@ -806,12 +806,18 @@ let decode_instruction story address =
             | Some (sense, 1) -> Printf.sprintf "if %B return true" sense 
             | Some (sense, offset) -> Printf.printf "---%d---" offset ; Printf.sprintf "if %B goto %04x" sense (instr.address + instr.length + offset - 2) in
            
+        let display_text () =
+            match instr.text with
+            | None -> ""
+            | Some str -> str in   
+           
         let start_addr = instr.address in
         let name = opcode_name instr.opcode in
         let operands = display_operands () in
         let store = display_store() in 
         let branch = display_branch() in
-        Printf.sprintf "%04x: %s %s%s %s\n" start_addr name operands store branch;;
+        let text = display_text() in
+        Printf.sprintf "%04x: %s %s%s %s %s\n" start_addr name operands store branch text;;
         
     let display_instructions story address count =
         let rec aux acc addr c =
