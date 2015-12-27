@@ -73,7 +73,6 @@ module Story = struct
     let display_bytes story offset length =
         display_string_bytes story.raw_bytes offset length;;
         
-
     (* *)   
     (* Decoding memory *)
     (* *)   
@@ -177,6 +176,13 @@ module Story = struct
         "K"; "L"; "M"; "N"; "O"; "P"; "Q"; "R"; "S"; "T"; "U"; "V"; "W"; "X"; "Y"; "Z"; 
         " "; "?"; "?"; "?"; "?"; "?"; "?"; "\n"; "0"; "1"; "2"; "3"; "4"; "5"; "6"; "7"; 
         "8"; "9"; "."; ","; "!"; "?"; "_"; "#"; "'"; "\""; "/"; "\\"; "-"; ":"; "("; ")" |];;
+        
+    (* gives the length in bytes of the encoded zstring, not the decoded string *)
+    let zstring_length story address =
+        let rec aux length current =
+            if fetch_bit 15 (read_word story current) then length + 2
+            else aux (length + 2) (current + 2) in
+        aux 0 address;;
        
     let rec read_zstring story address =
         (* TODO: Only processes version 3 strings *)
@@ -194,7 +200,7 @@ module Story = struct
         If the current zchar is 4 or 5 then the next is an offset into the
         uppercase or punctuation alphabets, except if the current is 5
         and the next is 6. In that case the two zchars following are a single
-        10-bit character. (TODO: Not implemented)
+        10-bit character.  
         
         *)
         
@@ -401,15 +407,372 @@ module Story = struct
                 Printf.printf "%04x: %s\n" i (dictionary_entry story i);
                 display_loop (i + 1); ) in
         display_loop 0;;
+
+(* *)
+(* Bytecode *)
+(* *)
+
+
+(* TODO: Extended *)
+type opcode_form =
+    | Long_form
+    | Short_form
+    | Variable_form;;
+
+type operand_count =
+    | OP0
+    | OP1
+    | OP2
+    | VAR;;
+
+type variable_location =
+    | Stack
+    | Local of int
+    | Global of int;;
+    
+type operand_type =
+    | Large_operand
+    | Small_operand
+    | Variable_operand
+    | Omitted;;
+    
+type operand =
+    | Large of int
+    | Small of int
+    | Variable of variable_location;;
+
+type bytecode = 
+              | OP2_1   | OP2_2   | OP2_3   | OP2_4   | OP2_5   | OP2_6   | OP2_7
+    | OP2_8   | OP2_9   | OP2_10  | OP2_11  | OP2_12  | OP2_13  | OP2_14  | OP2_15
+    | OP2_16  | OP2_17  | OP2_18  | OP2_19  | OP2_20  | OP2_21  | OP2_22  | OP2_23
+    | OP2_24  | OP2_25  | OP2_26  | OP2_27  | OP2_28
+    | OP1_128 | OP1_129 | OP1_130 | OP1_131 | OP1_132 | OP1_133 | OP1_134 | OP1_135  
+    | OP1_136 | OP1_137 | OP1_138 | OP1_139 | OP1_140 | OP1_141 | OP1_142 | OP1_143  
+    | OP0_176 | OP0_177 | OP0_178 | OP0_179 | OP0_180 | OP0_181 | OP0_182 | OP0_183 
+    | OP0_184 | OP0_185 | OP0_186 | OP0_187 | OP0_188 | OP0_189 | OP0_190 | OP0_191 
+    | VAR_224 | VAR_225 | VAR_226 | VAR_227 | VAR_228 | VAR_229 | VAR_230 | VAR_231
+    | VAR_232 | VAR_233 | VAR_234 | VAR_235 | VAR_236 | VAR_237 | VAR_238 | VAR_239
+    | VAR_240 | VAR_241 | VAR_242 | VAR_243 | VAR_244 | VAR_245 | VAR_246 | VAR_247
+    | VAR_248 | VAR_249 | VAR_250 | VAR_251 | VAR_252 | VAR_253 | VAR_254 | VAR_255
+    | ILLEGAL;;
+    
+let one_operand_bytecodes = [|
+    OP1_128; OP1_129; OP1_130; OP1_131; OP1_132; OP1_133; OP1_134; OP1_135;
+    OP1_136; OP1_137; OP1_138; OP1_139; OP1_140; OP1_141; OP1_142; OP1_143  |];;
+    
+    
+let zero_operand_bytecodes = [| 
+    OP0_176; OP0_177; OP0_178; OP0_179; OP0_180; OP0_181; OP0_182; OP0_183;
+    OP0_184; OP0_185; OP0_186; OP0_187; OP0_188; OP0_189; OP0_190; OP0_191  |];;
+    
+let two_operand_bytecodes =[|
+    ILLEGAL; OP2_1;  OP2_2;  OP2_3;  OP2_4;  OP2_5;   OP2_6;   OP2_7;
+    OP2_8;   OP2_9;  OP2_10; OP2_11; OP2_12; OP2_13;  OP2_14;  OP2_15;
+    OP2_16;  OP2_17; OP2_18; OP2_19; OP2_20; OP2_21;  OP2_22;  OP2_23;
+    OP2_24;  OP2_25; OP2_26; OP2_27; OP2_28; ILLEGAL; ILLEGAL; ILLEGAL |];;
+   
+let var_operand_bytecodes = [|
+    VAR_224; VAR_225; VAR_226; VAR_227; VAR_228; VAR_229; VAR_230; VAR_231;
+    VAR_232; VAR_233; VAR_234; VAR_235; VAR_236; VAR_237; VAR_238; VAR_239;
+    VAR_240; VAR_241; VAR_242; VAR_243; VAR_244; VAR_245; VAR_246; VAR_247;
+    VAR_248; VAR_249; VAR_250; VAR_251; VAR_252; VAR_253; VAR_254; VAR_255 |];;
+
+let opcode_name opcode = 
+    match opcode with
+    | ILLEGAL -> "ILLEGAL"
+    | OP2_1   -> "je"
+    | OP2_2   -> "jl"
+    | OP2_3   -> "jg"
+    | OP2_4   -> "dec_chk"
+    | OP2_5   -> "inc_chk"
+    | OP2_6   -> "jin"
+    | OP2_7   -> "test"
+    | OP2_8   -> "or"
+    | OP2_9   -> "and"
+    | OP2_10  -> "test_attr"
+    | OP2_11  -> "set_attr"
+    | OP2_12  -> "clear_attr"
+    | OP2_13  -> "store"
+    | OP2_14  -> "insert_obj"
+    | OP2_15  -> "get_prop_addr"
+    | OP2_16  -> "get_next_prop"
+    | OP2_17  -> "get_prop"
+    | OP2_18  -> "get_prop_addr"
+    | OP2_19  -> "get_next_prop"
+    | OP2_20  -> "add"
+    | OP2_21  -> "sub"
+    | OP2_22  -> "mul"
+    | OP2_23  -> "div"
+    | OP2_24  -> "mod"
+    | OP2_25  -> "call_2s"
+    | OP2_26  -> "call_2n"
+    | OP2_27  -> "set_colour"
+    | OP2_28  -> "throw"
+    | OP1_128 -> "jz"
+    | OP1_129 -> "get_sibling"
+    | OP1_130 -> "get_child"
+    | OP1_131 -> "get_parent"
+    | OP1_132 -> "get_prop_len"
+    | OP1_133 -> "inc"
+    | OP1_134 -> "dec"
+    | OP1_135 -> "print_addr"
+    | OP1_136 -> "call_1s"
+    | OP1_137 -> "remove_obj"
+    | OP1_138 -> "print_obj"
+    | OP1_139 -> "ret"
+    | OP1_140 -> "jump"
+    | OP1_141 -> "print_paddr"
+    | OP1_142 -> "load"
+    | OP1_143 -> "not"
+    | OP0_176 -> "rtrue"
+    | OP0_177 -> "rfalse"
+    | OP0_178 -> "print"
+    | OP0_179 -> "print_ret"
+    | OP0_180 -> "nop"
+    | OP0_181 -> "save"
+    | OP0_182 -> "restore"
+    | OP0_183 -> "restart"
+    | OP0_184 -> "ret_popped"
+    | OP0_185 -> "pop"
+    | OP0_186 -> "quit"
+    | OP0_187 -> "new_line"
+    | OP0_188 -> "show_status"
+    | OP0_189 -> "verify"
+    | OP0_190 -> "EXTENDED TODO"
+    | OP0_191 -> "piracy"
+    | VAR_224 -> "call"
+    | VAR_225 -> "storew"
+    | VAR_226 -> "storeb"
+    | VAR_227 -> "put_prop"
+    | VAR_228 -> "sread"
+    | VAR_229 -> "print_char"
+    | VAR_230 -> "print_num"
+    | VAR_231 -> "random"
+    | VAR_232 -> "push"
+    | VAR_233 -> "pull"
+    | VAR_234 -> "split_window"
+    | VAR_235 -> "set_window"
+    | VAR_236 -> "call_vs2"
+    | VAR_237 -> "erase_window"
+    | VAR_238 -> "erase_line"
+    | VAR_239 -> "set_cursor"
+    | VAR_240 -> "get_cursor"
+    | VAR_241 -> "set_text_style"
+    | VAR_242 -> "buffer_mode"
+    | VAR_243 -> "output_stream"
+    | VAR_244 -> "input_stream"
+    | VAR_245 -> "sound_effect"
+    | VAR_246 -> "read_char"
+    | VAR_247 -> "scan_table"
+    | VAR_248 -> "not"
+    | VAR_249 -> "call_vn"
+    | VAR_250 -> "call_vn2"
+    | VAR_251 -> "tokenise"
+    | VAR_252 -> "encode_text"
+    | VAR_253 -> "copy_table"
+    | VAR_254 -> "print_table"
+    | VAR_255 -> "check_arg_count"
+    | _ -> "NYI";;
+
+let has_branch opcode = 
+    match opcode with
+    | OP2_1 
+    | OP2_2 
+    | OP2_3 
+    | OP2_4 
+    | OP2_5 
+    | OP2_6 
+    | OP2_7 
+    | OP2_10 
+    | OP1_128
+    | OP1_129
+    | OP1_130
+    | OP0_181 
+    | OP0_182  
+    | OP0_189 
+    | OP0_191
+    | VAR_247
+    | VAR_255 -> true
+    | _ -> false;;
+    
+let has_store opcode =
+    match opcode with
+    | OP2_8
+    | OP2_9
+    | OP2_15
+    | OP2_16
+    | OP2_17
+    | OP2_18
+    | OP2_19
+    | OP2_20
+    | OP2_21
+    | OP2_22
+    | OP2_23
+    | OP2_24
+    | OP2_25
+    | OP1_129
+    | OP1_130
+    | OP1_131
+    | OP1_132
+    | OP1_136
+    | OP1_142
+    | OP1_143
+    | VAR_224
+    | VAR_231
+    | VAR_236
+    | VAR_246
+    | VAR_247
+    | VAR_248 -> true
+    | _ -> false;;
+
+(* TODO: Move these into decode_instruction *)    
+let has_text opcode =
+    match opcode with
+    | OP0_178
+    | OP0_179 -> true
+    | _ -> false;;
+     
+let decode_instruction story address =
+   
+    let decode_types n = 
+        match n with 
+        | 0 -> Large_operand
+        | 1 -> Small_operand
+        | 2 -> Variable_operand
+        | _ -> Omitted in
+        
+    let decode_variable_types types = 
+        let rec aux i acc =
+            if i > 3 then acc
+            else 
+                match decode_types (fetch_bits (i * 2 + 1) 2 types) with
+                | Omitted -> aux (i + 1) acc
+                | x -> aux (i + 1) (x :: acc) in
+        aux 0 [] in
+        
+    let decode_variable n =
+        if n = 0 then Stack
+        else if n < 0x10 then Local n
+        else Global n in
+        
+    let rec decode_operands operand_address operand_types =
+        match operand_types with
+        | [] -> []
+        | Large_operand :: types -> (Large (read_word story operand_address))  :: (decode_operands (operand_address + 2) types)
+        | Small_operand :: types -> (Small (read_ubyte story operand_address))  :: (decode_operands (operand_address + 1) types)
+        | Variable_operand :: types -> (Variable (decode_variable (read_ubyte story operand_address))) :: (decode_operands (operand_address + 1) types)
+        | Omitted :: _ -> failwith "omitted operand type passed to decode operands" in
+    
+    let rec operand_size operand_types =
+        match operand_types with
+        | [] -> 0
+        | Large_operand :: types -> 2 + (operand_size types)
+        | _ :: types -> 1 + (operand_size types) in
+        
+    (* Spec 4.7 *)
+    
+    let branch_size branch_address =
+        let b = (read_ubyte story branch_address) in 
+        if (fetch_bit b 6) then 1 else 2 in
+    
+    let decode_branch branch_address =
+        let b = (read_ubyte story branch_address) in 
+        let sense = (fetch_bit 7 b) in
+        let bottom6 = fetch_bits 5 6 b in
+        if (fetch_bit b 6) then 
+            (sense, bottom6)
+        else
+            let unsigned = 256 * bottom6 + (read_ubyte story (branch_address + 1)) in
+            if unsigned < 8192 then (sense, unsigned) else (sense, unsigned - 16384) in
+        
+    let b = read_ubyte story address in
+    
+    let form = match fetch_bits 7 2 b with
+    | 3 -> Variable_form
+    | 2 -> Short_form
+    | _ -> Long_form in
+    
+    let op_count = match form with
+    | Variable_form -> if fetch_bit 5 b then VAR else OP2
+    | Long_form -> OP2
+    | Short_form -> if fetch_bits 5 2 b = 3 then OP0 else OP1 in
+    
+    let opcode = match op_count with
+    | OP0 -> zero_operand_bytecodes.(fetch_bits 3 4 b)
+    | OP1 -> one_operand_bytecodes.(fetch_bits 3 4 b) 
+    | OP2 -> two_operand_bytecodes.(fetch_bits 4 5 b) 
+    | VAR -> var_operand_bytecodes.(fetch_bits 4 5 b) in
+    
+    let opcode_length = 1 in
+    
+    let operand_types = match form with
+    | Short_form -> 
+        (match op_count with 
+        | OP0 -> [] 
+        | _ -> [decode_types (fetch_bits 5 2 b)])
+    | Long_form -> 
+        (match fetch_bits 6 2 b with
+        | 0 -> [ Small_operand; Small_operand ]
+        | 1 -> [ Small_operand; Variable_operand ]
+        | 2 -> [ Variable_operand; Small_operand ]
+        | _ -> [ Variable_operand; Variable_operand ])
+    | Variable_form -> decode_variable_types (read_ubyte story (address + opcode_length)) in
+    
+    let type_length = (match form with Variable_form -> 1 | _ -> 0) in
+    
+    let operands = decode_operands (address + opcode_length + type_length) operand_types in
+    
+    let operand_length = operand_size operand_types in
+    
+    let store_address = address + opcode_length + type_length + operand_length in
+      
+    let store = 
+        if has_store opcode then Some (decode_variable (read_ubyte story store_address))
+        else None in
+    
+    let store_length = if has_store opcode then 1 else 0 in
+    
+    let branch_address = store_address + store_length in
+    
+    let branch = 
+        if has_branch opcode then Some (decode_branch branch_address)
+        else None in
+        
+    let branch_length = if has_branch opcode then (branch_size branch_address) else 0 in
+    
+    let text_address = branch_address + branch_length in
+    
+    let text = 
+        if has_text opcode then Some (read_zstring story text_address) else None in
+        
+    let text_length = if has_text opcode then (zstring_length story text_address) else 0 in
+    
+    let total_length = opcode_length + type_length + operand_length + store_length + branch_length + text_length in
+    
+    (* TODO: Put this in a record *)
+    (opcode, address, total_length, operands, store, branch, text);;
+
+    let display_instruction story address =
+        let (op, addr, len, operands, store, branch, text) = decode_instruction story address in
+        Printf.printf "%04x-%04x: %s\n" addr (addr + len - 1) (opcode_name op);;
+        
+    let rec display_instructions story address count =
+        if count = 0 then ()
+        else (
+            let (_, _, len, _, _, _, _) = decode_instruction story address in
+            display_instruction story address; 
+            display_instructions story (address + len) (count - 1));;
 end
 
 open Story;;
 
 let s = load_story "ZORK1.DAT";;
 display_header s;
-(* display_bytes s (object_tree_base s) 64;; *)
+display_bytes s (initial_program_counter s) 64;; 
+display_instructions s (initial_program_counter s) 10;;
+
 (* display_abbreviation_table s;; *)
 (* display_default_property_table s;; *)
 (* display_object_table s;; *)
 (* display_object_tree s;; *)
-display_dictionary s;; 
+(* display_dictionary s;;  *)
