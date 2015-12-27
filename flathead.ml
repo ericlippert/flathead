@@ -768,14 +768,31 @@ let decode_instruction story address =
         | Large large -> Printf.sprintf "%04x " large
         | Small small -> Printf.sprintf "%02x " small
         | Variable Stack -> "stack "
-        | Variable Local local -> Printf.sprintf "local%02x " local 
+        | Variable Local local -> Printf.sprintf "local%01x " local 
         | Variable Global global -> Printf.sprintf "global%02x " global;;
         
     let display_operands operands = 
         List.fold_left (fun acc operand -> acc ^ (display_operand operand)) "" operands;;
 
+    (* TODO: Only works for version 3 *)
+    let resolve_packed_address addr = addr * 2;;
+
     let display_instruction instr =
-        Printf.sprintf "%04x-%04x: %s %s\n" instr.address (instr.address + instr.length - 1) (opcode_name instr.opcode) (display_operands instr.operands);;
+    
+        let munge_operands () =
+            let munge_call_operands () =
+                match instr.operands with
+                | [] -> failwith "call requires at least one operand"
+                | (Large large) :: tail -> (Large (resolve_packed_address large)) :: tail
+                | _ -> failwith "call requires first argument to be packed address" in
+            match instr.opcode with
+            | VAR_224 -> munge_call_operands()
+            | _ -> instr.operands in
+           
+        let start_addr = instr.address in
+        let name = opcode_name instr.opcode in
+        let operands = display_operands (munge_operands ()) in
+        Printf.sprintf "%04x: %s %s\n" start_addr name operands;;
         
     let display_instructions story address count =
         let rec aux acc addr c =
