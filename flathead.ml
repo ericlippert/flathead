@@ -673,7 +673,7 @@ let decode_instruction story address =
     
     let branch_size branch_address =
         let b = (read_ubyte story branch_address) in 
-        if (fetch_bit b 6) then 1 else 2 in
+        if (fetch_bit 6 b) then 1 else 2 in
     
     let decode_branch branch_address =
         let b = (read_ubyte story branch_address) in 
@@ -768,8 +768,8 @@ open Story;;
 
 let s = load_story "ZORK1.DAT";;
 display_header s;
-display_bytes s (initial_program_counter s) 64;; 
-display_instructions s (initial_program_counter s) 10;;
+display_bytes s (0x4f7e) 64;; 
+display_instructions s (initial_program_counter s) 30;;
 
 (* display_abbreviation_table s;; *)
 (* display_default_property_table s;; *)
