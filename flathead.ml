@@ -763,19 +763,24 @@ let decode_instruction story address =
     
     {opcode; address; length = total_length; operands; store; branch; text};;
     
+    let display_variable variable =
+        match variable with
+        | Stack -> "stack"
+        | Local local -> Printf.sprintf "local%01x" local 
+        | Global global -> Printf.sprintf "global%02x" global;;
+    
     let display_operand operand =
         match operand with
-        | Large large -> Printf.sprintf "%04x " large
-        | Small small -> Printf.sprintf "%02x " small
-        | Variable Stack -> "stack "
-        | Variable Local local -> Printf.sprintf "local%01x " local 
-        | Variable Global global -> Printf.sprintf "global%02x " global;;
+        | Large large -> Printf.sprintf "%04x" large
+        | Small small -> Printf.sprintf "%02x" small
+        | Variable variable -> (display_variable variable) 
         
     let display_operands operands = 
-        List.fold_left (fun acc operand -> acc ^ (display_operand operand)) "" operands;;
+        List.fold_left (fun acc operand -> acc ^ (display_operand operand) ^ " ") "" operands;;
 
     (* TODO: Only works for version 3 *)
-    let resolve_packed_address addr = addr * 2;;
+    let resolve_packed_address addr = 
+        addr * 2;;
 
     let display_instruction instr =
     
@@ -789,10 +794,16 @@ let decode_instruction story address =
             | VAR_224 -> munge_call_operands()
             | _ -> instr.operands in
            
+        let display_store () =
+            match instr.store with
+            | None -> ""
+            | Some variable -> "->" ^ (display_variable variable) in   
+           
         let start_addr = instr.address in
         let name = opcode_name instr.opcode in
         let operands = display_operands (munge_operands ()) in
-        Printf.sprintf "%04x: %s %s\n" start_addr name operands;;
+        let store = display_store() in 
+        Printf.sprintf "%04x: %s %s%s\n" start_addr name operands store;;
         
     let display_instructions story address count =
         let rec aux acc addr c =
