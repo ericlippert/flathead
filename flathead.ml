@@ -691,7 +691,7 @@ let decode_instruction story address =
         let b = (read_ubyte story branch_address) in 
         let sense = (fetch_bit 7 b) in
         let bottom6 = fetch_bits 5 6 b in
-        if (fetch_bit b 6) then 
+        if (fetch_bit 6 b) then 
             (sense, bottom6)
         else
             let unsigned = 256 * bottom6 + (read_ubyte story (branch_address + 1)) in
@@ -793,17 +793,25 @@ let decode_instruction story address =
                 | _ -> instr.operands in
         
             List.fold_left (fun acc operand -> acc ^ (display_operand operand) ^ " ") "" (munge_operands ()) in
-           
+            
         let display_store () =
             match instr.store with
             | None -> ""
             | Some variable -> "->" ^ (display_variable variable) in   
+            
+        let display_branch () = 
+            match instr.branch with
+            | None -> ""
+            | Some (sense, 0) -> Printf.sprintf "if %B return false" sense 
+            | Some (sense, 1) -> Printf.sprintf "if %B return true" sense 
+            | Some (sense, offset) -> Printf.printf "---%d---" offset ; Printf.sprintf "if %B goto %04x" sense (instr.address + instr.length + offset - 2) in
            
         let start_addr = instr.address in
         let name = opcode_name instr.opcode in
         let operands = display_operands () in
         let store = display_store() in 
-        Printf.sprintf "%04x: %s %s%s\n" start_addr name operands store;;
+        let branch = display_branch() in
+        Printf.sprintf "%04x: %s %s%s %s\n" start_addr name operands store branch;;
         
     let display_instructions story address count =
         let rec aux acc addr c =
