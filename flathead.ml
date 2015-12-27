@@ -57,11 +57,13 @@ let read_ushort bytes offset =
     (* two-byte integers are stored in high / low order *)
     (int_of_char bytes.[offset]) * 256 + (int_of_char bytes.[offset + 1]);;
     
+let signed_word word = 
+    if word > 32767 then word - 65536 else word;;   
+   
 (* Reads a signed 16 bit integer from a string *)
 
 let read_short bytes offset =
-    let value = read_ushort bytes offset in
-    if value > 32767 then value - 65536 else value;;
+    signed_word (read_ushort bytes offset);;
    
 module Story = struct
     type t =
@@ -763,7 +765,6 @@ let decode_instruction story address =
     
     {opcode; address; length = total_length; operands; store; branch; text};;
     
-        
     (* TODO: Only works for version 3 *)
     let resolve_packed_address addr = 
         addr * 2;;
@@ -788,7 +789,12 @@ let decode_instruction story address =
                     | [] -> failwith "call requires at least one operand"
                     | (Large large) :: tail -> (Large (resolve_packed_address large)) :: tail
                     | _ -> failwith "call requires first argument to be packed address" in
+                let munge_jump_operands () =
+                    match instr.operands with
+                    | [(Large large)] -> [(Large (instr.address + instr.length + (signed_word large) - 2))]
+                    | _ -> failwith "jump requires one large operand" in
                 match instr.opcode with
+                | OP1_140 -> munge_jump_operands()
                 | VAR_224 -> munge_call_operands()
                 | _ -> instr.operands in
         
@@ -804,7 +810,7 @@ let decode_instruction story address =
             | None -> ""
             | Some (sense, 0) -> Printf.sprintf "if %B return false" sense 
             | Some (sense, 1) -> Printf.sprintf "if %B return true" sense 
-            | Some (sense, offset) -> Printf.printf "---%d---" offset ; Printf.sprintf "if %B goto %04x" sense (instr.address + instr.length + offset - 2) in
+            | Some (sense, offset) -> Printf.sprintf "if %B goto %04x" sense (instr.address + instr.length + offset - 2) in
            
         let display_text () =
             match instr.text with
@@ -827,13 +833,16 @@ let decode_instruction story address =
                 let s = display_instruction instr in
                 aux (acc  ^ s) (addr + instr.length) (c - 1)) in
         aux "" address count;;
+        
+        
+        
 end
 
 open Story;;
 
 let s = load_story "ZORK1.DAT";;
 print_endline (display_header s);
-print_endline (display_bytes s (0x4f7e) 64);; 
+print_endline (display_bytes s (0x4f75) 64);; 
 print_endline (display_instructions s (initial_program_counter s) 32);;
 
 (*
