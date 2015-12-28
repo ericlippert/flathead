@@ -847,6 +847,28 @@ let decode_instruction story address =
         | OP0_184 (* ret_popped *) 
         | OP0_186 (* quit *) -> false
         | _ -> true;;
+        
+    let branch_address instr =
+        let branch_offset = 
+            match instr.branch with
+            | None -> None
+            | Some (_, 0) -> None
+            | Some (_, 1) -> None
+            | Some (_, offset) -> Some offset in
+        let jump_offset =
+            match (instr.opcode, instr.operands) with
+                | (OP1_140, [Large offset]) -> Some offset
+                | _ -> None in
+        match (branch_offset, jump_offset) with
+        | (Some b, _) -> Some b
+        | (_, Some j) -> Some j
+        | _ -> None;;
+        
+    let reachable_addresses instr = 
+        let next = if (continues_to_following instr.opcode) then [instr.address + instr.length] else [] in
+        match (branch_address instr) with 
+            | Some address -> address :: next
+            | _ -> next;;
       
     let display_routine story address count =
         let locals_count = read_ubyte story address in
