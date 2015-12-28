@@ -1,5 +1,23 @@
 (* Z-Machine tools written in OCaml, as part of my efforts to learn the language. *)
 
+(* Helper method that takes an item and a function that produces related items.
+   The result is the reflexive and transitive closure of the relation. *)
+   
+let closure item relation =
+    let rec merge related set stack = 
+        match related with
+        | [] -> (set, stack)
+        | head :: tail -> 
+            if List.exists (fun x -> x = head) set then merge tail set stack
+            else merge tail (head :: set) (head :: stack) in
+    let rec aux set stack =
+        match stack with
+        | [] -> set
+        | head :: tail -> 
+            let (newset, newstack) = merge (relation head) set tail in
+            aux newset newstack in
+    aux [item] [item];;
+
 (* Debugging method to display bytes inside a file *)
 
 let display_file_bytes filename start length =
@@ -843,36 +861,44 @@ let decode_instruction story address =
         | OP1_140 (* jump *)
         | OP0_176 (* rtrue *)
         | OP0_177 (* rfalse *)
+        | OP0_179 (* print_ret *)
         | OP0_183 (* restart *)
         | OP0_184 (* ret_popped *) 
         | OP0_186 (* quit *) -> false
         | _ -> true;;
         
     let branch_address instr =
-        let branch_offset = 
+        let branch_address = 
             match instr.branch with
             | None -> None
             | Some (_, 0) -> None
             | Some (_, 1) -> None
-            | Some (_, offset) -> Some offset in
-        let jump_offset =
+            | Some (_, offset) -> Some (instr.address + instr.length + offset - 2) in
+        let jump_address =
             match (instr.opcode, instr.operands) with
-                | (OP1_140, [Large offset]) -> Some offset
+                | (OP1_140, [Large address]) -> Some address
                 | _ -> None in
-        match (branch_offset, jump_offset) with
+        match (branch_address, jump_address) with
         | (Some b, _) -> Some b
         | (_, Some j) -> Some j
         | _ -> None;;
         
-    let reachable_addresses instr = 
+    let immediately_reachable_addresses instr = 
         let next = if (continues_to_following instr.opcode) then [instr.address + instr.length] else [] in
         match (branch_address instr) with 
             | Some address -> address :: next
             | _ -> next;;
       
-    let display_routine story address count =
+    let all_reachable_addresses_in_routine story address = 
+        closure address (fun x -> immediately_reachable_addresses (decode_instruction story x)) ;;
+        
+    let display_reachable_instructions story address =
+        let reachable = List.sort compare (all_reachable_addresses_in_routine story address) in
+        List.fold_left (fun a b -> a ^ (display_instruction (decode_instruction story b))) "" reachable;;
+     
+    let display_routine story address =
         let locals_count = read_ubyte story address in
-        display_instructions story (address + 1 + locals_count * 2) count;;
+        display_reachable_instructions story (address + 1 + locals_count * 2) ;;
         
        
         
@@ -881,9 +907,9 @@ end
 open Story;;
 
 let s = load_story "ZORK1.DAT";;
-print_endline (display_header s);
-print_endline (display_bytes s 0x4f05 64);; 
-print_endline (display_instructions s 0x4f05 32);;
+(* print_endline (display_header s); *)
+(* print_endline (display_bytes s 0x4f05 64);;  *)
+print_endline (display_routine s 0x5472);;
 
 (*
 print_endline (display_abbreviation_table s);;
