@@ -596,6 +596,11 @@ let opcode_name opcode =
     | VAR_254 -> "print_table"
     | VAR_255 -> "check_arg_count";;
     
+    type branch_address = 
+    | Return_true  
+    | Return_false
+    | Branch_address of int
+    
     type instruction =
     {
         opcode : bytecode;
@@ -603,7 +608,7 @@ let opcode_name opcode =
         length : int;
         operands : operand list;
         store : variable_location option;
-        branch : (bool * int) option;
+        branch : (bool * branch_address) option;
         text : string option;
     };;
 
@@ -707,19 +712,24 @@ let decode_instruction story address =
         
     (* Spec 4.7 *)
     
-    let branch_size branch_address =
-        let b = (read_ubyte story branch_address) in 
+    let branch_size branch_code_address =
+        let b = (read_ubyte story branch_code_address) in 
         if (fetch_bit 6 b) then 1 else 2 in
     
-    let decode_branch branch_address =
-        let b = (read_ubyte story branch_address) in 
+    let decode_branch branch_code_address total_length =
+        let b = (read_ubyte story branch_code_address) in 
         let sense = (fetch_bit 7 b) in
         let bottom6 = fetch_bits 5 6 b in
-        if (fetch_bit 6 b) then 
-            (sense, bottom6)
-        else
-            let unsigned = 256 * bottom6 + (read_ubyte story (branch_address + 1)) in
-            if unsigned < 8192 then (sense, unsigned) else (sense, unsigned - 16384) in
+        let offset = 
+            if (fetch_bit 6 b) then 
+                bottom6 
+            else
+                let unsigned = 256 * bottom6 + (read_ubyte story (branch_code_address + 1)) in
+                if unsigned < 8192 then unsigned else unsigned - 16384 in
+        match offset with
+        | 0 -> (sense, Return_false)
+        | 1 -> (sense, Return_true)
+        | _ -> (sense, Branch_address (address + total_length + offset - 2)) in
             
     let munge_operands instr =
         let munge_call_operands () =
@@ -783,15 +793,11 @@ let decode_instruction story address =
     
     let store_length = if has_store opcode then 1 else 0 in
     
-    let branch_address = store_address + store_length in
+    let branch_code_address = store_address + store_length in
     
-    let branch = 
-        if has_branch opcode then Some (decode_branch branch_address)
-        else None in
-        
-    let branch_length = if has_branch opcode then (branch_size branch_address) else 0 in
+    let branch_length = if has_branch opcode then (branch_size branch_code_address) else 0 in
     
-    let text_address = branch_address + branch_length in
+    let text_address = branch_code_address + branch_length in
     
     let text = 
         if has_text opcode then Some (read_zstring story text_address) else None in
@@ -799,6 +805,10 @@ let decode_instruction story address =
     let text_length = if has_text opcode then (zstring_length story text_address) else 0 in
     
     let total_length = opcode_length + type_length + operand_length + store_length + branch_length + text_length in
+    
+    let branch = 
+        if has_branch opcode then Some (decode_branch branch_code_address total_length)
+        else None in
     
     let instr = {opcode; address; length = total_length; operands; store; branch; text} in
     
@@ -828,9 +838,9 @@ let decode_instruction story address =
         let display_branch () = 
             match instr.branch with
             | None -> ""
-            | Some (sense, 0) -> Printf.sprintf "if %B return false" sense 
-            | Some (sense, 1) -> Printf.sprintf "if %B return true" sense 
-            | Some (sense, offset) -> Printf.sprintf "if %B goto %04x" sense (instr.address + instr.length + offset - 2) in
+            | Some (sense, Return_false) -> Printf.sprintf "if %B return false" sense 
+            | Some (sense, Return_true) -> Printf.sprintf "if %B return true" sense 
+            | Some (sense, Branch_address address) -> Printf.sprintf "if %B goto %04x" sense address in
            
         let display_text () =
             match instr.text with
@@ -867,25 +877,25 @@ let decode_instruction story address =
         | OP0_186 (* quit *) -> false
         | _ -> true;;
         
-    let branch_address instr =
-        let branch_address = 
+    let branch_target instr =
+        let br_target = 
             match instr.branch with
             | None -> None
-            | Some (_, 0) -> None
-            | Some (_, 1) -> None
-            | Some (_, offset) -> Some (instr.address + instr.length + offset - 2) in
-        let jump_address =
+            | Some (_, Return_false) -> None
+            | Some (_, Return_true) -> None
+            | Some (_, Branch_address address) -> Some address in
+        let jump_target =
             match (instr.opcode, instr.operands) with
                 | (OP1_140, [Large address]) -> Some address
                 | _ -> None in
-        match (branch_address, jump_address) with
+        match (br_target, jump_target) with
         | (Some b, _) -> Some b
         | (_, Some j) -> Some j
         | _ -> None;;
         
     let immediately_reachable_addresses instr = 
         let next = if (continues_to_following instr.opcode) then [instr.address + instr.length] else [] in
-        match (branch_address instr) with 
+        match (branch_target instr) with 
             | Some address -> address :: next
             | _ -> next;;
       
@@ -909,7 +919,7 @@ open Story;;
 let s = load_story "ZORK1.DAT";;
 (* print_endline (display_header s); *)
 (* print_endline (display_bytes s 0x4f05 64);;  *)
-print_endline (display_routine s 0x5472);;
+print_endline (display_reachable_instructions s 0x4f05);;
 
 (*
 print_endline (display_abbreviation_table s);;
