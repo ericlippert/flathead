@@ -578,16 +578,20 @@ let opcode_name opcode =
     | VAR_254 -> "print_table"
     | VAR_255 -> "check_arg_count";;
     
-type instruction =
-{
-    opcode : bytecode;
-    address : int;
-    length : int;
-    operands : operand list;
-    store : variable_location option;
-    branch : (bool * int) option;
-    text : string option;
-};;
+    type instruction =
+    {
+        opcode : bytecode;
+        address : int;
+        length : int;
+        operands : operand list;
+        store : variable_location option;
+        branch : (bool * int) option;
+        text : string option;
+    };;
+
+    (* TODO: Only works for version 3 *)
+    let resolve_packed_address addr = 
+        addr * 2;;
 
 let decode_instruction story address =
 
@@ -698,7 +702,22 @@ let decode_instruction story address =
         else
             let unsigned = 256 * bottom6 + (read_ubyte story (branch_address + 1)) in
             if unsigned < 8192 then (sense, unsigned) else (sense, unsigned - 16384) in
-        
+            
+    let munge_operands instr =
+        let munge_call_operands () =
+            match instr.operands with
+            | [] -> failwith "call requires at least one operand"
+            | (Large large) :: tail -> (Large (resolve_packed_address large)) :: tail
+            | _ -> failwith "call requires first argument to be packed address" in
+        let munge_jump_operands () =
+            match instr.operands with
+            | [(Large large)] -> [(Large (instr.address + instr.length + (signed_word large) - 2))]
+            | _ -> failwith "jump requires one large operand" in
+        match instr.opcode with
+        | OP1_140 -> munge_jump_operands()
+        | VAR_224 -> munge_call_operands()
+        | _ -> instr.operands in
+
     let b = read_ubyte story address in
     
     let form = match fetch_bits 7 2 b with
@@ -763,11 +782,10 @@ let decode_instruction story address =
     
     let total_length = opcode_length + type_length + operand_length + store_length + branch_length + text_length in
     
-    {opcode; address; length = total_length; operands; store; branch; text};;
+    let instr = {opcode; address; length = total_length; operands; store; branch; text} in
     
-    (* TODO: Only works for version 3 *)
-    let resolve_packed_address addr = 
-        addr * 2;;
+    { instr with operands = munge_operands instr };;
+    
 
     let display_instruction instr =
         let display_variable variable =
@@ -782,23 +800,7 @@ let decode_instruction story address =
                 | Large large -> Printf.sprintf "%04x" large
                 | Small small -> Printf.sprintf "%02x" small
                 | Variable variable -> (display_variable variable) in
-                
-            let munge_operands () =
-                let munge_call_operands () =
-                    match instr.operands with
-                    | [] -> failwith "call requires at least one operand"
-                    | (Large large) :: tail -> (Large (resolve_packed_address large)) :: tail
-                    | _ -> failwith "call requires first argument to be packed address" in
-                let munge_jump_operands () =
-                    match instr.operands with
-                    | [(Large large)] -> [(Large (instr.address + instr.length + (signed_word large) - 2))]
-                    | _ -> failwith "jump requires one large operand" in
-                match instr.opcode with
-                | OP1_140 -> munge_jump_operands()
-                | VAR_224 -> munge_call_operands()
-                | _ -> instr.operands in
-        
-            List.fold_left (fun acc operand -> acc ^ (display_operand operand) ^ " ") "" (munge_operands ()) in
+            List.fold_left (fun acc operand -> acc ^ (display_operand operand) ^ " ") "" instr.operands in
             
         let display_store () =
             match instr.store with
@@ -834,7 +836,23 @@ let decode_instruction story address =
                 aux (acc  ^ s) (addr + instr.length) (c - 1)) in
         aux "" address count;;
         
+    let continues_to_following opcode =
+        match opcode with
+        | OP2_28 (* throw *)
+        | OP1_139 (* ret *)
+        | OP1_140 (* jump *)
+        | OP0_176 (* rtrue *)
+        | OP0_177 (* rfalse *)
+        | OP0_183 (* restart *)
+        | OP0_184 (* ret_popped *) 
+        | OP0_186 (* quit *) -> false
+        | _ -> true;;
+      
+    let display_routine story address count =
+        let locals_count = read_ubyte story address in
+        display_instructions story (address + 1 + locals_count * 2) count;;
         
+       
         
 end
 
@@ -842,8 +860,8 @@ open Story;;
 
 let s = load_story "ZORK1.DAT";;
 print_endline (display_header s);
-print_endline (display_bytes s (0x4f75) 64);; 
-print_endline (display_instructions s (initial_program_counter s) 32);;
+print_endline (display_bytes s 0x4f05 64);; 
+print_endline (display_instructions s 0x4f05 32);;
 
 (*
 print_endline (display_abbreviation_table s);;
