@@ -1,22 +1,32 @@
 (* Z-Machine tools written in OCaml, as part of my efforts to learn the language. *)
 
 (* Helper method that takes an item and a function that produces related items.
-   The result is the reflexive and transitive closure of the relation. *)
+   The result is the transitive closure of the relation. *)
    
-let closure item relation =
+let transitive_closure_many items relation =
     let rec merge related set stack = 
         match related with
         | [] -> (set, stack)
         | head :: tail -> 
-            if List.exists (fun x -> x = head) set then merge tail set stack
+            if List.mem head set then merge tail set stack
             else merge tail (head :: set) (head :: stack) in
     let rec aux set stack =
         match stack with
         | [] -> set
         | head :: tail -> 
-            let (newset, newstack) = merge (relation head) set tail in
-            aux newset newstack in
-    aux [item] [item];;
+            let (new_set, new_stack) = merge (relation head) set tail in
+            aux new_set new_stack in
+    aux [] items;;
+    
+let transitive_closure item relation =
+    transitive_closure_many [item] relation;;
+
+let reflexive_closure_many items relation =
+    let t = transitive_closure_many items relation in
+    List.fold_left (fun s i -> if List.mem i s then s else i :: s) t items;;
+
+let reflexive_closure item relation = 
+    reflexive_closure_many [item] relation;;
 
 (* Debugging method to display bytes inside a file *)
 
@@ -616,6 +626,19 @@ let opcode_name opcode =
     let resolve_packed_address addr = 
         addr * 2;;
 
+    let is_call opcode = 
+        match opcode with
+        | VAR_224 (* call / call_vs *)
+        | OP1_143 (* call_1n *)
+        | OP1_136 (* call_1s *)
+        | OP2_26 (* call_2n *)
+        | OP2_25 (* call_2s *)
+        | VAR_249 (* call_vn *)
+        | VAR_250 (* call_vn2 *)
+        | VAR_236 (* call_vs2 *) -> true
+        | _ -> false;;
+
+
 let decode_instruction story address =
 
     let has_branch opcode = 
@@ -668,7 +691,7 @@ let decode_instruction story address =
         | VAR_247
         | VAR_248 -> true
         | _ -> false in
-
+        
     let has_text opcode =
         match opcode with
         | OP0_178
@@ -734,17 +757,17 @@ let decode_instruction story address =
     let munge_operands instr =
         let munge_call_operands () =
             match instr.operands with
-            | [] -> failwith "call requires at least one operand"
             | (Large large) :: tail -> (Large (resolve_packed_address large)) :: tail
-            | _ -> failwith "call requires first argument to be packed address" in
+            | _ -> instr.operands in
         let munge_jump_operands () =
             match instr.operands with
             | [(Large large)] -> [(Large (instr.address + instr.length + (signed_word large) - 2))]
-            | _ -> failwith "jump requires one large operand" in
+            | _ -> failwith "jump requires one large operand" in 
+            (* is this true? Can jump offset be taken from stack or variable? *)
+            (* Can a jump be small? If so, is it signed? *)
         match instr.opcode with
         | OP1_140 -> munge_jump_operands()
-        | VAR_224 -> munge_call_operands()
-        | _ -> instr.operands in
+        | _ -> if (is_call instr.opcode) then munge_call_operands() else instr.operands in
 
     let b = read_ubyte story address in
     
@@ -893,24 +916,49 @@ let decode_instruction story address =
         | (_, Some j) -> Some j
         | _ -> None;;
         
-    let immediately_reachable_addresses instr = 
-        let next = if (continues_to_following instr.opcode) then [instr.address + instr.length] else [] in
-        match (branch_target instr) with 
-            | Some address -> address :: next
-            | _ -> next;;
-      
-    let all_reachable_addresses_in_routine story address = 
-        closure address (fun x -> immediately_reachable_addresses (decode_instruction story x)) ;;
+    let all_reachable_addresses_in_routine story instr_address = 
+        let immediately_reachable_addresses address = 
+            let instr = decode_instruction story address in
+            let next = if (continues_to_following instr.opcode) then [instr.address + instr.length] else [] in
+            match (branch_target instr) with 
+                | Some address -> address :: next
+                | _ -> next in
+        reflexive_closure instr_address immediately_reachable_addresses;;
         
     let display_reachable_instructions story address =
         let reachable = List.sort compare (all_reachable_addresses_in_routine story address) in
         List.fold_left (fun a b -> a ^ (display_instruction (decode_instruction story b))) "" reachable;;
+ 
+    let first_instruction story routine_address =
+        let locals_count = read_ubyte story routine_address in
+        routine_address + 1 + locals_count * 2 ;;
      
     let display_routine story address =
-        let locals_count = read_ubyte story address in
-        display_reachable_instructions story (address + 1 + locals_count * 2) ;;
-        
+        display_reachable_instructions story (first_instruction story address) ;;
+
+    let call_address instr = 
+        if (is_call instr.opcode) then 
+            match instr.operands with 
+            | (Large address) :: _ -> Some address
+            | _ -> None 
+        else None;;
+
+    (* Takes the address of the first instruction in a routine, produces
+       a list of addresses of all routines called in the routine. *)
        
+    let reachable_routines_in_routine story instr_address =
+        let reachable_instrs = all_reachable_addresses_in_routine story instr_address in
+        let option_fold routines instr_addr = 
+            match call_address (decode_instruction story instr_addr) with
+            | None -> routines
+            | Some routine_address -> routine_address :: routines in
+        List.fold_left option_fold [] reachable_instrs;;
+        
+
+         
+    
+        
+ 
         
 end
 
@@ -918,8 +966,17 @@ open Story;;
 
 let s = load_story "ZORK1.DAT";;
 (* print_endline (display_header s); *)
-(* print_endline (display_bytes s 0x4f05 64);;  *)
+print_endline (display_bytes s 0x8d1a 64 );;
+print_endline (display_instructions s 0x8d1a 1);;
 print_endline (display_reachable_instructions s 0x4f05);;
+
+let called_by_main = reachable_routines_in_routine s 0x4f05;;
+
+let all_routines = reflexive_closure_many called_by_main (fun routine -> (Printf.printf "%04x\n" routine) ; reachable_routines_in_routine s (first_instruction s routine));;
+
+List.iter (Printf.printf "%04x\n") (List.sort compare all_routines);;
+
+
 
 (*
 print_endline (display_abbreviation_table s);;
