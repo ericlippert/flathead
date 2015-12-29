@@ -28,39 +28,6 @@ let reflexive_closure_many items relation =
 let reflexive_closure item relation = 
     reflexive_closure_many [item] relation;;
 
-(* Debugging method to display bytes inside a file *)
-
-let display_file_bytes filename start length =
-    (* TODO: Use the version of input that fills in a mutable byte buffer. *)
-    (* TODO: This is only available in OCaml 4.02, and I have 4.01 installed. *)
-    let blocksize = 16 in
-    let file = open_in_bin filename in
-    seek_in file start;
-    let rec print_loop i acc =
-        if i = length then 
-            acc
-        else (
-            let s = if i mod blocksize = 0 then Printf.sprintf "\n%06x: " (i + start) else "" in
-            let b = input_byte file in
-            let s2 = Printf.sprintf "%02x " b in
-            print_loop (i + 1) (acc ^ s ^ s2)) in
-    let result = (print_loop 0 "") ^ "\n" in
-    close_in file;
-    result;;
-
-(* Debugging method to display bytes in a string *)
-
-let display_string_bytes bytes start length =
-    let blocksize = 16 in
-    let rec print_loop i acc =
-        if i = length then
-            acc
-        else (
-            let s = if i mod blocksize = 0 then Printf.sprintf "\n%06x: " (i + start) else "" in
-            let s2 = Printf.sprintf "%02x " (int_of_char bytes.[i + start]) in
-            print_loop (i + 1) (acc ^ s ^ s2)) in
-    (print_loop 0 "") ^ "\n";;
-
 (* Takes a file name and produces a string containing the whole binary file. *)
 
 let read_entire_file filename =
@@ -70,26 +37,10 @@ let read_entire_file filename =
     really_input file bytes 0 length;
     close_in file;
     bytes;;
-    
-(* Reads an unsigned byte from a string *)
-
-let read_ubyte bytes offset =
-    int_of_char bytes.[offset];;
-    
-(* Reads an unsigned 16 bit integer from a string *)
-    
-let read_ushort bytes offset =
-    (* two-byte integers are stored in high / low order *)
-    (int_of_char bytes.[offset]) * 256 + (int_of_char bytes.[offset + 1]);;
-    
+   
 let signed_word word = 
     if word > 32767 then word - 65536 else word;;   
-   
-(* Reads a signed 16 bit integer from a string *)
-
-let read_short bytes offset =
-    signed_word (read_ushort bytes offset);;
-    
+     
 module ImmutableBytes = struct
 
     (* TODO: Track number of edits; when size of tree exceeds *)
@@ -534,404 +485,408 @@ module Story = struct
                 display_loop (i + 1) (acc ^ r) ) in
         display_loop 0 s;;
 
-(* *)
-(* Bytecode *)
-(* *)
-
-
-(* TODO: Extended *)
-type opcode_form =
-    | Long_form
-    | Short_form
-    | Variable_form;;
-
-type operand_count =
-    | OP0
-    | OP1
-    | OP2
-    | VAR;;
-
-type variable_location =
-    | Stack
-    | Local of int
-    | Global of int;;
+    (* *)
+    (* Bytecode *)
+    (* *)
     
-type operand_type =
-    | Large_operand
-    | Small_operand
-    | Variable_operand
-    | Omitted;;
+    (* TODO: Extended *)
+    type opcode_form =
+        | Long_form
+        | Short_form
+        | Variable_form;;
     
-type operand =
-    | Large of int
-    | Small of int
-    | Variable of variable_location;;
-
-type bytecode = 
-              | OP2_1   | OP2_2   | OP2_3   | OP2_4   | OP2_5   | OP2_6   | OP2_7
-    | OP2_8   | OP2_9   | OP2_10  | OP2_11  | OP2_12  | OP2_13  | OP2_14  | OP2_15
-    | OP2_16  | OP2_17  | OP2_18  | OP2_19  | OP2_20  | OP2_21  | OP2_22  | OP2_23
-    | OP2_24  | OP2_25  | OP2_26  | OP2_27  | OP2_28
-    | OP1_128 | OP1_129 | OP1_130 | OP1_131 | OP1_132 | OP1_133 | OP1_134 | OP1_135  
-    | OP1_136 | OP1_137 | OP1_138 | OP1_139 | OP1_140 | OP1_141 | OP1_142 | OP1_143  
-    | OP0_176 | OP0_177 | OP0_178 | OP0_179 | OP0_180 | OP0_181 | OP0_182 | OP0_183 
-    | OP0_184 | OP0_185 | OP0_186 | OP0_187 | OP0_188 | OP0_189 | OP0_190 | OP0_191 
-    | VAR_224 | VAR_225 | VAR_226 | VAR_227 | VAR_228 | VAR_229 | VAR_230 | VAR_231
-    | VAR_232 | VAR_233 | VAR_234 | VAR_235 | VAR_236 | VAR_237 | VAR_238 | VAR_239
-    | VAR_240 | VAR_241 | VAR_242 | VAR_243 | VAR_244 | VAR_245 | VAR_246 | VAR_247
-    | VAR_248 | VAR_249 | VAR_250 | VAR_251 | VAR_252 | VAR_253 | VAR_254 | VAR_255
-    | ILLEGAL;;
-   
-(* The tables which follow are maps from the opcode identification number
-   to the opcode type; the exact order matters. *)
+    type operand_count =
+        | OP0
+        | OP1
+        | OP2
+        | VAR;;
     
-let one_operand_bytecodes = [|
-    OP1_128; OP1_129; OP1_130; OP1_131; OP1_132; OP1_133; OP1_134; OP1_135;
-    OP1_136; OP1_137; OP1_138; OP1_139; OP1_140; OP1_141; OP1_142; OP1_143  |];;
+    type variable_location =
+        | Stack
+        | Local of int
+        | Global of int;;
+        
+    type operand_type =
+        | Large_operand
+        | Small_operand
+        | Variable_operand
+        | Omitted;;
+        
+    type operand =
+        | Large of int
+        | Small of int
+        | Variable of variable_location;;
     
-let zero_operand_bytecodes = [| 
-    OP0_176; OP0_177; OP0_178; OP0_179; OP0_180; OP0_181; OP0_182; OP0_183;
-    OP0_184; OP0_185; OP0_186; OP0_187; OP0_188; OP0_189; OP0_190; OP0_191  |];;
+    type bytecode = 
+                  | OP2_1   | OP2_2   | OP2_3   | OP2_4   | OP2_5   | OP2_6   | OP2_7
+        | OP2_8   | OP2_9   | OP2_10  | OP2_11  | OP2_12  | OP2_13  | OP2_14  | OP2_15
+        | OP2_16  | OP2_17  | OP2_18  | OP2_19  | OP2_20  | OP2_21  | OP2_22  | OP2_23
+        | OP2_24  | OP2_25  | OP2_26  | OP2_27  | OP2_28
+        | OP1_128 | OP1_129 | OP1_130 | OP1_131 | OP1_132 | OP1_133 | OP1_134 | OP1_135  
+        | OP1_136 | OP1_137 | OP1_138 | OP1_139 | OP1_140 | OP1_141 | OP1_142 | OP1_143  
+        | OP0_176 | OP0_177 | OP0_178 | OP0_179 | OP0_180 | OP0_181 | OP0_182 | OP0_183 
+        | OP0_184 | OP0_185 | OP0_186 | OP0_187 | OP0_188 | OP0_189 | OP0_190 | OP0_191 
+        | VAR_224 | VAR_225 | VAR_226 | VAR_227 | VAR_228 | VAR_229 | VAR_230 | VAR_231
+        | VAR_232 | VAR_233 | VAR_234 | VAR_235 | VAR_236 | VAR_237 | VAR_238 | VAR_239
+        | VAR_240 | VAR_241 | VAR_242 | VAR_243 | VAR_244 | VAR_245 | VAR_246 | VAR_247
+        | VAR_248 | VAR_249 | VAR_250 | VAR_251 | VAR_252 | VAR_253 | VAR_254 | VAR_255
+        | ILLEGAL;;
+       
+    (* The tables which follow are maps from the opcode identification number
+       to the opcode type; the exact order matters. *)
+        
+    let one_operand_bytecodes = [|
+        OP1_128; OP1_129; OP1_130; OP1_131; OP1_132; OP1_133; OP1_134; OP1_135;
+        OP1_136; OP1_137; OP1_138; OP1_139; OP1_140; OP1_141; OP1_142; OP1_143  |];;
+        
+    let zero_operand_bytecodes = [| 
+        OP0_176; OP0_177; OP0_178; OP0_179; OP0_180; OP0_181; OP0_182; OP0_183;
+        OP0_184; OP0_185; OP0_186; OP0_187; OP0_188; OP0_189; OP0_190; OP0_191  |];;
+        
+    let two_operand_bytecodes =[|
+        ILLEGAL; OP2_1;  OP2_2;  OP2_3;  OP2_4;  OP2_5;   OP2_6;   OP2_7;
+        OP2_8;   OP2_9;  OP2_10; OP2_11; OP2_12; OP2_13;  OP2_14;  OP2_15;
+        OP2_16;  OP2_17; OP2_18; OP2_19; OP2_20; OP2_21;  OP2_22;  OP2_23;
+        OP2_24;  OP2_25; OP2_26; OP2_27; OP2_28; ILLEGAL; ILLEGAL; ILLEGAL |];;
+       
+    let var_operand_bytecodes = [|
+        VAR_224; VAR_225; VAR_226; VAR_227; VAR_228; VAR_229; VAR_230; VAR_231;
+        VAR_232; VAR_233; VAR_234; VAR_235; VAR_236; VAR_237; VAR_238; VAR_239;
+        VAR_240; VAR_241; VAR_242; VAR_243; VAR_244; VAR_245; VAR_246; VAR_247;
+        VAR_248; VAR_249; VAR_250; VAR_251; VAR_252; VAR_253; VAR_254; VAR_255 |];;
     
-let two_operand_bytecodes =[|
-    ILLEGAL; OP2_1;  OP2_2;  OP2_3;  OP2_4;  OP2_5;   OP2_6;   OP2_7;
-    OP2_8;   OP2_9;  OP2_10; OP2_11; OP2_12; OP2_13;  OP2_14;  OP2_15;
-    OP2_16;  OP2_17; OP2_18; OP2_19; OP2_20; OP2_21;  OP2_22;  OP2_23;
-    OP2_24;  OP2_25; OP2_26; OP2_27; OP2_28; ILLEGAL; ILLEGAL; ILLEGAL |];;
-   
-let var_operand_bytecodes = [|
-    VAR_224; VAR_225; VAR_226; VAR_227; VAR_228; VAR_229; VAR_230; VAR_231;
-    VAR_232; VAR_233; VAR_234; VAR_235; VAR_236; VAR_237; VAR_238; VAR_239;
-    VAR_240; VAR_241; VAR_242; VAR_243; VAR_244; VAR_245; VAR_246; VAR_247;
-    VAR_248; VAR_249; VAR_250; VAR_251; VAR_252; VAR_253; VAR_254; VAR_255 |];;
-
-let opcode_name opcode = 
-    match opcode with
-    | ILLEGAL -> "ILLEGAL"
-    | OP2_1   -> "je"
-    | OP2_2   -> "jl"
-    | OP2_3   -> "jg"
-    | OP2_4   -> "dec_chk"
-    | OP2_5   -> "inc_chk"
-    | OP2_6   -> "jin"
-    | OP2_7   -> "test"
-    | OP2_8   -> "or"
-    | OP2_9   -> "and"
-    | OP2_10  -> "test_attr"
-    | OP2_11  -> "set_attr"
-    | OP2_12  -> "clear_attr"
-    | OP2_13  -> "store"
-    | OP2_14  -> "insert_obj"
-    | OP2_15  -> "get_prop_addr"
-    | OP2_16  -> "get_next_prop"
-    | OP2_17  -> "get_prop"
-    | OP2_18  -> "get_prop_addr"
-    | OP2_19  -> "get_next_prop"
-    | OP2_20  -> "add"
-    | OP2_21  -> "sub"
-    | OP2_22  -> "mul"
-    | OP2_23  -> "div"
-    | OP2_24  -> "mod"
-    | OP2_25  -> "call_2s"
-    | OP2_26  -> "call_2n"
-    | OP2_27  -> "set_colour"
-    | OP2_28  -> "throw"
-    | OP1_128 -> "jz"
-    | OP1_129 -> "get_sibling"
-    | OP1_130 -> "get_child"
-    | OP1_131 -> "get_parent"
-    | OP1_132 -> "get_prop_len"
-    | OP1_133 -> "inc"
-    | OP1_134 -> "dec"
-    | OP1_135 -> "print_addr"
-    | OP1_136 -> "call_1s"
-    | OP1_137 -> "remove_obj"
-    | OP1_138 -> "print_obj"
-    | OP1_139 -> "ret"
-    | OP1_140 -> "jump"
-    | OP1_141 -> "print_paddr"
-    | OP1_142 -> "load"
-    | OP1_143 -> "not"
-    | OP0_176 -> "rtrue"
-    | OP0_177 -> "rfalse"
-    | OP0_178 -> "print"
-    | OP0_179 -> "print_ret"
-    | OP0_180 -> "nop"
-    | OP0_181 -> "save"
-    | OP0_182 -> "restore"
-    | OP0_183 -> "restart"
-    | OP0_184 -> "ret_popped"
-    | OP0_185 -> "pop"
-    | OP0_186 -> "quit"
-    | OP0_187 -> "new_line"
-    | OP0_188 -> "show_status"
-    | OP0_189 -> "verify"
-    | OP0_190 -> "EXTENDED TODO"
-    | OP0_191 -> "piracy"
-    | VAR_224 -> "call"
-    | VAR_225 -> "storew"
-    | VAR_226 -> "storeb"
-    | VAR_227 -> "put_prop"
-    | VAR_228 -> "sread"
-    | VAR_229 -> "print_char"
-    | VAR_230 -> "print_num"
-    | VAR_231 -> "random"
-    | VAR_232 -> "push"
-    | VAR_233 -> "pull"
-    | VAR_234 -> "split_window"
-    | VAR_235 -> "set_window"
-    | VAR_236 -> "call_vs2"
-    | VAR_237 -> "erase_window"
-    | VAR_238 -> "erase_line"
-    | VAR_239 -> "set_cursor"
-    | VAR_240 -> "get_cursor"
-    | VAR_241 -> "set_text_style"
-    | VAR_242 -> "buffer_mode"
-    | VAR_243 -> "output_stream"
-    | VAR_244 -> "input_stream"
-    | VAR_245 -> "sound_effect"
-    | VAR_246 -> "read_char"
-    | VAR_247 -> "scan_table"
-    | VAR_248 -> "not"
-    | VAR_249 -> "call_vn"
-    | VAR_250 -> "call_vn2"
-    | VAR_251 -> "tokenise"
-    | VAR_252 -> "encode_text"
-    | VAR_253 -> "copy_table"
-    | VAR_254 -> "print_table"
-    | VAR_255 -> "check_arg_count";;
-    
-    type branch_address = 
-    | Return_true  
-    | Return_false
-    | Branch_address of int
-    
-    type instruction =
-    {
-        opcode : bytecode;
-        address : int;
-        length : int;
-        operands : operand list;
-        store : variable_location option;
-        branch : (bool * branch_address) option;
-        text : string option;
-    };;
-
-    (* TODO: Only works for version 3 *)
-    let resolve_packed_address addr = 
-        addr * 2;;
-
-    let is_call opcode = 
+    let opcode_name opcode = 
         match opcode with
-        | VAR_224 (* call / call_vs *)
-        | OP1_143 (* call_1n *)
-        | OP1_136 (* call_1s *)
-        | OP2_26 (* call_2n *)
-        | OP2_25 (* call_2s *)
-        | VAR_249 (* call_vn *)
-        | VAR_250 (* call_vn2 *)
-        | VAR_236 (* call_vs2 *) -> true
-        | _ -> false;;
-
-
-let decode_instruction story address =
-
-    let has_branch opcode = 
-        match opcode with
-        | OP2_1 
-        | OP2_2 
-        | OP2_3 
-        | OP2_4 
-        | OP2_5 
-        | OP2_6 
-        | OP2_7 
-        | OP2_10 
-        | OP1_128
-        | OP1_129
-        | OP1_130
-        | OP0_181 
-        | OP0_182  
-        | OP0_189 
-        | OP0_191
-        | VAR_247
-        | VAR_255 -> true
-        | _ -> false in
-
-    let has_store opcode =
-        match opcode with
-        | OP2_8
-        | OP2_9
-        | OP2_15
-        | OP2_16
-        | OP2_17
-        | OP2_18
-        | OP2_19
-        | OP2_20
-        | OP2_21
-        | OP2_22
-        | OP2_23
-        | OP2_24
-        | OP2_25
-        | OP1_129
-        | OP1_130
-        | OP1_131
-        | OP1_132
-        | OP1_136
-        | OP1_142
-        | OP1_143
-        | VAR_224
-        | VAR_231
-        | VAR_236
-        | VAR_246
-        | VAR_247
-        | VAR_248 -> true
-        | _ -> false in
+        | ILLEGAL -> "ILLEGAL"
+        | OP2_1   -> "je"
+        | OP2_2   -> "jl"
+        | OP2_3   -> "jg"
+        | OP2_4   -> "dec_chk"
+        | OP2_5   -> "inc_chk"
+        | OP2_6   -> "jin"
+        | OP2_7   -> "test"
+        | OP2_8   -> "or"
+        | OP2_9   -> "and"
+        | OP2_10  -> "test_attr"
+        | OP2_11  -> "set_attr"
+        | OP2_12  -> "clear_attr"
+        | OP2_13  -> "store"
+        | OP2_14  -> "insert_obj"
+        | OP2_15  -> "get_prop_addr"
+        | OP2_16  -> "get_next_prop"
+        | OP2_17  -> "get_prop"
+        | OP2_18  -> "get_prop_addr"
+        | OP2_19  -> "get_next_prop"
+        | OP2_20  -> "add"
+        | OP2_21  -> "sub"
+        | OP2_22  -> "mul"
+        | OP2_23  -> "div"
+        | OP2_24  -> "mod"
+        | OP2_25  -> "call_2s"
+        | OP2_26  -> "call_2n"
+        | OP2_27  -> "set_colour"
+        | OP2_28  -> "throw"
+        | OP1_128 -> "jz"
+        | OP1_129 -> "get_sibling"
+        | OP1_130 -> "get_child"
+        | OP1_131 -> "get_parent"
+        | OP1_132 -> "get_prop_len"
+        | OP1_133 -> "inc"
+        | OP1_134 -> "dec"
+        | OP1_135 -> "print_addr"
+        | OP1_136 -> "call_1s"
+        | OP1_137 -> "remove_obj"
+        | OP1_138 -> "print_obj"
+        | OP1_139 -> "ret"
+        | OP1_140 -> "jump"
+        | OP1_141 -> "print_paddr"
+        | OP1_142 -> "load"
+        | OP1_143 -> "not"
+        | OP0_176 -> "rtrue"
+        | OP0_177 -> "rfalse"
+        | OP0_178 -> "print"
+        | OP0_179 -> "print_ret"
+        | OP0_180 -> "nop"
+        | OP0_181 -> "save"
+        | OP0_182 -> "restore"
+        | OP0_183 -> "restart"
+        | OP0_184 -> "ret_popped"
+        | OP0_185 -> "pop"
+        | OP0_186 -> "quit"
+        | OP0_187 -> "new_line"
+        | OP0_188 -> "show_status"
+        | OP0_189 -> "verify"
+        | OP0_190 -> "EXTENDED TODO"
+        | OP0_191 -> "piracy"
+        | VAR_224 -> "call"
+        | VAR_225 -> "storew"
+        | VAR_226 -> "storeb"
+        | VAR_227 -> "put_prop"
+        | VAR_228 -> "sread"
+        | VAR_229 -> "print_char"
+        | VAR_230 -> "print_num"
+        | VAR_231 -> "random"
+        | VAR_232 -> "push"
+        | VAR_233 -> "pull"
+        | VAR_234 -> "split_window"
+        | VAR_235 -> "set_window"
+        | VAR_236 -> "call_vs2"
+        | VAR_237 -> "erase_window"
+        | VAR_238 -> "erase_line"
+        | VAR_239 -> "set_cursor"
+        | VAR_240 -> "get_cursor"
+        | VAR_241 -> "set_text_style"
+        | VAR_242 -> "buffer_mode"
+        | VAR_243 -> "output_stream"
+        | VAR_244 -> "input_stream"
+        | VAR_245 -> "sound_effect"
+        | VAR_246 -> "read_char"
+        | VAR_247 -> "scan_table"
+        | VAR_248 -> "not"
+        | VAR_249 -> "call_vn"
+        | VAR_250 -> "call_vn2"
+        | VAR_251 -> "tokenise"
+        | VAR_252 -> "encode_text"
+        | VAR_253 -> "copy_table"
+        | VAR_254 -> "print_table"
+        | VAR_255 -> "check_arg_count";;
         
-    let has_text opcode =
-        match opcode with
-        | OP0_178
-        | OP0_179 -> true
-        | _ -> false in
-   
-    let decode_types n = 
-        match n with 
-        | 0 -> Large_operand
-        | 1 -> Small_operand
-        | 2 -> Variable_operand
-        | _ -> Omitted in
+        type branch_address = 
+        | Return_true  
+        | Return_false
+        | Branch_address of int
         
-    let decode_variable_types types = 
-        let rec aux i acc =
-            if i > 3 then acc
-            else 
-                match decode_types (fetch_bits (i * 2 + 1) 2 types) with
-                | Omitted -> aux (i + 1) acc
-                | x -> aux (i + 1) (x :: acc) in
-        aux 0 [] in
-        
-    let decode_variable n =
-        if n = 0 then Stack
-        else if n < 0x10 then Local n
-        else Global n in
-        
-    let rec decode_operands operand_address operand_types =
-        match operand_types with
-        | [] -> []
-        | Large_operand :: types -> (Large (read_word story operand_address))  :: (decode_operands (operand_address + 2) types)
-        | Small_operand :: types -> (Small (read_ubyte story operand_address))  :: (decode_operands (operand_address + 1) types)
-        | Variable_operand :: types -> (Variable (decode_variable (read_ubyte story operand_address))) :: (decode_operands (operand_address + 1) types)
-        | Omitted :: _ -> failwith "omitted operand type passed to decode operands" in
+        type instruction =
+        {
+            opcode : bytecode;
+            address : int;
+            length : int;
+            operands : operand list;
+            store : variable_location option;
+            branch : (bool * branch_address) option;
+            text : string option;
+        };;
     
-    let rec operand_size operand_types =
-        match operand_types with
-        | [] -> 0
-        | Large_operand :: types -> 2 + (operand_size types)
-        | _ :: types -> 1 + (operand_size types) in
+        (* TODO: Only works for version 3 *)
+        let resolve_packed_address addr = 
+            addr * 2;;
+    
+        let is_call opcode = 
+            match opcode with
+            | VAR_224 (* call / call_vs *)
+            | OP1_143 (* call_1n *)
+            | OP1_136 (* call_1s *)
+            | OP2_26 (* call_2n *)
+            | OP2_25 (* call_2s *)
+            | VAR_249 (* call_vn *)
+            | VAR_250 (* call_vn2 *)
+            | VAR_236 (* call_vs2 *) -> true
+            | _ -> false;;
+    
+    
+    (* Takes the address of an instruction and produces the instruction *)
+    
+    let decode_instruction story address =
         
-    (* Spec 4.7 *)
+        (* Helper methods for decoding *)
+         
+        let has_branch opcode = 
+            match opcode with
+            | OP2_1   | OP2_2   | OP2_3   | OP2_4   | OP2_5   | OP2_6   | OP2_7   | OP2_10 
+            | OP1_128 | OP1_129 | OP1_130 | OP0_181 | OP0_182 | OP0_189 | OP0_191
+            | VAR_247 | VAR_255 -> true
+            | _ -> false in
     
-    let branch_size branch_code_address =
-        let b = (read_ubyte story branch_code_address) in 
-        if (fetch_bit 6 b) then 1 else 2 in
-    
-    let decode_branch branch_code_address total_length =
-        let b = (read_ubyte story branch_code_address) in 
-        let sense = (fetch_bit 7 b) in
-        let bottom6 = fetch_bits 5 6 b in
-        let offset = 
-            if (fetch_bit 6 b) then 
-                bottom6 
-            else
-                let unsigned = 256 * bottom6 + (read_ubyte story (branch_code_address + 1)) in
-                if unsigned < 8192 then unsigned else unsigned - 16384 in
-        match offset with
-        | 0 -> (sense, Return_false)
-        | 1 -> (sense, Return_true)
-        | _ -> (sense, Branch_address (address + total_length + offset - 2)) in
+        let has_store opcode =
+            match opcode with
+            | OP2_8   | OP2_9   | OP2_15  | OP2_16  | OP2_17  | OP2_18  | OP2_19
+            | OP2_20  | OP2_21  | OP2_22  | OP2_23  | OP2_24  | OP2_25
+            | OP1_129 | OP1_130 | OP1_131 | OP1_132 | OP1_136 | OP1_142 | OP1_143
+            | VAR_224 | VAR_231 | VAR_236 | VAR_246 | VAR_247 | VAR_248 -> true
+            | _ -> false in
             
-    let munge_operands instr =
-        let munge_call_operands () =
-            match instr.operands with
-            | (Large large) :: tail -> (Large (resolve_packed_address large)) :: tail
-            | _ -> instr.operands in
-        let munge_jump_operands () =
-            match instr.operands with
-            | [(Large large)] -> [(Large (instr.address + instr.length + (signed_word large) - 2))]
-            | _ -> failwith "jump requires one large operand" in 
-            (* is this true? Can jump offset be taken from stack or variable? *)
-            (* Can a jump be small? If so, is it signed? *)
-        match instr.opcode with
-        | OP1_140 -> munge_jump_operands()
-        | _ -> if (is_call instr.opcode) then munge_call_operands() else instr.operands in
-
-    let b = read_ubyte story address in
-    
-    let form = match fetch_bits 7 2 b with
-    | 3 -> Variable_form
-    | 2 -> Short_form
-    | _ -> Long_form in
-    
-    let op_count = match form with
-    | Variable_form -> if fetch_bit 5 b then VAR else OP2
-    | Long_form -> OP2
-    | Short_form -> if fetch_bits 5 2 b = 3 then OP0 else OP1 in
-    
-    let opcode = match op_count with
-    | OP0 -> zero_operand_bytecodes.(fetch_bits 3 4 b)
-    | OP1 -> one_operand_bytecodes.(fetch_bits 3 4 b) 
-    | OP2 -> two_operand_bytecodes.(fetch_bits 4 5 b) 
-    | VAR -> var_operand_bytecodes.(fetch_bits 4 5 b) in
-    
-    let opcode_length = 1 in
-    
-    let operand_types = match form with
-    | Short_form -> 
-        (match op_count with 
-        | OP0 -> [] 
-        | _ -> [decode_types (fetch_bits 5 2 b)])
-    | Long_form -> 
-        (match fetch_bits 6 2 b with
-        | 0 -> [ Small_operand; Small_operand ]
-        | 1 -> [ Small_operand; Variable_operand ]
-        | 2 -> [ Variable_operand; Small_operand ]
-        | _ -> [ Variable_operand; Variable_operand ])
-    | Variable_form -> decode_variable_types (read_ubyte story (address + opcode_length)) in
-    
-    let type_length = (match form with Variable_form -> 1 | _ -> 0) in
-    
-    let operands = decode_operands (address + opcode_length + type_length) operand_types in
-    
-    let operand_length = operand_size operand_types in
-    
-    let store_address = address + opcode_length + type_length + operand_length in
-      
-    let store = 
-        if has_store opcode then Some (decode_variable (read_ubyte story store_address))
-        else None in
-    
-    let store_length = if has_store opcode then 1 else 0 in
-    
-    let branch_code_address = store_address + store_length in
-    
-    let branch_length = if has_branch opcode then (branch_size branch_code_address) else 0 in
-    
-    let text_address = branch_code_address + branch_length in
-    
-    let text = 
-        if has_text opcode then Some (read_zstring story text_address) else None in
+        let has_text opcode =
+            match opcode with
+            | OP0_178 | OP0_179 -> true
+            | _ -> false in
+       
+        let decode_types n = 
+            match n with 
+            | 0 -> Large_operand
+            | 1 -> Small_operand
+            | 2 -> Variable_operand
+            | _ -> Omitted in
+            
+        let decode_variable_types types = 
+            let rec aux i acc =
+                if i > 3 then acc
+                else 
+                    match decode_types (fetch_bits (i * 2 + 1) 2 types) with
+                    | Omitted -> aux (i + 1) acc
+                    | x -> aux (i + 1) (x :: acc) in
+            aux 0 [] in
+            
+        let decode_variable n =
+            if n = 0 then Stack
+            else if n < 0x10 then Local n
+            else Global n in
+            
+        let rec decode_operands operand_address operand_types =
+            match operand_types with
+            | [] -> []
+            | Large_operand :: types -> (Large (read_word story operand_address))  :: (decode_operands (operand_address + 2) types)
+            | Small_operand :: types -> (Small (read_ubyte story operand_address))  :: (decode_operands (operand_address + 1) types)
+            | Variable_operand :: types -> (Variable (decode_variable (read_ubyte story operand_address))) :: (decode_operands (operand_address + 1) types)
+            | Omitted :: _ -> failwith "omitted operand type passed to decode operands" in
         
-    let text_length = if has_text opcode then (zstring_length story text_address) else 0 in
+        let rec operand_size operand_types =
+            match operand_types with
+            | [] -> 0
+            | Large_operand :: types -> 2 + (operand_size types)
+            | _ :: types -> 1 + (operand_size types) in
+            
+        (* Spec 4.7 *)
+        
+        let branch_size branch_code_address =
+            let b = (read_ubyte story branch_code_address) in 
+            if (fetch_bit 6 b) then 1 else 2 in
+        
+        let decode_branch branch_code_address total_length =
+            let b = (read_ubyte story branch_code_address) in 
+            let sense = (fetch_bit 7 b) in
+            let bottom6 = fetch_bits 5 6 b in
+            let offset = 
+                if (fetch_bit 6 b) then 
+                    bottom6 
+                else
+                    let unsigned = 256 * bottom6 + (read_ubyte story (branch_code_address + 1)) in
+                    if unsigned < 8192 then unsigned else unsigned - 16384 in
+            match offset with
+            | 0 -> (sense, Return_false)
+            | 1 -> (sense, Return_true)
+            | _ -> (sense, Branch_address (address + total_length + offset - 2)) in
+                
+        let munge_operands instr =
+            let munge_call_operands () =
+                match instr.operands with
+                | (Large large) :: tail -> (Large (resolve_packed_address large)) :: tail
+                | _ -> instr.operands in
+            let munge_jump_operands () =
+                match instr.operands with
+                | [(Large large)] -> [(Large (instr.address + instr.length + (signed_word large) - 2))]
+                | _ -> failwith "jump requires one large operand" in 
+                (* is this true? Can jump offset be taken from stack or variable? *)
+                (* Can a jump be small? If so, is it signed? *)
+            match instr.opcode with
+            | OP1_140 -> munge_jump_operands()
+            | _ -> if (is_call instr.opcode) then munge_call_operands() else instr.operands in
+            
+        (* Helper methods are done. Start decoding *)
+        
+        (*  SPEC
+        
+        4.3 Form and operand count
+        
+        Each instruction has a form (long, short, extended or variable) and an operand count (0OP, 1OP,
+        2OP or VAR). If the top two bits of the opcode are $$11 the form is variable; if $$10, the form is
+        short. If the opcode is 190 ($BE in hexadecimal) and the version is 5 or later, the form is "extended".
+        Otherwise, the form is "long". 
+        
+        4.3.1
+        
+        In short form, bits 4 and 5 of the opcode byte give an operand type as above. If this is $11 then
+        the operand count is 0OP; otherwise, 1OP. In either case the opcode number is given in the bottom
+        4 bits.
+        
+        4.3.2
+        
+        In long form the operand count is always 2OP. The opcode number is given in the bottom 5 bits.
+        
+        4.3.3
+        
+        In variable form, if bit 5 is 0 then the count is 2OP; if it is 1, then the count is VAR. The opcode
+        number is given in the bottom 5 bits.
+        
+        4.3.4 (TODO)
+        
+        In extended form, the operand count is VAR. The opcode number is given in a second opcode
+        byte.
+        
+        *)
     
-    let total_length = opcode_length + type_length + operand_length + store_length + branch_length + text_length in
-    
-    let branch = 
-        if has_branch opcode then Some (decode_branch branch_code_address total_length)
-        else None in
-    
-    let instr = {opcode; address; length = total_length; operands; store; branch; text} in
-    
-    { instr with operands = munge_operands instr };;
-    
+        let b = read_ubyte story address in
+        
+        let form = match fetch_bits 7 2 b with
+        | 3 -> Variable_form
+        | 2 -> Short_form
+        | _ -> Long_form in
+        
+        let op_count = match form with
+        | Variable_form -> if fetch_bit 5 b then VAR else OP2
+        | Long_form -> OP2
+        | Short_form -> if fetch_bits 5 2 b = 3 then OP0 else OP1 in
+        
+        let opcode = match op_count with
+        | OP0 -> zero_operand_bytecodes.(fetch_bits 3 4 b)
+        | OP1 -> one_operand_bytecodes.(fetch_bits 3 4 b) 
+        | OP2 -> two_operand_bytecodes.(fetch_bits 4 5 b) 
+        | VAR -> var_operand_bytecodes.(fetch_bits 4 5 b) in
+        
+        let opcode_length = 1 in
+        
+        (* SPEC 
+         
+        4.4 Specifying operand types
+        
+        Next, the types of the operands are specified.
+        
+        4.4.1
+        
+        In short form, bits 4 and 5 of the opcode give the type.
+        
+        4.4.2
+        
+        In long form, bit 6 of the opcode gives the type of the first operand, bit 5 of the second. A value
+        of 0 means a small constant and 1 means a variable. (If a 2OP instruction needs a large constant
+        as operand, then it should be assembled in variable rather than long form.)
+        
+        4.4.3
+        
+        In variable or extended forms, a byte of 4 operand types is given next. This contains 4 2-bit
+        fields: bits 6 and 7 are the first field, bits 0 and 1 the fourth. The values are operand types as
+        above. Once one type has been given as 'omitted', all subsequent ones must be. Example:
+        $$00101111 means large constant followed by variable (and no third or fourth opcode).`
+       
+        *)
+        
+        let operand_types = match form with
+        | Short_form -> 
+            (match op_count with 
+            | OP0 -> [] 
+            | _ -> [decode_types (fetch_bits 5 2 b)])
+        | Long_form -> 
+            (match fetch_bits 6 2 b with
+            | 0 -> [ Small_operand; Small_operand ]
+            | 1 -> [ Small_operand; Variable_operand ]
+            | 2 -> [ Variable_operand; Small_operand ]
+            | _ -> [ Variable_operand; Variable_operand ])
+        | Variable_form -> decode_variable_types (read_ubyte story (address + opcode_length)) in
+        
+        let type_length = (match form with Variable_form -> 1 | _ -> 0) in
+        let operands = decode_operands (address + opcode_length + type_length) operand_types in
+        let operand_length = operand_size operand_types in
+        let store_address = address + opcode_length + type_length + operand_length in
+        let store = if has_store opcode then Some (decode_variable (read_ubyte story store_address)) else None in
+        let store_length = if has_store opcode then 1 else 0 in
+        let branch_code_address = store_address + store_length in
+        let branch_length = if has_branch opcode then (branch_size branch_code_address) else 0 in
+        let text_address = branch_code_address + branch_length in
+        let text = if has_text opcode then Some (read_zstring story text_address) else None in
+        let text_length = if has_text opcode then (zstring_length story text_address) else 0 in
+        let total_length = opcode_length + type_length + operand_length + store_length + branch_length + text_length in
+        let branch = if has_branch opcode then Some (decode_branch branch_code_address total_length) else None in
+        let instr = {opcode; address; length = total_length; operands; store; branch; text} in
+        { instr with operands = munge_operands instr };;
 
     let display_instruction instr =
         let display_variable variable =
