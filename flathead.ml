@@ -933,8 +933,8 @@ let decode_instruction story address =
         let locals_count = read_ubyte story routine_address in
         routine_address + 1 + locals_count * 2 ;;
      
-    let display_routine story address =
-        display_reachable_instructions story (first_instruction story address) ;;
+    let display_routine story routine_address =
+        display_reachable_instructions story (first_instruction story routine_address) ;;
 
     let call_address instr = 
         if (is_call instr.opcode) then 
@@ -954,11 +954,16 @@ let decode_instruction story address =
             | Some routine_address -> routine_address :: routines in
         List.fold_left option_fold [] reachable_instrs;;
         
-
-         
-    
+    let all_routines story =
+        let ipc = initial_program_counter story in
+        let called_by_main = reachable_routines_in_routine story ipc in
+        let relation routine = 
+            reachable_routines_in_routine story (first_instruction story routine) in      
+        let all_routines = reflexive_closure_many called_by_main relation in
+        List.sort compare all_routines;;
         
- 
+    let display_all_routines story = 
+        List.iter (fun r -> Printf.printf "\n---\n%s" (display_routine story r)) (all_routines story);;
         
 end
 
@@ -966,15 +971,8 @@ open Story;;
 
 let s = load_story "ZORK1.DAT";;
 (* print_endline (display_header s); *)
-print_endline (display_bytes s 0x8d1a 64 );;
-print_endline (display_instructions s 0x8d1a 1);;
-print_endline (display_reachable_instructions s 0x4f05);;
 
-let called_by_main = reachable_routines_in_routine s 0x4f05;;
-
-let all_routines = reflexive_closure_many called_by_main (fun routine -> (Printf.printf "%04x\n" routine) ; reachable_routines_in_routine s (first_instruction s routine));;
-
-List.iter (Printf.printf "%04x\n") (List.sort compare all_routines);;
+display_all_routines s;;
 
 
 
