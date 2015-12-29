@@ -64,9 +64,6 @@ let display_string_bytes bytes start length =
 (* Takes a file name and produces a string containing the whole binary file. *)
 
 let read_entire_file filename =
-    (* TODO: Use the version that reads into a mutable byte buffer instead
-       TODO: of a string, when you get OCaml 4.02 *)
-       
     let file = open_in_bin filename in
     let length = in_channel_length file in
     let bytes = String.create length in
@@ -92,19 +89,102 @@ let signed_word word =
 
 let read_short bytes offset =
     signed_word (read_ushort bytes offset);;
+    
+module ImmutableBytes = struct
+
+    (* TODO: Track number of edits; when size of tree exceeds *)
+    (* TODO: size of a new string, consider making a new string. *)
+    
+    (* TODO: Consider: is it worthwhile to make a tree of int32s or int64s
+             instead of chars? The total memory consumed by all the nodes
+             would be smaller. *)
+
+    module IntMap = Map.Make(struct type t = int let compare = compare end)
+
+    type t = 
+    {
+        original_bytes : string;
+        edits : char IntMap.t 
+    };;
+    
+    let make bytes = { original_bytes = bytes; edits = IntMap.empty };;
+    
+    let read_ubyte bytes address =
+        let c = 
+            if IntMap.mem address bytes.edits then IntMap.find address bytes.edits
+            else  bytes.original_bytes.[address] in
+        int_of_char c;;
+        
+    let write_ubyte bytes address value = 
+        let ubyte_of_int value = 
+            ((value mod 256) + 256 ) mod 256 in
+        let b = char_of_int (ubyte_of_int value) in
+        { bytes with edits = IntMap.add address b bytes.edits };;
+    
+end
+
+module Memory = struct
+
+    type t = 
+    {
+        dynamic_memory : ImmutableBytes.t;
+        static_memory : string;
+        static_offset : int
+    };;
+    
+    let make dynamic static =
+        { dynamic_memory = ImmutableBytes.make dynamic; static_memory = static; static_offset = String.length dynamic };;
+    
+    let read_ubyte memory address =
+        if address < memory.static_offset then ImmutableBytes.read_ubyte memory.dynamic_memory address
+        else int_of_char (memory.static_memory.[address - memory.static_offset]);;
+        
+    let read_ushort memory address =
+        let high = read_ubyte memory address in
+        let low = read_ubyte memory (address + 1) in
+        256 * high + low;;
+        
+    let read_short memory address = 
+        signed_word (read_ushort memory address);;
+        
+    let ushort_of_int value = 
+        ((value mod 65536) + 65536 ) mod 65536;;
+        
+    let write_ubyte memory address value = 
+        if address >= memory.static_offset then failwith "attempt to write static memory"
+        else { memory with dynamic_memory = ImmutableBytes.write_ubyte memory.dynamic_memory address value };;
+        
+    let write_ushort memory address value = 
+        let w = ushort_of_int value in
+        let high = w lsr 8 in
+        let low = w land 0xFF in
+        let first = write_ubyte memory address high in
+        write_ubyte first (address + 1) low;;
+        
+    let display_bytes memory address length =
+        let blocksize = 16 in
+        let rec print_loop i acc =
+            if i = length then
+                acc
+            else (
+                let s = if i mod blocksize = 0 then Printf.sprintf "\n%06x: " (i + address) else "" in
+                let s2 = Printf.sprintf "%02x " (read_ubyte memory (i + address)) in
+            print_loop (i + 1) (acc ^ s ^ s2)) in
+        (print_loop 0 "") ^ "\n";;
+end
    
 module Story = struct
     type t =
     {
-        raw_bytes : string
+        memory : Memory.t
     };;
 
     (* *)   
     (* Debugging *)
     (* *)   
 
-    let display_bytes story offset length =
-        display_string_bytes story.raw_bytes offset length;;
+    let display_bytes story address length =
+        Memory.display_bytes story.memory address length;;
         
     (* *)   
     (* Decoding memory *)
@@ -118,16 +198,16 @@ module Story = struct
         (word lsr (high - length + 1)) land mask;;
         
     let read_byte_address story address = 
-        read_ushort story.raw_bytes address;;
+        Memory.read_ushort story.memory address;;
     
     let read_word story address = 
-        read_ushort story.raw_bytes address;;
+        Memory.read_ushort story.memory address;;
     
     let read_word_address story address =
-        (read_ushort story.raw_bytes address) * 2;;
+        (Memory.read_ushort story.memory address) * 2;;
         
     let read_ubyte story address =
-        read_ubyte story.raw_bytes address;;
+        Memory.read_ubyte story.memory address;;
         
     (* *)   
     (* Header *)
@@ -135,9 +215,7 @@ module Story = struct
 
     (* TODO: Header features beyond v3 *)
     
-    let load_story filename = 
-        { raw_bytes = read_entire_file filename };;
-        
+    let header_size = 64;;     
     let version_offset = 0;;
     let version story = 
         read_ubyte story version_offset;;
@@ -183,6 +261,23 @@ module Story = struct
         Printf.sprintf "Dictionary base             : %04x\n" (dictionary_base story) ^
         Printf.sprintf "High memory base            : %04x\n" (high_memory_base story) ^
         Printf.sprintf "Initial program counter     : %04x\n" (initial_program_counter story);;
+        
+    let load_story filename = 
+        (* TODO: Could read in just the header first, then the dynamic block as a string,
+        then the static block as a string. Less copying that way. *)
+        
+        let file = read_entire_file filename in
+        let len = String.length file in
+        if len < header_size then failwith (Printf.sprintf "%s is not a valid story file" filename);
+        let version = int_of_char file.[version_offset] in
+        if version <> 3 then failwith (Printf.sprintf "%s is not a valid version 3 story file" filename);
+        let high = int_of_char file.[static_memory_base_offset] in
+        let low = int_of_char file.[static_memory_base_offset + 1] in
+        let dynamic_length = high * 256 + low in
+        if (dynamic_length > len) then failwith (Printf.sprintf "%s is not a valid story file" filename);
+        let dynamic = String.sub file 0 dynamic_length in
+        let static = String.sub file dynamic_length (len - dynamic_length) in
+        { memory = Memory.make dynamic static };;
         
     (* *)   
     (* Abbreviation table and string decoding *)
@@ -970,9 +1065,9 @@ end
 open Story;;
 
 let s = load_story "ZORK1.DAT";;
-(* print_endline (display_header s); *)
+print_endline (display_header s); 
 
-display_all_routines s;;
+display_all_routines s;; 
 
 
 
