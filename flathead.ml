@@ -40,6 +40,8 @@ let read_entire_file filename =
    
 let signed_word word = 
     if word > 32767 then word - 65536 else word;;   
+    
+module IntMap = Map.Make(struct type t = int let compare = compare end)
      
 module ImmutableBytes = struct
 
@@ -50,7 +52,6 @@ module ImmutableBytes = struct
              instead of chars? The total memory consumed by all the nodes
              would be smaller. *)
 
-    module IntMap = Map.Make(struct type t = int let compare = compare end)
 
     type t = 
     {
@@ -979,9 +980,18 @@ module Story = struct
         let reachable = List.sort compare (all_reachable_addresses_in_routine story address) in
         List.fold_left (fun a b -> a ^ (display_instruction (decode_instruction story b))) "" reachable;;
  
+    let locals_count story routine_address =
+        let c = read_ubyte story routine_address in
+        if c > 15 then failwith "routine must have fewer than 16 locals";
+        c;;
+ 
     let first_instruction story routine_address =
-        let locals_count = read_ubyte story routine_address in
-        routine_address + 1 + locals_count * 2 ;;
+        routine_address + 1 + (locals_count story routine_address) * 2 ;;
+        
+    (* Note that here the locals are indexed from 1 to 15, not 0 to 14 *)
+    let local_default_value story routine_address n =
+        if n < 1 || n > 15 then failwith "invalid local";
+        read_word story (routine_address + 1 + 2 * (n - 1));;
      
     let display_routine story routine_address =
         display_reachable_instructions story (first_instruction story routine_address) ;;
@@ -1015,14 +1025,125 @@ module Story = struct
     let display_all_routines story = 
         List.iter (fun r -> Printf.printf "\n---\n%s" (display_routine story r)) (all_routines story);;
         
+    let read_global story n = 
+        read_word story ((global_variables_table_base story) + n * 2)
+        
 end
 
-open Story;;
+module Interpreter = struct
 
-let s = load_story "ZORK1.DAT";;
-print_endline (display_header s); 
+    open Story;;
 
-display_all_routines s;; 
+    type frame =
+    {
+        stack : int list;
+        locals : int IntMap.t;
+        called_from : int
+    };;
+
+    type t = 
+    {
+        story : Story.t;
+        program_counter : int;
+        frames : frame list
+    };;
+    
+    let make story = 
+    { 
+        story = story; 
+        program_counter = Story.initial_program_counter story;
+        frames = [ { stack = []; locals = IntMap.empty; called_from = 0 } ]
+    };;
+    
+    let current_frame interpreter = 
+        List.hd interpreter.frames;;
+    
+    let peek_stack interpreter = 
+        List.hd (current_frame interpreter).stack;;
+        
+    let pop_stack interpreter =
+        match interpreter.frames with
+        | h :: t -> { interpreter with frames = ({ h with stack = List.tl h.stack }) :: t }
+        | _ -> failwith "frame set is empty"
+        
+    let push_stack interpreter value =
+        match interpreter.frames with
+        | h :: t -> { interpreter with frames = ({ h with stack = value :: h.stack }) :: t }
+        | _ -> failwith "frame set is empty"
+   
+    (* Reading operands can change the state of the interpreter, because it can
+       pop the stack. *)
+       
+    let read_operand interpreter operand =
+        match operand with
+        | Large large -> (large, interpreter)
+        | Small small -> (small, interpreter)
+        | Variable Stack -> ((peek_stack interpreter), pop_stack interpreter)
+        | Variable Local local -> ((IntMap.find local ((List.hd interpreter.frames).locals)), interpreter)
+        | Variable Global global -> ((Story.read_global interpreter.story global), interpreter);;
+        
+    let create_default_locals story routine_address =
+        let count = Story.locals_count story routine_address in
+        let rec aux map i = 
+            if i > count then map
+            else aux (IntMap.add i (Story.local_default_value story routine_address i) map) (i + 1) in
+        aux IntMap.empty 1;;
+        
+    (* 
+        Always evaluate the operand -- we might be popping the stack
+        If the local number is valid then update the locals map with
+        the argument. *)
+    
+    let copy_argument_to_locals interpreter operand locals locals_count n =
+        let (value, new_interpreter) = read_operand interpreter operand in
+        let new_locals = if n <= locals_count then IntMap.add n value locals else locals in
+        (new_locals, new_interpreter);;
+        
+    let copy_arguments_to_locals interpreter operands locals locals_count =
+        let rec aux interpreter operands locals n =
+            match operands with
+            | [] -> (locals, interpreter)
+            | operand :: tail -> 
+                let (new_locals, new_interpreter) = copy_argument_to_locals interpreter operand locals locals_count n in
+                aux new_interpreter tail new_locals (n + 1) in
+            aux interpreter operands locals 1;;
+        
+    let handle_call interpreter instruction =
+        let routine_address_operand = List.hd instruction.operands in
+        let routine_operands = List.tl instruction.operands in
+        let (routine_address, interpreter) = read_operand interpreter routine_address_operand in
+        let first_instruction = Story.first_instruction interpreter.story routine_address in
+        let locals_count = Story.locals_count interpreter.story routine_address in
+        let default_locals = create_default_locals interpreter.story routine_address in
+        let (locals, interpreter) = copy_arguments_to_locals interpreter routine_operands default_locals locals_count in
+        let frame = { stack = []; locals = locals; called_from = instruction.address } in 
+        { story = interpreter.story; program_counter = first_instruction; frames = frame :: interpreter.frames };;
+    
+    let step interpreter =
+        let instruction = Story.decode_instruction interpreter.story interpreter.program_counter in
+        match instruction.opcode with
+        | VAR_224 -> handle_call interpreter instruction
+        | _ -> failwith (Printf.sprintf "instruction not yet implemented:%s" (Story.display_instruction instruction));;
+        
+    let display_interpreter interpreter = 
+    (* TODO: Display stack and frames *)
+        Story.display_instructions interpreter.story interpreter.program_counter 1;;
+
+end
+
+let story = Story.load_story "ZORK1.DAT";;
+
+(* print_endline (Story.display_reachable_instructions story (Story.initial_program_counter story));;  *)
+
+let interp = Interpreter.make story;;
+let interp2 = Interpreter.step interp;; 
+let interp3 = Interpreter.step interp2;; 
+
+print_endline (Interpreter.display_interpreter interp);;
+print_endline (Interpreter.display_interpreter interp2);;
+print_endline (Interpreter.display_interpreter interp3);;
+
+(* display_all_routines s;;  *)
 
 
 
