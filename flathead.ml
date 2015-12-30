@@ -38,8 +38,12 @@ let read_entire_file filename =
     close_in file;
     bytes;;
    
+  
+let unsigned_word word = 
+    ((word mod 65536) + 65536) mod 65536;;
+
 let signed_word word = 
-    let canonical = ((word mod 65536) + 65536) mod 65536 in
+    let canonical = unsigned_word word in
     if canonical > 32767 then canonical - 65536 else canonical;;   
     
 module IntMap = Map.Make(struct type t = int let compare = compare end)
@@ -380,6 +384,17 @@ module Story = struct
         
     let object_attributes_word_2 story n = 
         read_word story ((object_tree_base story) + (n - 1) * object_table_entry_size + 2);;
+        
+    let attribute_count = 32;;
+    (* TODO: 48 attributes in version 4 *)
+    
+    let object_attribute story object_number attribute_number =
+        if attribute_number < 0 || attribute_number >= attribute_count then failwith "bad attribute";
+        let offset = attribute_number / 8 in
+        let address = (object_tree_base story) + (object_number - 1) * object_table_entry_size + offset in
+        let byte = read_ubyte story address in
+        let bit = 7 - (attribute_number mod 8) in
+        fetch_bit bit byte;;
         
     let object_parent story n = 
         read_ubyte story ((object_tree_base story) + (n - 1) * object_table_entry_size + 4);;
@@ -1248,9 +1263,23 @@ module Interpreter = struct
             | _ -> failwith "store requires a variable and a value" in
         handle_branch store_interpreter instruction 0;;
         
+    let handle_print interpreter instruction =
+        (match instruction.text with
+        | Some text -> Printf.printf "%s" text
+        | _ -> failwith "no text in print instruction");
+        handle_branch interpreter instruction 0;;
+        
+    let handle_new_line interpreter instruction = 
+        Printf.printf "\n";
+        handle_branch interpreter instruction 0;;
+        
     let step interpreter =
         let handle_je x y interp = ((if (signed_word x) = (signed_word y) then 1 else 0), interp) in
+        let handle_or x y interp = (((unsigned_word x) lor (unsigned_word y)), interp) in
+        let handle_and x y interp = (((unsigned_word x) land (unsigned_word y)), interp) in
+        let handle_test_attr obj attr interp = ((if (Story.object_attribute interp.story obj attr) then 1 else 0), interp) in
         let handle_loadw arr ind interp = (Story.read_word interp.story (arr + ind * 2), interp) in
+        let handle_loadb arr ind interp = (Story.read_ubyte interp.story (arr + ind), interp) in
         let handle_get_prop_addr obj prop interp = (Story.property_address interp.story obj prop, interp) in
         let handle_add x y interp = ((signed_word (x + y)), interp) in
         let handle_sub x y interp = ((signed_word (x - y)), interp) in
@@ -1260,12 +1289,17 @@ module Interpreter = struct
         let handle_jz x interp = ((if x = 0 then 1 else 0), interp) in
         let handle_storew arr ind value interp = (0, { interp with story = write_word interp.story (arr + ind * 2) value }) in
         let handle_putprop obj prop value interp = (0, { interp with story = write_property interp.story obj prop value }) in
+        let handle_printnum x interp = (Printf.printf "%d" x; 0, interp) in
     
         let instruction = Story.decode_instruction interpreter.story interpreter.program_counter in
         match instruction.opcode with
         | OP2_1   -> handle_op2 interpreter instruction handle_je
+        | OP2_8   -> handle_op2 interpreter instruction handle_or
+        | OP2_9   -> handle_op2 interpreter instruction handle_and
+        | OP2_10  -> handle_op2 interpreter instruction handle_test_attr
         | OP2_13  -> handle_store interpreter instruction 
         | OP2_15  -> handle_op2 interpreter instruction handle_loadw
+        | OP2_16  -> handle_op2 interpreter instruction handle_loadb
         | OP2_18  -> handle_op2 interpreter instruction handle_get_prop_addr
         | OP2_20  -> handle_op2 interpreter instruction handle_add
         | OP2_21  -> handle_op2 interpreter instruction handle_sub 
@@ -1275,9 +1309,12 @@ module Interpreter = struct
         | OP1_128 -> handle_op1 interpreter instruction handle_jz
         | OP1_139 -> handle_ret interpreter instruction 
         | OP1_140 -> handle_jump interpreter instruction 
+        | OP0_178 -> handle_print interpreter instruction
+        | OP0_187 -> handle_new_line interpreter instruction
         | VAR_224 -> handle_call interpreter instruction
         | VAR_225 -> handle_op3 interpreter instruction handle_storew
         | VAR_227 -> handle_op3 interpreter instruction handle_putprop
+        | VAR_230 -> handle_op1 interpreter instruction handle_printnum
         | _ -> failwith (Printf.sprintf "instruction not yet implemented:%s" (Story.display_instruction instruction));;
         
     let display_locals interpreter = 
