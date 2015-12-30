@@ -1126,20 +1126,33 @@ module Interpreter = struct
         
     let handle_op1 interpreter instruction compute_result = 
         match instruction.operands with
-        | [lone_operand] ->  
-            let (value, operand_interpreter) = read_operand interpreter lone_operand in
-            let result = compute_result value in
-            handle_store_and_branch operand_interpreter instruction result
+        | [x_operand] ->  
+            let (x, operand_interpreter) = read_operand interpreter x_operand in
+            let (result, result_interpreter) = compute_result x operand_interpreter in
+            handle_store_and_branch result_interpreter instruction result
        | _ -> failwith "instruction must have one operand";;
     
     let handle_op2 interpreter instruction compute_result = 
         match instruction.operands with
-        | [left_operand; right_operand] ->  
-            let (left_value, left_interpreter) = read_operand interpreter left_operand in
-            let (right_value, right_interpreter) = read_operand left_interpreter right_operand in
-            let result = compute_result left_value right_value in
-            handle_store_and_branch right_interpreter instruction result
+        | [x_operand; y_operand] ->  
+            let (x, x_interpreter) = read_operand interpreter x_operand in
+            let (y, y_interpreter) = read_operand x_interpreter y_operand in
+            let (result, result_interpreter) = compute_result x y y_interpreter in
+            handle_store_and_branch result_interpreter instruction result
        | _ -> failwith "instruction must have two operands";;
+    
+    let handle_op3 interpreter instruction compute_result = 
+        match instruction.operands with
+        | [x_operand; y_operand; z_operand] ->  
+            let (x, x_interpreter) = read_operand interpreter x_operand in
+            let (y, y_interpreter) = read_operand x_interpreter y_operand in
+            let (z, z_interpreter) = read_operand y_interpreter z_operand in
+            let (result, result_interpreter) = compute_result x y z z_interpreter in
+            handle_store_and_branch result_interpreter instruction result
+       | _ -> failwith "instruction must have three operands";;
+    
+    
+    
     
     (* Handle calls -- TODO some of these can be made into local methods *)
         
@@ -1187,30 +1200,22 @@ module Interpreter = struct
             let next_program_counter = (current_frame operand_interpreter).called_from in
             let result_interpreter = { operand_interpreter with program_counter = next_program_counter; frames = List.tl operand_interpreter.frames } in
             let call_instr = Story.decode_instruction result_interpreter.story next_program_counter in
-            handle_store_and_branch result_interpreter call_instr result;;
+            handle_store_and_branch result_interpreter call_instr result
+        | _ -> failwith "instruction must have one operand";;
 
-    let handle_storew interpreter instruction = 
-        match instruction.operands with
-        | [array_operand; index_operand; value_operand] ->  
-            let (array_value, array_interpreter) = read_operand interpreter array_operand in
-            let (index_value, index_interpreter) = read_operand array_interpreter index_operand in
-            let (value_value, value_interpreter) = read_operand index_interpreter value_operand in
-            let storew_interpreter = { value_interpreter with story = write_word value_interpreter.story (array_value + index_value * 2) value_value } in
-            handle_store_and_branch storew_interpreter instruction 0;;
-  
     let step interpreter =
         let instruction = Story.decode_instruction interpreter.story interpreter.program_counter in
         match instruction.opcode with
-        | (* je *)   OP2_1   -> handle_op2 interpreter instruction (fun left right -> if (signed_word left) = (signed_word right) then 1 else 0)
-        | (* add *)  OP2_20  -> handle_op2 interpreter instruction (fun left right -> signed_word (left + right))
-        | (* sub *)  OP2_21  -> handle_op2 interpreter instruction (fun left right -> signed_word (left - right))
-        | (* mul *)  OP2_22  -> handle_op2 interpreter instruction (fun left right -> signed_word (left * right))
-        | (* div *)  OP2_23  -> handle_op2 interpreter instruction (fun left right -> signed_word (left / right))
-        | (* mod *)  OP2_24  -> handle_op2 interpreter instruction (fun left right -> signed_word (left mod right))
-        | (* jz  *)  OP1_128 -> handle_op1 interpreter instruction (fun x -> if x = 0 then 1 else 0)
+        | (* je *)   OP2_1   -> handle_op2 interpreter instruction (fun x y interp -> ((if (signed_word x) = (signed_word y) then 1 else 0), interp))
+        | (* add *)  OP2_20  -> handle_op2 interpreter instruction (fun x y interp -> ((signed_word (x + y)), interp))
+        | (* sub *)  OP2_21  -> handle_op2 interpreter instruction (fun x y interp -> ((signed_word (x - y)), interp))
+        | (* mul *)  OP2_22  -> handle_op2 interpreter instruction (fun x y interp -> ((signed_word (x * y)), interp))
+        | (* div *)  OP2_23  -> handle_op2 interpreter instruction (fun x y interp -> ((signed_word (x / y)), interp))
+        | (* mod *)  OP2_24  -> handle_op2 interpreter instruction (fun x y interp -> ((signed_word (x mod y)), interp))
+        | (* jz  *)  OP1_128 -> handle_op1 interpreter instruction (fun x interp -> ((if x = 0 then 1 else 0), interp))
         | (* ret *)  OP1_139 -> handle_ret interpreter instruction 
         | (* call *) VAR_224 -> handle_call interpreter instruction
-        | (* storew *) VAR_225 -> handle_storew interpreter instruction
+        | (* storew *) VAR_225 -> handle_op3 interpreter instruction (fun arr ind value interp -> (0, { interp with story = write_word interp.story (arr + ind * 2) value }))
         | _ -> failwith (Printf.sprintf "instruction not yet implemented:%s" (Story.display_instruction instruction));;
         
     let display_locals interpreter = 
