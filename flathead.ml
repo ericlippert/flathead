@@ -1249,14 +1249,17 @@ module Interpreter = struct
         let frame = { stack = []; locals = locals; called_from = instruction.address } in 
         { story = interpreter.story; program_counter = first_instruction; frames = frame :: interpreter.frames };;
         
+    let handle_return interpreter instruction value =
+        let next_program_counter = (current_frame interpreter).called_from in
+        let result_interpreter = { interpreter with program_counter = next_program_counter; frames = List.tl interpreter.frames } in
+        let call_instr = Story.decode_instruction result_interpreter.story next_program_counter in
+        handle_store_and_branch result_interpreter call_instr value;;
+       
     let handle_ret interpreter instruction = 
         match instruction.operands with
         | [lone_operand] ->  
             let (result, operand_interpreter) = read_operand interpreter lone_operand in
-            let next_program_counter = (current_frame operand_interpreter).called_from in
-            let result_interpreter = { operand_interpreter with program_counter = next_program_counter; frames = List.tl operand_interpreter.frames } in
-            let call_instr = Story.decode_instruction result_interpreter.story next_program_counter in
-            handle_store_and_branch result_interpreter call_instr result
+            handle_return operand_interpreter instruction result
         | _ -> failwith "instruction must have one operand";;
         
     let handle_jump interpreter instruction =
@@ -1315,6 +1318,8 @@ module Interpreter = struct
         let handle_div x y interp = ((signed_word (x / y)), interp) in
         let handle_mod x y interp = ((signed_word (x mod y)), interp) in
         let handle_jz x interp = ((if x = 0 then 1 else 0), interp) in
+        let handle_rtrue interp instr = handle_return interp instr 1 in
+        let handle_rfalse interp instr = handle_return interp instr 0 in
         let handle_storew arr ind value interp = (0, { interp with story = write_word interp.story (arr + ind * 2) value }) in
         let handle_putprop obj prop value interp = (0, { interp with story = write_property interp.story obj prop value }) in
         let handle_print_char x interp = (Printf.printf "%c" (char_of_int x); 0, interp) in
@@ -1323,29 +1328,45 @@ module Interpreter = struct
         let instruction = Story.decode_instruction interpreter.story interpreter.program_counter in
         match instruction.opcode with
         | OP2_1   -> handle_op2 interpreter instruction handle_je
+        
         | OP2_5   -> handle_inc_chk interpreter instruction
+        
         | OP2_8   -> handle_op2 interpreter instruction handle_or
         | OP2_9   -> handle_op2 interpreter instruction handle_and
         | OP2_10  -> handle_op2 interpreter instruction handle_test_attr
+        
         | OP2_13  -> handle_store interpreter instruction 
+        
         | OP2_15  -> handle_op2 interpreter instruction handle_loadw
         | OP2_16  -> handle_op2 interpreter instruction handle_loadb
+        
         | OP2_18  -> handle_op2 interpreter instruction handle_get_prop_addr
+        
         | OP2_20  -> handle_op2 interpreter instruction handle_add
         | OP2_21  -> handle_op2 interpreter instruction handle_sub 
         | OP2_22  -> handle_op2 interpreter instruction handle_mul
         | OP2_23  -> handle_op2 interpreter instruction handle_div
         | OP2_24  -> handle_op2 interpreter instruction handle_mod
+        
         | OP1_128 -> handle_op1 interpreter instruction handle_jz
+        
         | OP1_139 -> handle_ret interpreter instruction 
         | OP1_140 -> handle_jump interpreter instruction 
+        
+        | OP0_176 -> handle_rtrue interpreter instruction
+        | OP0_177 -> handle_rfalse interpreter instruction
         | OP0_178 -> handle_print interpreter instruction
+        
         | OP0_187 -> handle_new_line interpreter instruction
+        
         | VAR_224 -> handle_call interpreter instruction
         | VAR_225 -> handle_op3 interpreter instruction handle_storew
+        
         | VAR_227 -> handle_op3 interpreter instruction handle_putprop
+        
         | VAR_229 -> handle_op1 interpreter instruction handle_print_char
         | VAR_230 -> handle_op1 interpreter instruction handle_print_num
+        
         | _ -> failwith (Printf.sprintf "instruction not yet implemented:%s" (Story.display_instruction instruction));;
         
     let display_locals interpreter = 
