@@ -1119,13 +1119,16 @@ module Interpreter = struct
         | Some Global global -> write_global interpreter global result
         | Some Stack -> push_stack interpreter result;;
         
+    let handle_store_and_branch interpreter instruction result = 
+        let store_interpreter = handle_store interpreter instruction result in
+        handle_branch store_interpreter instruction result;;
+        
     let handle_op1 interpreter instruction compute_result = 
         match instruction.operands with
         | [lone_operand] ->  
             let (value, operand_interpreter) = read_operand interpreter lone_operand in
             let result = compute_result value in
-            let store_interpreter = handle_store operand_interpreter instruction result in
-            handle_branch store_interpreter instruction result
+            handle_store_and_branch operand_interpreter instruction result
        | _ -> failwith "instruction must have one operand";;
     
     let handle_op2 interpreter instruction compute_result = 
@@ -1134,8 +1137,7 @@ module Interpreter = struct
             let (left_value, left_interpreter) = read_operand interpreter left_operand in
             let (right_value, right_interpreter) = read_operand left_interpreter right_operand in
             let result = compute_result left_value right_value in
-            let store_interpreter = handle_store right_interpreter instruction result in
-            handle_branch store_interpreter instruction result
+            handle_store_and_branch right_interpreter instruction result
        | _ -> failwith "instruction must have two operands";;
     
     (* Handle calls -- TODO some of these can be made into local methods *)
@@ -1177,9 +1179,15 @@ module Interpreter = struct
         let frame = { stack = []; locals = locals; called_from = instruction.address } in 
         { story = interpreter.story; program_counter = first_instruction; frames = frame :: interpreter.frames };;
 
-
-
-    
+    let handle_storew interpreter instruction = 
+        match instruction.operands with
+        | [array_operand; index_operand; value_operand] ->  
+            let (array_value, array_interpreter) = read_operand interpreter array_operand in
+            let (index_value, index_interpreter) = read_operand array_interpreter index_operand in
+            let (value_value, value_interpreter) = read_operand index_interpreter value_operand in
+            let storew_interpreter = { value_interpreter with story = write_word value_interpreter.story (array_value + index_value * 2) value_value } in
+            handle_store_and_branch storew_interpreter instruction 0;;
+  
     let step interpreter =
         let instruction = Story.decode_instruction interpreter.story interpreter.program_counter in
         match instruction.opcode with
@@ -1191,6 +1199,7 @@ module Interpreter = struct
         | (* mod *)  OP2_24  -> handle_op2 interpreter instruction (fun left right -> signed_word (left mod right))
         | (* jz  *)  OP1_128 -> handle_op1 interpreter instruction (fun x -> if x = 0 then 1 else 0)
         | (* call *) VAR_224 -> handle_call interpreter instruction
+        | (* storew *) VAR_225 -> handle_storew interpreter instruction
         | _ -> failwith (Printf.sprintf "instruction not yet implemented:%s" (Story.display_instruction instruction));;
         
     let display_locals interpreter = 
