@@ -794,6 +794,11 @@ module Story = struct
             | _ -> (sense, Branch_address (address + total_length + offset - 2)) in
                 
         let munge_operands instr =
+            let munge_store_operands () =
+                (* The first operand must be a variable, but it is sometimes a value instead *)
+                match instr.operands with
+                | (Small small) :: tail -> (Variable (decode_variable small)) :: tail 
+                | _ -> instr.operands in   
             let munge_call_operands () =
                 match instr.operands with
                 | (Large large) :: tail -> (Large (resolve_packed_address large)) :: tail
@@ -805,6 +810,7 @@ module Story = struct
                 (* is this true? Can jump offset be taken from stack or variable? *)
                 (* Can a jump be small? If so, is it signed? *)
             match instr.opcode with
+            | OP2_13 -> munge_store_operands()
             | OP1_140 -> munge_jump_operands()
             | _ -> if (is_call instr.opcode) then munge_call_operands() else instr.operands in
             
@@ -1135,15 +1141,17 @@ module Interpreter = struct
             if (result <> 0) = sense then { interpreter with program_counter = branch_target }  
             else next_instruction interpreter instruction;;
             
-    let handle_store interpreter instruction result =
-        match instruction.store with
-        | None -> interpreter
-        | Some Local local -> write_local interpreter local result
-        | Some Global global -> write_global interpreter global result
-        | Some Stack -> push_stack interpreter result;;
-        
+    let do_store interpreter variable value =
+        match variable with
+        | Local local -> write_local interpreter local value
+        | Global global -> write_global interpreter global value
+        | Stack -> push_stack interpreter value;;
+            
     let handle_store_and_branch interpreter instruction result = 
-        let store_interpreter = handle_store interpreter instruction result in
+        let store_interpreter = 
+            match instruction.store with
+            | None -> interpreter
+            | Some variable -> do_store interpreter variable result in
         handle_branch store_interpreter instruction result;;
         
     let handle_op1 interpreter instruction compute_result = 
@@ -1200,7 +1208,9 @@ module Interpreter = struct
                 let (new_locals, new_interpreter) = copy_argument_to_locals interpreter operand locals locals_count n in
                 aux new_interpreter tail new_locals (n + 1) in
             aux interpreter operands locals 1;;
-        
+       
+    (* TODO: calls where the address is a large constant already have it unpacked, but 
+    if the address is loaded from a variable or the stack, it is not. We need to fix this up. *)
     let handle_call interpreter instruction =
         let routine_address_operand = List.hd instruction.operands in
         let routine_operands = List.tl instruction.operands in
@@ -1229,6 +1239,15 @@ module Interpreter = struct
             { target_interpreter with program_counter = target }
         | _ -> failwith "instruction must have one operand";;
         
+    let handle_store interpreter instruction =
+        let store_interpreter = 
+            match instruction.operands with
+            | [(Variable variable); value_operand] ->  
+                let (value, value_interpreter) = read_operand interpreter value_operand in
+                do_store value_interpreter variable value
+            | _ -> failwith "store requires a variable and a value" in
+        handle_branch store_interpreter instruction 0;;
+        
     let step interpreter =
         let handle_je x y interp = ((if (signed_word x) = (signed_word y) then 1 else 0), interp) in
         let handle_loadw arr ind interp = (Story.read_word interp.story (arr + ind * 2), interp) in
@@ -1245,6 +1264,7 @@ module Interpreter = struct
         let instruction = Story.decode_instruction interpreter.story interpreter.program_counter in
         match instruction.opcode with
         | OP2_1   -> handle_op2 interpreter instruction handle_je
+        | OP2_13  -> handle_store interpreter instruction 
         | OP2_15  -> handle_op2 interpreter instruction handle_loadw
         | OP2_18  -> handle_op2 interpreter instruction handle_get_prop_addr
         | OP2_20  -> handle_op2 interpreter instruction handle_add
