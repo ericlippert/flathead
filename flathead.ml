@@ -825,7 +825,13 @@ module Story = struct
                 (* is this true? Can jump offset be taken from stack or variable? *)
                 (* Can a jump be small? If so, is it signed? *)
             match instr.opcode with
-            | OP2_13 -> munge_store_operands()
+            | OP2_4   (* dec_chk *)
+            | OP2_5   (* inc_chk *) 
+            | OP2_13  (* store *)
+            | OP1_133 (* inc *)
+            | OP1_134 (* dec *)
+            | OP1_142 (* load *) 
+            | VAR_233 (* pull *) -> munge_store_operands()
             | OP1_140 -> munge_jump_operands()
             | _ -> if (is_call instr.opcode) then munge_call_operands() else instr.operands in
             
@@ -1127,14 +1133,20 @@ module Interpreter = struct
    
     (* Reading operands can change the state of the interpreter, because it can
        pop the stack. *)
-       
-    let read_operand interpreter operand =
+
+    let read_operand_no_pop interpreter operand =
         match operand with
-        | Large large -> (large, interpreter)
-        | Small small -> (small, interpreter)
-        | Variable Stack -> ((peek_stack interpreter), pop_stack interpreter)
-        | Variable Local local -> ((IntMap.find local ((List.hd interpreter.frames).locals)), interpreter)
-        | Variable Global global -> ((Story.read_global interpreter.story global), interpreter);;
+        | Large large -> large
+        | Small small -> small
+        | Variable Stack -> peek_stack interpreter
+        | Variable Local local -> IntMap.find local (current_frame interpreter).locals
+        | Variable Global global -> Story.read_global interpreter.story global;;
+        
+    let read_operand interpreter operand =
+        let value = read_operand_no_pop interpreter operand in
+        match operand with
+        | Variable Stack -> (value, pop_stack interpreter)
+        | _ -> (value, interpreter);;
         
     let next_instruction interpreter instruction =
         { interpreter with program_counter = interpreter.program_counter + instruction.length };;
@@ -1254,14 +1266,30 @@ module Interpreter = struct
             { target_interpreter with program_counter = target }
         | _ -> failwith "instruction must have one operand";;
         
+    let do_store_in_place interpreter variable value = 
+        match variable with
+        | Local local -> write_local interpreter local value
+        | Global global -> write_global interpreter global value
+        | Stack -> push_stack (pop_stack interpreter) value;;
+        
     let handle_store interpreter instruction =
-        let store_interpreter = 
-            match instruction.operands with
-            | [(Variable variable); value_operand] ->  
-                let (value, value_interpreter) = read_operand interpreter value_operand in
-                do_store value_interpreter variable value
-            | _ -> failwith "store requires a variable and a value" in
-        handle_branch store_interpreter instruction 0;;
+        match instruction.operands with
+        | [(Variable variable); value_operand] ->  
+            let (value, value_interpreter) = read_operand interpreter value_operand in 
+            let store_interpreter = do_store_in_place value_interpreter variable value in
+            handle_branch store_interpreter instruction 0
+        | _ -> failwith "store requires a variable and a value";;
+        
+    let handle_inc_chk interpreter instruction = 
+        match instruction.operands with
+        | [(Variable variable) as variable_operand ; test_operand] -> 
+            let original = read_operand_no_pop interpreter variable_operand in 
+            let incremented = signed_word (original + 1) in
+            let store_interpreter = do_store_in_place interpreter variable incremented in
+            let (test, test_interpreter) = read_operand store_interpreter test_operand in
+            let result = if (signed_word incremented) > (signed_word test) then 1 else 0 in
+            handle_branch test_interpreter instruction result
+        | _ -> failwith "inc_chk requires a variable and a value";;
         
     let handle_print interpreter instruction =
         (match instruction.text with
@@ -1289,11 +1317,13 @@ module Interpreter = struct
         let handle_jz x interp = ((if x = 0 then 1 else 0), interp) in
         let handle_storew arr ind value interp = (0, { interp with story = write_word interp.story (arr + ind * 2) value }) in
         let handle_putprop obj prop value interp = (0, { interp with story = write_property interp.story obj prop value }) in
-        let handle_printnum x interp = (Printf.printf "%d" x; 0, interp) in
+        let handle_print_char x interp = (Printf.printf "%c" (char_of_int x); 0, interp) in
+        let handle_print_num x interp = (Printf.printf "%d" x; 0, interp) in
     
         let instruction = Story.decode_instruction interpreter.story interpreter.program_counter in
         match instruction.opcode with
         | OP2_1   -> handle_op2 interpreter instruction handle_je
+        | OP2_5   -> handle_inc_chk interpreter instruction
         | OP2_8   -> handle_op2 interpreter instruction handle_or
         | OP2_9   -> handle_op2 interpreter instruction handle_and
         | OP2_10  -> handle_op2 interpreter instruction handle_test_attr
@@ -1314,7 +1344,8 @@ module Interpreter = struct
         | VAR_224 -> handle_call interpreter instruction
         | VAR_225 -> handle_op3 interpreter instruction handle_storew
         | VAR_227 -> handle_op3 interpreter instruction handle_putprop
-        | VAR_230 -> handle_op1 interpreter instruction handle_printnum
+        | VAR_229 -> handle_op1 interpreter instruction handle_print_char
+        | VAR_230 -> handle_op1 interpreter instruction handle_print_num
         | _ -> failwith (Printf.sprintf "instruction not yet implemented:%s" (Story.display_instruction instruction));;
         
     let display_locals interpreter = 
@@ -1328,7 +1359,7 @@ module Interpreter = struct
 
     (* TODO: Will need to signal a halted interpreter somehow. *)
     let rec run interpreter =
-        print_endline (display_interpreter interpreter);
+(*        print_endline (display_interpreter interpreter); *)
         let next = step interpreter in
         run next;;
 
