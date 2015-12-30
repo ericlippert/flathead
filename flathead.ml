@@ -1026,6 +1026,7 @@ module Story = struct
         let all_routines = reflexive_closure_many called_by_main relation in
         List.sort compare all_routines;;
         
+    (* TODO: Have this return a string? *)
     let display_all_routines story = 
         List.iter (fun r -> Printf.printf "\n---\n%s" (display_routine story r)) (all_routines story);;
     
@@ -1178,6 +1179,15 @@ module Interpreter = struct
         let (locals, interpreter) = copy_arguments_to_locals interpreter routine_operands default_locals locals_count in
         let frame = { stack = []; locals = locals; called_from = instruction.address } in 
         { story = interpreter.story; program_counter = first_instruction; frames = frame :: interpreter.frames };;
+        
+    let handle_ret interpreter instruction = 
+        match instruction.operands with
+        | [lone_operand] ->  
+            let (result, operand_interpreter) = read_operand interpreter lone_operand in
+            let next_program_counter = (current_frame operand_interpreter).called_from in
+            let result_interpreter = { operand_interpreter with program_counter = next_program_counter; frames = List.tl operand_interpreter.frames } in
+            let call_instr = Story.decode_instruction result_interpreter.story next_program_counter in
+            handle_store_and_branch result_interpreter call_instr result;;
 
     let handle_storew interpreter instruction = 
         match instruction.operands with
@@ -1198,6 +1208,7 @@ module Interpreter = struct
         | (* div *)  OP2_23  -> handle_op2 interpreter instruction (fun left right -> signed_word (left / right))
         | (* mod *)  OP2_24  -> handle_op2 interpreter instruction (fun left right -> signed_word (left mod right))
         | (* jz  *)  OP1_128 -> handle_op1 interpreter instruction (fun x -> if x = 0 then 1 else 0)
+        | (* ret *)  OP1_139 -> handle_ret interpreter instruction 
         | (* call *) VAR_224 -> handle_call interpreter instruction
         | (* storew *) VAR_225 -> handle_storew interpreter instruction
         | _ -> failwith (Printf.sprintf "instruction not yet implemented:%s" (Story.display_instruction instruction));;
