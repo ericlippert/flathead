@@ -1118,6 +1118,15 @@ module Interpreter = struct
         | Some Local local -> write_local interpreter local result
         | Some Global global -> write_global interpreter global result
         | Some Stack -> push_stack interpreter result;;
+        
+    let handle_op1 interpreter instruction compute_result = 
+        match instruction.operands with
+        | [lone_operand] ->  
+            let (value, operand_interpreter) = read_operand interpreter lone_operand in
+            let result = compute_result value in
+            let store_interpreter = handle_store operand_interpreter instruction result in
+            handle_branch store_interpreter instruction result
+       | _ -> failwith "instruction must have one operand";;
     
     let handle_op2 interpreter instruction compute_result = 
         match instruction.operands with
@@ -1125,9 +1134,9 @@ module Interpreter = struct
             let (left_value, left_interpreter) = read_operand interpreter left_operand in
             let (right_value, right_interpreter) = read_operand left_interpreter right_operand in
             let result = compute_result left_value right_value in
-            let store_interpreter = handle_store left_interpreter instruction result in
+            let store_interpreter = handle_store right_interpreter instruction result in
             handle_branch store_interpreter instruction result
-       | _ -> failwith "add instruction must have two operands";;
+       | _ -> failwith "instruction must have two operands";;
     
     (* Handle calls -- TODO some of these can be made into local methods *)
         
@@ -1180,6 +1189,7 @@ module Interpreter = struct
         | (* mul *)  OP2_22  -> handle_op2 interpreter instruction (fun left right -> signed_word (left * right))
         | (* div *)  OP2_23  -> handle_op2 interpreter instruction (fun left right -> signed_word (left / right))
         | (* mod *)  OP2_24  -> handle_op2 interpreter instruction (fun left right -> signed_word (left mod right))
+        | (* jz  *)  OP1_128 -> handle_op1 interpreter instruction (fun x -> if x = 0 then 1 else 0)
         | (* call *) VAR_224 -> handle_call interpreter instruction
         | _ -> failwith (Printf.sprintf "instruction not yet implemented:%s" (Story.display_instruction instruction));;
         
@@ -1201,6 +1211,8 @@ module Interpreter = struct
 end
 
 let story = Story.load_story "ZORK1.DAT";;
+
+print_endline (Story.display_header story);;
 
 (* print_endline (Story.display_reachable_instructions story (Story.initial_program_counter story));;  *)
 
