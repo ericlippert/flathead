@@ -39,7 +39,8 @@ let read_entire_file filename =
     bytes;;
    
 let signed_word word = 
-    if word > 32767 then word - 65536 else word;;   
+    let canonical = ((word mod 65536) + 65536) mod 65536 in
+    if canonical > 32767 then canonical - 65536 else canonical;;   
     
 module IntMap = Map.Make(struct type t = int let compare = compare end)
      
@@ -160,6 +161,9 @@ module Story = struct
         
     let read_ubyte story address =
         Memory.read_ubyte story.memory address;;
+        
+    let write_word story address value =
+        { memory = Memory.write_ushort story.memory address value };;
         
     (* *)   
     (* Header *)
@@ -1024,9 +1028,15 @@ module Story = struct
         
     let display_all_routines story = 
         List.iter (fun r -> Printf.printf "\n---\n%s" (display_routine story r)) (all_routines story);;
-        
+    
+    (* Note that globals are indexed starting at 16 *)
     let read_global story n = 
-        read_word story ((global_variables_table_base story) + n * 2)
+        if n < 16 || n > 255 then failwith "global variable index out of range";
+        read_word story ((global_variables_table_base story) + (n - 16) * 2)
+        
+    let write_global story n value =
+        if n < 16 || n > 255 then failwith "global variable index out of range";
+        write_word story ((global_variables_table_base story) + (n - 16) * 2) value;;
         
 end
 
@@ -1082,6 +1092,35 @@ module Interpreter = struct
         | Variable Local local -> ((IntMap.find local ((List.hd interpreter.frames).locals)), interpreter)
         | Variable Global global -> ((Story.read_global interpreter.story global), interpreter);;
         
+    let next_instruction interpreter instruction =
+        { interpreter with program_counter = interpreter.program_counter + instruction.length };;
+        
+    let write_local interpreter local value =
+        match interpreter.frames with
+        | h :: t -> { interpreter with frames = ({ h with locals = IntMap.add local value h.locals }) :: t }
+        | _ -> failwith "frame set is empty"
+        
+    let write_global interpreter global value = 
+        { interpreter with story = Story.write_global interpreter.story global value };;
+    
+    (* Signed 16 bit addition *)    
+    let handle_add interpreter instruction = 
+        match instruction.operands with
+        | [left_operand; right_operand] -> 
+            let (left_value, left_interpreter) = read_operand interpreter left_operand in
+            let (right_value, right_interpreter) = read_operand left_interpreter right_operand in
+            let result = signed_word (left_value + right_value) in
+            let result_interpreter = match instruction.store with
+                | None -> left_interpreter
+                | Some Local local -> write_local left_interpreter local result
+                | Some Global global -> write_global left_interpreter global result
+                | Some Stack -> push_stack left_interpreter result in
+            next_instruction result_interpreter instruction
+       | _ -> failwith "add instruction must have two operands";;
+              
+    
+    (* Handle calls -- TODO some of these can be made into local methods *)
+        
     let create_default_locals story routine_address =
         let count = Story.locals_count story routine_address in
         let rec aux map i = 
@@ -1118,16 +1157,31 @@ module Interpreter = struct
         let (locals, interpreter) = copy_arguments_to_locals interpreter routine_operands default_locals locals_count in
         let frame = { stack = []; locals = locals; called_from = instruction.address } in 
         { story = interpreter.story; program_counter = first_instruction; frames = frame :: interpreter.frames };;
+
+
+
     
     let step interpreter =
         let instruction = Story.decode_instruction interpreter.story interpreter.program_counter in
         match instruction.opcode with
+        | OP2_20 -> handle_add interpreter instruction
         | VAR_224 -> handle_call interpreter instruction
         | _ -> failwith (Printf.sprintf "instruction not yet implemented:%s" (Story.display_instruction instruction));;
         
+    let display_locals interpreter = 
+        IntMap.fold (fun local value acc -> acc ^ (Printf.sprintf "local%01x=%04x " local value)) (current_frame interpreter).locals "";;
+        
     let display_interpreter interpreter = 
     (* TODO: Display stack and frames *)
-        Story.display_instructions interpreter.story interpreter.program_counter 1;;
+        let locals = display_locals interpreter in
+        let instr = Story.display_instructions interpreter.story interpreter.program_counter 1 in
+        locals ^ "\n" ^ instr;;
+
+    (* TODO: Will need to signal a halted interpreter somehow. *)
+    let rec run interpreter =
+        print_endline (display_interpreter interpreter);
+        let next = step interpreter in
+        run next;;
 
 end
 
@@ -1136,12 +1190,8 @@ let story = Story.load_story "ZORK1.DAT";;
 (* print_endline (Story.display_reachable_instructions story (Story.initial_program_counter story));;  *)
 
 let interp = Interpreter.make story;;
-let interp2 = Interpreter.step interp;; 
-let interp3 = Interpreter.step interp2;; 
+Interpreter.run interp;;
 
-print_endline (Interpreter.display_interpreter interp);;
-print_endline (Interpreter.display_interpreter interp2);;
-print_endline (Interpreter.display_interpreter interp3);;
 
 (* display_all_routines s;;  *)
 
