@@ -464,6 +464,7 @@ module Story = struct
         let edit3 = set_object_sibling edit2 child old_first_child in
         set_object_child edit3 parent child;;
         
+    (* Produces a list of (number, length, address) tuples *)
     let property_addresses story object_number =
         let rec aux acc address =
             let b = read_ubyte story address in
@@ -483,6 +484,22 @@ module Story = struct
             match addresses with
             | [] -> 0
             | (number, _, address) :: tail -> if number = property_number then address else aux tail in
+        aux (property_addresses story object_number);;
+        
+    let object_property story object_number property_number =
+        let rec aux addresses =
+            match addresses with
+            | [] -> default_property_value story property_number
+            | (number, length, address) :: tail -> 
+                if number = property_number then (
+                    if length = 1 then
+                        read_ubyte story address 
+                    else if length = 2 then
+                        read_word story address
+                    else
+                        failwith "bad property length")
+                else
+                    aux tail in
         aux (property_addresses story object_number);;
         
     let write_property story object_number property_number value =
@@ -1196,6 +1213,15 @@ module Interpreter = struct
         | Variable Stack -> (value, pop_stack interpreter)
         | _ -> (value, interpreter);;
         
+    (* TODO: Be smarter about packed addresses *)
+    let read_address_operand interpreter operand =
+        match operand with
+        | Large large -> (large, interpreter)
+        | Small small -> (small, interpreter)
+        | Variable Stack -> (2 * (peek_stack interpreter), pop_stack interpreter)
+        | Variable Local local -> (2 * (IntMap.find local (current_frame interpreter).locals), interpreter)
+        | Variable Global global -> (2 * (Story.read_global interpreter.story global), interpreter);;
+    
     let next_instruction interpreter instruction =
         { interpreter with program_counter = interpreter.program_counter + instruction.length };;
         
@@ -1207,27 +1233,40 @@ module Interpreter = struct
     let write_global interpreter global value = 
         { interpreter with story = Story.write_global interpreter.story global value };;
 
-    let handle_branch interpreter instruction result =
-        match instruction.branch with
-        | None -> next_instruction interpreter instruction
-        | Some (sense, Return_false) -> failwith "return not yet implemented"
-        | Some (sense, Return_true) -> failwith "return not yet implemented"
-        | Some (sense, Branch_address branch_target) -> 
-            if (result <> 0) = sense then { interpreter with program_counter = branch_target }  
-            else next_instruction interpreter instruction;;
-            
     let do_store interpreter variable value =
         match variable with
         | Local local -> write_local interpreter local value
         | Global global -> write_global interpreter global value
         | Stack -> push_stack interpreter value;;
+ 
+
+
+    let rec handle_branch interpreter instruction result =
+        match instruction.branch with
+        | None -> next_instruction interpreter instruction
+        | Some (sense, Return_false) -> handle_return interpreter instruction 0
+        | Some (sense, Return_true) -> handle_return interpreter instruction 1
+        | Some (sense, Branch_address branch_target) -> 
+            if (result <> 0) = sense then { interpreter with program_counter = branch_target }  
+            else next_instruction interpreter instruction
             
-    let handle_store_and_branch interpreter instruction result = 
+    and handle_store_and_branch interpreter instruction result = 
         let store_interpreter = 
             match instruction.store with
             | None -> interpreter
             | Some variable -> do_store interpreter variable result in
-        handle_branch store_interpreter instruction result;;
+        handle_branch store_interpreter instruction result
+        
+    and handle_return interpreter instruction value =
+        let next_program_counter = (current_frame interpreter).called_from in
+        let result_interpreter = { interpreter with program_counter = next_program_counter; frames = List.tl interpreter.frames } in
+        let call_instr = Story.decode_instruction result_interpreter.story next_program_counter in
+        handle_store_and_branch result_interpreter call_instr value;;
+       
+        
+        
+        
+        
         
     let handle_op1 interpreter instruction compute_result = 
         match instruction.operands with
@@ -1284,25 +1323,21 @@ module Interpreter = struct
                 aux new_interpreter tail new_locals (n + 1) in
             aux interpreter operands locals 1;;
        
-    (* TODO: calls where the address is a large constant already have it unpacked, but 
-    if the address is loaded from a variable or the stack, it is not. We need to fix this up. *)
     let handle_call interpreter instruction =
         let routine_address_operand = List.hd instruction.operands in
         let routine_operands = List.tl instruction.operands in
-        let (routine_address, interpreter) = read_operand interpreter routine_address_operand in
-        let first_instruction = Story.first_instruction interpreter.story routine_address in
+        let (routine_address, interpreter) = read_address_operand interpreter routine_address_operand in
+        
+        (* TODO: If the address is zero this is the same as return false, but does it evaluate the operands? *) 
+        
         let locals_count = Story.locals_count interpreter.story routine_address in
         let default_locals = create_default_locals interpreter.story routine_address in
         let (locals, interpreter) = copy_arguments_to_locals interpreter routine_operands default_locals locals_count in
+        
         let frame = { stack = []; locals = locals; called_from = instruction.address } in 
+        let first_instruction = Story.first_instruction interpreter.story routine_address in
         { story = interpreter.story; program_counter = first_instruction; frames = frame :: interpreter.frames };;
         
-    let handle_return interpreter instruction value =
-        let next_program_counter = (current_frame interpreter).called_from in
-        let result_interpreter = { interpreter with program_counter = next_program_counter; frames = List.tl interpreter.frames } in
-        let call_instr = Story.decode_instruction result_interpreter.story next_program_counter in
-        handle_store_and_branch result_interpreter call_instr value;;
-       
     let handle_ret interpreter instruction = 
         match instruction.operands with
         | [lone_operand] ->  
@@ -1356,7 +1391,8 @@ module Interpreter = struct
         | _ -> failwith "pull requires a variable ";;
         
        
-       
+      
+    (* TODO: Consolidate the code in the printing methods *)
        
        
     let handle_print interpreter instruction =
@@ -1369,8 +1405,12 @@ module Interpreter = struct
         Printf.printf "\n";
         handle_branch interpreter instruction 0;;
         
+    
+        
+        
     let step interpreter =
         let handle_je x y interp = ((if (signed_word x) = (signed_word y) then 1 else 0), interp) in
+        let handle_jin x y interp = ((if (object_parent interp.story x) = y then 1 else 0), interp) in
         let handle_or x y interp = (((unsigned_word x) lor (unsigned_word y)), interp) in
         let handle_and x y interp = (((unsigned_word x) land (unsigned_word y)), interp) in
         let handle_test_attr obj attr interp = ((if (Story.object_attribute interp.story obj attr) then 1 else 0), interp) in
@@ -1378,6 +1418,7 @@ module Interpreter = struct
         let handle_insert_obj child parent interp = (0, { interp with story = insert_object interp.story child parent } ) in
         let handle_loadw arr ind interp = (Story.read_word interp.story (arr + ind * 2), interp) in
         let handle_loadb arr ind interp = (Story.read_ubyte interp.story (arr + ind), interp) in
+        let handle_get_prop obj prop interp = (object_property interp.story obj prop, interp) in
         let handle_get_prop_addr obj prop interp = (Story.property_address interp.story obj prop, interp) in
         let handle_add x y interp = ((signed_word (x + y)), interp) in
         let handle_sub x y interp = ((signed_word (x - y)), interp) in
@@ -1385,6 +1426,8 @@ module Interpreter = struct
         let handle_div x y interp = ((signed_word (x / y)), interp) in
         let handle_mod x y interp = ((signed_word (x mod y)), interp) in
         let handle_jz x interp = ((if x = 0 then 1 else 0), interp) in
+        let handle_get_parent x interp = (object_parent interp.story x, interp) in
+        let handle_print_obj x interp = (Printf.printf "%s" (object_name interp.story x); 0, interp) in
         let handle_rtrue interp instr = handle_return interp instr 1 in
         let handle_rfalse interp instr = handle_return interp instr 0 in
         let handle_storew arr ind value interp = (0, { interp with story = write_word interp.story (arr + ind * 2) value }) in
@@ -1398,6 +1441,7 @@ module Interpreter = struct
         | OP2_1   -> handle_op2 interpreter instruction handle_je
         
         | OP2_5   -> handle_inc_chk interpreter instruction
+        | OP2_6   -> handle_op2 interpreter instruction handle_jin
         
         | OP2_8   -> handle_op2 interpreter instruction handle_or
         | OP2_9   -> handle_op2 interpreter instruction handle_and
@@ -1408,7 +1452,7 @@ module Interpreter = struct
         | OP2_14  -> handle_op2 interpreter instruction handle_insert_obj
         | OP2_15  -> handle_op2 interpreter instruction handle_loadw
         | OP2_16  -> handle_op2 interpreter instruction handle_loadb
-        
+        | OP2_17  -> handle_op2 interpreter instruction handle_get_prop
         | OP2_18  -> handle_op2 interpreter instruction handle_get_prop_addr
         
         | OP2_20  -> handle_op2 interpreter instruction handle_add
@@ -1419,6 +1463,9 @@ module Interpreter = struct
         
         | OP1_128 -> handle_op1 interpreter instruction handle_jz
         
+        | OP1_131 -> handle_op1 interpreter instruction handle_get_parent
+        
+        | OP1_138 -> handle_op1 interpreter instruction handle_print_obj
         | OP1_139 -> handle_ret interpreter instruction 
         | OP1_140 -> handle_jump interpreter instruction 
         
@@ -1444,15 +1491,18 @@ module Interpreter = struct
     let display_locals interpreter = 
         IntMap.fold (fun local value acc -> acc ^ (Printf.sprintf "local%01x=%04x " local value)) (current_frame interpreter).locals "";;
         
+    let display_stack interpreter = 
+        List.fold_left (fun str x -> Printf.sprintf "%s %04x" str x ) "" (current_frame interpreter).stack;;
+        
     let display_interpreter interpreter = 
-    (* TODO: Display stack and frames *)
         let locals = display_locals interpreter in
+        let stack = display_stack interpreter in
         let instr = Story.display_instructions interpreter.story interpreter.program_counter 1 in
-        locals ^ "\n" ^ instr;;
+        locals ^ "\n" ^ stack ^ "\n" ^ instr;;
 
     (* TODO: Will need to signal a halted interpreter somehow. *)
     let rec run interpreter =
-(*        print_endline (display_interpreter interpreter); *)
+(*        print_endline (display_interpreter interpreter);  *)
         let next = step interpreter in
         run next;;
 
@@ -1461,14 +1511,15 @@ end
 let story = Story.load_story "ZORK1.DAT";;
 
 print_endline (Story.display_header story);;
+print_endline (Story.display_default_property_table story);;
 
+(* Story.display_all_routines story;; *)
 (* print_endline (Story.display_reachable_instructions story (Story.initial_program_counter story));;  *)
 
 let interp = Interpreter.make story;;
 Interpreter.run interp;;
 
 
-(* display_all_routines s;;  *)
 
 
 
@@ -1480,3 +1531,4 @@ print_endline (display_object_tree s);;
 print_endline (display_dictionary s);;  
 
 *)
+
