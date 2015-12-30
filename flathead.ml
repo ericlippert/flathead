@@ -411,6 +411,13 @@ module Story = struct
         let property_name_word_length = read_ubyte story property_header_address in
         let first_property_address = property_header_address + 1 + property_name_word_length * 2 in
         aux [] first_property_address;;
+        
+    let property_address story object_number property_number =
+        let rec aux addresses =
+            match addresses with
+            | [] -> 0
+            | (number, _, address) :: tail -> if number = property_number then address else aux tail in
+        aux (property_addresses story object_number);;
             
     let display_properties story object_number =
         List.fold_left (fun s (property_number, length, address) -> s ^ (Printf.sprintf "%02x " property_number)) "" (property_addresses story object_number);; 
@@ -577,8 +584,8 @@ module Story = struct
         | OP2_12  -> "clear_attr"
         | OP2_13  -> "store"
         | OP2_14  -> "insert_obj"
-        | OP2_15  -> "get_prop_addr"
-        | OP2_16  -> "get_next_prop"
+        | OP2_15  -> "loadw"
+        | OP2_16  -> "loadb"
         | OP2_17  -> "get_prop"
         | OP2_18  -> "get_prop_addr"
         | OP2_19  -> "get_next_prop"
@@ -1204,18 +1211,29 @@ module Interpreter = struct
         | _ -> failwith "instruction must have one operand";;
 
     let step interpreter =
+        let handle_je x y interp = ((if (signed_word x) = (signed_word y) then 1 else 0), interp) in
+        let handle_get_prop_addr obj prop interp = (Story.property_address interp.story obj prop, interp) in
+        let handle_add x y interp = ((signed_word (x + y)), interp) in
+        let handle_sub x y interp = ((signed_word (x - y)), interp) in
+        let handle_mul x y interp = ((signed_word (x * y)), interp) in
+        let handle_div x y interp = ((signed_word (x / y)), interp) in
+        let handle_mod x y interp = ((signed_word (x mod y)), interp) in
+        let handle_jz x interp = ((if x = 0 then 1 else 0), interp) in
+        let handle_storew arr ind value interp = (0, { interp with story = write_word interp.story (arr + ind * 2) value }) in
+    
         let instruction = Story.decode_instruction interpreter.story interpreter.program_counter in
         match instruction.opcode with
-        | (* je *)   OP2_1   -> handle_op2 interpreter instruction (fun x y interp -> ((if (signed_word x) = (signed_word y) then 1 else 0), interp))
-        | (* add *)  OP2_20  -> handle_op2 interpreter instruction (fun x y interp -> ((signed_word (x + y)), interp))
-        | (* sub *)  OP2_21  -> handle_op2 interpreter instruction (fun x y interp -> ((signed_word (x - y)), interp))
-        | (* mul *)  OP2_22  -> handle_op2 interpreter instruction (fun x y interp -> ((signed_word (x * y)), interp))
-        | (* div *)  OP2_23  -> handle_op2 interpreter instruction (fun x y interp -> ((signed_word (x / y)), interp))
-        | (* mod *)  OP2_24  -> handle_op2 interpreter instruction (fun x y interp -> ((signed_word (x mod y)), interp))
-        | (* jz  *)  OP1_128 -> handle_op1 interpreter instruction (fun x interp -> ((if x = 0 then 1 else 0), interp))
-        | (* ret *)  OP1_139 -> handle_ret interpreter instruction 
-        | (* call *) VAR_224 -> handle_call interpreter instruction
-        | (* storew *) VAR_225 -> handle_op3 interpreter instruction (fun arr ind value interp -> (0, { interp with story = write_word interp.story (arr + ind * 2) value }))
+        | OP2_1   -> handle_op2 interpreter instruction handle_je
+        | OP2_18  -> handle_op2 interpreter instruction handle_get_prop_addr
+        | OP2_20  -> handle_op2 interpreter instruction handle_add
+        | OP2_21  -> handle_op2 interpreter instruction handle_sub 
+        | OP2_22  -> handle_op2 interpreter instruction handle_mul
+        | OP2_23  -> handle_op2 interpreter instruction handle_div
+        | OP2_24  -> handle_op2 interpreter instruction handle_mod
+        | OP1_128 -> handle_op1 interpreter instruction handle_jz
+        | OP1_139 -> handle_ret interpreter instruction 
+        | VAR_224 -> handle_call interpreter instruction
+        | VAR_225 -> handle_op3 interpreter instruction handle_storew
         | _ -> failwith (Printf.sprintf "instruction not yet implemented:%s" (Story.display_instruction instruction));;
         
     let display_locals interpreter = 
