@@ -165,6 +165,9 @@ module Story = struct
     let write_word story address value =
         { memory = Memory.write_ushort story.memory address value };;
         
+    let write_byte story address value =
+        { memory = Memory.write_ubyte story.memory address value };;
+        
     (* *)   
     (* Header *)
     (* *)   
@@ -418,6 +421,18 @@ module Story = struct
             | [] -> 0
             | (number, _, address) :: tail -> if number = property_number then address else aux tail in
         aux (property_addresses story object_number);;
+        
+    let write_property story object_number property_number value =
+        let rec aux addresses =
+            match addresses with
+            | [] -> (0, 0)
+            | (number, length, address) :: tail -> if number = property_number then (address, length) else aux tail in
+        let (address, length) = aux (property_addresses story object_number) in
+        if address = 0 then failwith "invalid property";
+        match length with
+        | 1 -> write_byte story address value
+        | 2 -> write_word story address value
+        | _ -> failwith "property cannot be set";;
             
     let display_properties story object_number =
         List.fold_left (fun s (property_number, length, address) -> s ^ (Printf.sprintf "%02x " property_number)) "" (property_addresses story object_number);; 
@@ -1158,9 +1173,6 @@ module Interpreter = struct
             handle_store_and_branch result_interpreter instruction result
        | _ -> failwith "instruction must have three operands";;
     
-    
-    
-    
     (* Handle calls -- TODO some of these can be made into local methods *)
         
     let create_default_locals story routine_address =
@@ -1209,9 +1221,17 @@ module Interpreter = struct
             let call_instr = Story.decode_instruction result_interpreter.story next_program_counter in
             handle_store_and_branch result_interpreter call_instr result
         | _ -> failwith "instruction must have one operand";;
-
+        
+    let handle_jump interpreter instruction =
+        match instruction.operands with
+        | [target_operand] ->  
+            let (target, target_interpreter) = read_operand interpreter target_operand in
+            { target_interpreter with program_counter = target }
+        | _ -> failwith "instruction must have one operand";;
+        
     let step interpreter =
         let handle_je x y interp = ((if (signed_word x) = (signed_word y) then 1 else 0), interp) in
+        let handle_loadw arr ind interp = (Story.read_word interp.story (arr + ind * 2), interp) in
         let handle_get_prop_addr obj prop interp = (Story.property_address interp.story obj prop, interp) in
         let handle_add x y interp = ((signed_word (x + y)), interp) in
         let handle_sub x y interp = ((signed_word (x - y)), interp) in
@@ -1220,10 +1240,12 @@ module Interpreter = struct
         let handle_mod x y interp = ((signed_word (x mod y)), interp) in
         let handle_jz x interp = ((if x = 0 then 1 else 0), interp) in
         let handle_storew arr ind value interp = (0, { interp with story = write_word interp.story (arr + ind * 2) value }) in
+        let handle_putprop obj prop value interp = (0, { interp with story = write_property interp.story obj prop value }) in
     
         let instruction = Story.decode_instruction interpreter.story interpreter.program_counter in
         match instruction.opcode with
         | OP2_1   -> handle_op2 interpreter instruction handle_je
+        | OP2_15  -> handle_op2 interpreter instruction handle_loadw
         | OP2_18  -> handle_op2 interpreter instruction handle_get_prop_addr
         | OP2_20  -> handle_op2 interpreter instruction handle_add
         | OP2_21  -> handle_op2 interpreter instruction handle_sub 
@@ -1232,8 +1254,10 @@ module Interpreter = struct
         | OP2_24  -> handle_op2 interpreter instruction handle_mod
         | OP1_128 -> handle_op1 interpreter instruction handle_jz
         | OP1_139 -> handle_ret interpreter instruction 
+        | OP1_140 -> handle_jump interpreter instruction 
         | VAR_224 -> handle_call interpreter instruction
         | VAR_225 -> handle_op3 interpreter instruction handle_storew
+        | VAR_227 -> handle_op3 interpreter instruction handle_putprop
         | _ -> failwith (Printf.sprintf "instruction not yet implemented:%s" (Story.display_instruction instruction));;
         
     let display_locals interpreter = 
