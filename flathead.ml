@@ -150,6 +150,9 @@ module Story = struct
     let fetch_bit n word =
         (word land (1 lsl n)) lsr n = 1;;
         
+    let set_bit n word = 
+        word lor (1 lsl n);;
+        
     let fetch_bits high length word =
         let mask = lnot (-1 lsl length) in
         (word lsr (high - length + 1)) land mask;;
@@ -395,6 +398,15 @@ module Story = struct
         let byte = read_ubyte story address in
         let bit = 7 - (attribute_number mod 8) in
         fetch_bit bit byte;;
+        
+    let set_object_attribute story object_number attribute_number = 
+        if attribute_number < 0 || attribute_number >= attribute_count then failwith "bad attribute";
+        let offset = attribute_number / 8 in
+        let address = (object_tree_base story) + (object_number - 1) * object_table_entry_size + offset in
+        let byte = read_ubyte story address in
+        let bit = 7 - (attribute_number mod 8) in
+        let result = set_bit bit byte in
+        write_byte story address result;;
         
     let object_parent story obj = 
         read_ubyte story ((object_tree_base story) + (obj - 1) * object_table_entry_size + 4);;
@@ -1304,6 +1316,10 @@ module Interpreter = struct
             let (target, target_interpreter) = read_operand interpreter target_operand in
             { target_interpreter with program_counter = target }
         | _ -> failwith "instruction must have one operand";;
+       
+       
+    (* TODO: These instructions treat variables as storage rather than values *)
+    (* TODO: There may be a way to consolidate the code here *)
         
     let do_store_in_place interpreter variable value = 
         match variable with
@@ -1330,6 +1346,19 @@ module Interpreter = struct
             handle_branch test_interpreter instruction result
         | _ -> failwith "inc_chk requires a variable and a value";;
         
+    let handle_pull interpreter instruction =
+        match instruction.operands with
+        | [(Variable variable)] ->  
+            let value = peek_stack interpreter in
+            let popped_interpreter = pop_stack interpreter in
+            let store_interpreter = do_store_in_place popped_interpreter variable value in
+            handle_branch store_interpreter instruction 0
+        | _ -> failwith "pull requires a variable ";;
+        
+       
+       
+       
+       
     let handle_print interpreter instruction =
         (match instruction.text with
         | Some text -> Printf.printf "%s" text
@@ -1345,6 +1374,7 @@ module Interpreter = struct
         let handle_or x y interp = (((unsigned_word x) lor (unsigned_word y)), interp) in
         let handle_and x y interp = (((unsigned_word x) land (unsigned_word y)), interp) in
         let handle_test_attr obj attr interp = ((if (Story.object_attribute interp.story obj attr) then 1 else 0), interp) in
+        let handle_set_attr obj attr interp = (0, { interp with story = set_object_attribute interp.story obj attr } ) in
         let handle_insert_obj child parent interp = (0, { interp with story = insert_object interp.story child parent } ) in
         let handle_loadw arr ind interp = (Story.read_word interp.story (arr + ind * 2), interp) in
         let handle_loadb arr ind interp = (Story.read_ubyte interp.story (arr + ind), interp) in
@@ -1361,6 +1391,7 @@ module Interpreter = struct
         let handle_putprop obj prop value interp = (0, { interp with story = write_property interp.story obj prop value }) in
         let handle_print_char x interp = (Printf.printf "%c" (char_of_int x); 0, interp) in
         let handle_print_num x interp = (Printf.printf "%d" x; 0, interp) in
+        let handle_push x interp = (0, push_stack interp x) in
     
         let instruction = Story.decode_instruction interpreter.story interpreter.program_counter in
         match instruction.opcode with
@@ -1371,6 +1402,7 @@ module Interpreter = struct
         | OP2_8   -> handle_op2 interpreter instruction handle_or
         | OP2_9   -> handle_op2 interpreter instruction handle_and
         | OP2_10  -> handle_op2 interpreter instruction handle_test_attr
+        | OP2_11  -> handle_op2 interpreter instruction handle_set_attr
         
         | OP2_13  -> handle_store interpreter instruction 
         | OP2_14  -> handle_op2 interpreter instruction handle_insert_obj
@@ -1403,6 +1435,9 @@ module Interpreter = struct
         
         | VAR_229 -> handle_op1 interpreter instruction handle_print_char
         | VAR_230 -> handle_op1 interpreter instruction handle_print_num
+        
+        | VAR_232 -> handle_op1 interpreter instruction handle_push
+        | VAR_233 -> handle_pull interpreter instruction 
         
         | _ -> failwith (Printf.sprintf "instruction not yet implemented:%s" (Story.display_instruction instruction));;
         
