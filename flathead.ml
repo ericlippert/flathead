@@ -396,14 +396,23 @@ module Story = struct
         let bit = 7 - (attribute_number mod 8) in
         fetch_bit bit byte;;
         
-    let object_parent story n = 
-        read_ubyte story ((object_tree_base story) + (n - 1) * object_table_entry_size + 4);;
+    let object_parent story obj = 
+        read_ubyte story ((object_tree_base story) + (obj - 1) * object_table_entry_size + 4);;
     
-    let object_sibling story n = 
-        read_ubyte story ((object_tree_base story) + (n - 1) * object_table_entry_size + 5);;
+    let set_object_parent story obj new_parent = 
+        write_byte story ((object_tree_base story) + (obj - 1) * object_table_entry_size + 4) new_parent;;
+    
+    let object_sibling story obj = 
+        read_ubyte story ((object_tree_base story) + (obj - 1) * object_table_entry_size + 5);;
+
+    let set_object_sibling story obj new_sibling = 
+        write_byte story ((object_tree_base story) + (obj - 1) * object_table_entry_size + 5) new_sibling;;
         
-    let object_child story n = 
-        read_ubyte story ((object_tree_base story) + (n - 1) * object_table_entry_size + 6);;
+    let object_child story obj = 
+        read_ubyte story ((object_tree_base story) + (obj - 1) * object_table_entry_size + 6);;
+        
+    let set_object_child story obj new_child = 
+        write_byte story ((object_tree_base story) + (obj - 1) * object_table_entry_size + 6) new_child;;
         
     let object_property_address story n = 
         read_word story ((object_tree_base story) + (n - 1) * object_table_entry_size + 7);;
@@ -415,6 +424,33 @@ module Story = struct
         let length = read_ubyte story (object_property_address story n) in
         if length = 0 then "<unnamed>" 
         else read_zstring story ((object_property_address story n) + 1);;
+        
+    let find_previous_sibling story child =
+        let rec aux current =
+            let next_sibling = object_sibling story current in
+            if next_sibling = child then current
+            else aux next_sibling in
+        let parent = object_parent story child in
+        let first_child = object_child story parent in
+        aux first_child;;
+        
+    let insert_object story child parent =
+        let original_parent = object_parent story child in
+        let edit1 = 
+            if original_parent <> 0 then (
+                let first_child_of_original_parent = object_child story original_parent in
+                if child = first_child_of_original_parent then
+                    let new_first_child = object_sibling story child in
+                    set_object_child story original_parent new_first_child
+                else
+                    let previous_sibling = find_previous_sibling story child in
+                    let next_sibling = object_sibling story child in
+                    set_object_sibling story previous_sibling next_sibling)
+            else story in
+        let edit2 = set_object_parent edit1 child parent in
+        let old_first_child = object_child edit2 parent in
+        let edit3 = set_object_sibling edit2 child old_first_child in
+        set_object_child edit3 parent child;;
         
     let property_addresses story object_number =
         let rec aux acc address =
@@ -1309,6 +1345,7 @@ module Interpreter = struct
         let handle_or x y interp = (((unsigned_word x) lor (unsigned_word y)), interp) in
         let handle_and x y interp = (((unsigned_word x) land (unsigned_word y)), interp) in
         let handle_test_attr obj attr interp = ((if (Story.object_attribute interp.story obj attr) then 1 else 0), interp) in
+        let handle_insert_obj child parent interp = (0, { interp with story = insert_object interp.story child parent } ) in
         let handle_loadw arr ind interp = (Story.read_word interp.story (arr + ind * 2), interp) in
         let handle_loadb arr ind interp = (Story.read_ubyte interp.story (arr + ind), interp) in
         let handle_get_prop_addr obj prop interp = (Story.property_address interp.story obj prop, interp) in
@@ -1336,7 +1373,7 @@ module Interpreter = struct
         | OP2_10  -> handle_op2 interpreter instruction handle_test_attr
         
         | OP2_13  -> handle_store interpreter instruction 
-        
+        | OP2_14  -> handle_op2 interpreter instruction handle_insert_obj
         | OP2_15  -> handle_op2 interpreter instruction handle_loadw
         | OP2_16  -> handle_op2 interpreter instruction handle_loadb
         
