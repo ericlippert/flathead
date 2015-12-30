@@ -1102,22 +1102,32 @@ module Interpreter = struct
         
     let write_global interpreter global value = 
         { interpreter with story = Story.write_global interpreter.story global value };;
+
+    let handle_branch interpreter instruction result =
+        match instruction.branch with
+        | None -> next_instruction interpreter instruction
+        | Some (sense, Return_false) -> failwith "return not yet implemented"
+        | Some (sense, Return_true) -> failwith "return not yet implemented"
+        | Some (sense, Branch_address branch_target) -> 
+            if (result <> 0) = sense then { interpreter with program_counter = branch_target }  
+            else next_instruction interpreter instruction;;
+            
+    let handle_store interpreter instruction result =
+        match instruction.store with
+        | None -> interpreter
+        | Some Local local -> write_local interpreter local result
+        | Some Global global -> write_global interpreter global result
+        | Some Stack -> push_stack interpreter result;;
     
-    (* Signed 16 bit addition *)    
-    let handle_add interpreter instruction = 
+    let handle_op2 interpreter instruction compute_result = 
         match instruction.operands with
-        | [left_operand; right_operand] -> 
+        | [left_operand; right_operand] ->  
             let (left_value, left_interpreter) = read_operand interpreter left_operand in
             let (right_value, right_interpreter) = read_operand left_interpreter right_operand in
-            let result = signed_word (left_value + right_value) in
-            let result_interpreter = match instruction.store with
-                | None -> left_interpreter
-                | Some Local local -> write_local left_interpreter local result
-                | Some Global global -> write_global left_interpreter global result
-                | Some Stack -> push_stack left_interpreter result in
-            next_instruction result_interpreter instruction
+            let result = compute_result left_value right_value in
+            let store_interpreter = handle_store left_interpreter instruction result in
+            handle_branch store_interpreter instruction result
        | _ -> failwith "add instruction must have two operands";;
-              
     
     (* Handle calls -- TODO some of these can be made into local methods *)
         
@@ -1164,8 +1174,13 @@ module Interpreter = struct
     let step interpreter =
         let instruction = Story.decode_instruction interpreter.story interpreter.program_counter in
         match instruction.opcode with
-        | OP2_20 -> handle_add interpreter instruction
-        | VAR_224 -> handle_call interpreter instruction
+        | (* je *)   OP2_1   -> handle_op2 interpreter instruction (fun left right -> if (signed_word left) = (signed_word right) then 1 else 0)
+        | (* add *)  OP2_20  -> handle_op2 interpreter instruction (fun left right -> signed_word (left + right))
+        | (* sub *)  OP2_21  -> handle_op2 interpreter instruction (fun left right -> signed_word (left - right))
+        | (* mul *)  OP2_22  -> handle_op2 interpreter instruction (fun left right -> signed_word (left * right))
+        | (* div *)  OP2_23  -> handle_op2 interpreter instruction (fun left right -> signed_word (left / right))
+        | (* mod *)  OP2_24  -> handle_op2 interpreter instruction (fun left right -> signed_word (left mod right))
+        | (* call *) VAR_224 -> handle_call interpreter instruction
         | _ -> failwith (Printf.sprintf "instruction not yet implemented:%s" (Story.display_instruction instruction));;
         
     let display_locals interpreter = 
