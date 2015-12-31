@@ -1364,13 +1364,17 @@ module Interpreter = struct
             handle_return operand_interpreter instruction result
         | _ -> failwith "instruction must have one operand";;
         
+    let handle_ret_popped interpreter instruction = 
+        let result = peek_stack interpreter in
+        let popped_interpreter = pop_stack interpreter in
+        handle_return popped_interpreter instruction result;;
+        
     let handle_jump interpreter instruction =
         match instruction.operands with
         | [target_operand] ->  
             let (target, target_interpreter) = read_operand interpreter target_operand in
             { target_interpreter with program_counter = target }
         | _ -> failwith "instruction must have one operand";;
-       
        
     (* TODO: These instructions treat variables as storage rather than values *)
     (* TODO: There may be a way to consolidate the code here *)
@@ -1538,6 +1542,8 @@ module Interpreter = struct
         | OP0_176 -> handle_rtrue interpreter instruction
         | OP0_177 -> handle_rfalse interpreter instruction
         | OP0_178 -> handle_print interpreter instruction
+        
+        | OP0_184 -> handle_ret_popped interpreter instruction
         
         | OP0_187 -> handle_new_line interpreter instruction
         
