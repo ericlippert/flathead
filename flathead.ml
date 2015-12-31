@@ -334,7 +334,7 @@ module Story = struct
                 let zchar1 = fetch_bits 14 5 word in
                 let zchar2 = fetch_bits 9 5 word in
                 let zchar3 = fetch_bits 4 5 word in
-                let s = Printf.sprintf "(%01x %02x %02x %02x) " is_end zchar1 zchar2 zchar3 in
+                let s = Printf.sprintf "%04x(%01x %02x %02x %02x) " word is_end zchar1 zchar2 zchar3 in
                 aux (i + 2) (acc ^ s)) in
         aux 0 "";;
        
@@ -515,7 +515,12 @@ module Story = struct
         | _ -> failwith "property cannot be set";;
             
     let display_properties story object_number =
-        List.fold_left (fun s (property_number, length, address) -> s ^ (Printf.sprintf "%02x " property_number)) "" (property_addresses story object_number);; 
+        List.fold_left (fun s (property_number, length, address) -> 
+            s ^ 
+            (Printf.sprintf "%02x" property_number) ^ 
+            (if length = 1 || length = 2 then Printf.sprintf ":%04x " (object_property story object_number property_number) else " "))
+            "" 
+            (property_addresses story object_number);; 
        
     let display_object_table story =
         let count = object_count story in 
@@ -1240,12 +1245,17 @@ module Interpreter = struct
         | Stack -> push_stack interpreter value;;
  
 
+    (* TODO: Is there a way to make this more elegant? *)
 
     let rec handle_branch interpreter instruction result =
         match instruction.branch with
         | None -> next_instruction interpreter instruction
-        | Some (sense, Return_false) -> handle_return interpreter instruction 0
-        | Some (sense, Return_true) -> handle_return interpreter instruction 1
+        | Some (sense, Return_false) -> 
+            if (result <> 0) = sense then handle_return interpreter instruction 0
+            else next_instruction interpreter instruction
+        | Some (sense, Return_true) -> 
+            if (result <> 0) = sense then handle_return interpreter instruction 1
+            else next_instruction interpreter instruction
         | Some (sense, Branch_address branch_target) -> 
             if (result <> 0) = sense then { interpreter with program_counter = branch_target }  
             else next_instruction interpreter instruction
@@ -1502,7 +1512,7 @@ module Interpreter = struct
 
     (* TODO: Will need to signal a halted interpreter somehow. *)
     let rec run interpreter =
-(*        print_endline (display_interpreter interpreter);  *)
+(*        print_endline (display_interpreter interpreter);   *)
         let next = step interpreter in
         run next;;
 
@@ -1510,25 +1520,20 @@ end
 
 let story = Story.load_story "ZORK1.DAT";;
 
+(*
 print_endline (Story.display_header story);;
 print_endline (Story.display_default_property_table story);;
-
-(* Story.display_all_routines story;; *)
-(* print_endline (Story.display_reachable_instructions story (Story.initial_program_counter story));;  *)
+print_endline (Story.display_object_tree story);;
+print_endline (Story.display_object_table story);;
+print_endline (Story.display_properties story 0xb4);;
+print_endline (Story.display_bytes story (Story.object_property_address story 0xb4) 64);;
+print_endline (Story.display_zchar_bytes story (1 + (Story.object_property_address story 0xb4)) 64);;
+Story.display_all_routines story;; 
+print_endline (Story.display_reachable_instructions story (Story.initial_program_counter story));; 
+print_endline (display_abbreviation_table s);;
+print_endline (display_default_property_table s);; 
+print_endline (display_dictionary s);;  
+*)
 
 let interp = Interpreter.make story;;
 Interpreter.run interp;;
-
-
-
-
-
-(*
-print_endline (display_abbreviation_table s);;
-print_endline (display_default_property_table s);; 
-print_endline (display_object_table s);;
-print_endline (display_object_tree s);;
-print_endline (display_dictionary s);;  
-
-*)
-
