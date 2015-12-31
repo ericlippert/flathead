@@ -451,7 +451,7 @@ module Story = struct
        
     let object_count story =
         ((object_property_address story 1) - (object_tree_base story)) / object_table_entry_size;;
-       
+        
     let object_name story n = 
         let length = read_ubyte story (object_property_address story n) in
         if length = 0 then "<unnamed>" 
@@ -498,6 +498,12 @@ module Story = struct
         let property_name_word_length = read_ubyte story property_header_address in
         let first_property_address = property_header_address + 1 + property_name_word_length * 2 in
         aux [] first_property_address;;
+        
+    let property_length_from_address story address =
+        if address = 0 then 0 
+        else
+            let b = read_ubyte story (address - 1) in
+            1 + fetch_bits 7 3 b;;
         
     let property_address story object_number property_number =
         let rec aux addresses =
@@ -1715,6 +1721,7 @@ module Interpreter = struct
         let handle_get_sibling x interp = (object_sibling interp.story x, interp) in
         let handle_get_child x interp = (object_child interp.story x, interp) in
         let handle_get_parent x interp = (object_parent interp.story x, interp) in
+        let handle_get_prop_len x interp = (property_length_from_address interp.story x, interp) in
         let handle_print_obj x interp = (interpreter_print (object_name interp.story x); 0, interp) in
         let handle_rtrue interp instr = handle_return interp instr 1 in
         let handle_rfalse interp instr = handle_return interp instr 0 in
@@ -1756,7 +1763,7 @@ module Interpreter = struct
         | OP1_129 -> handle_op1 interpreter instruction handle_get_sibling
         | OP1_130 -> handle_op1 interpreter instruction handle_get_child
         | OP1_131 -> handle_op1 interpreter instruction handle_get_parent
-        
+        | OP1_132 -> handle_op1 interpreter instruction handle_get_prop_len
         | OP1_133 -> handle_inc interpreter instruction 
         | OP1_134 -> handle_dec interpreter instruction 
         
