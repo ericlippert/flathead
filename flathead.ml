@@ -1723,6 +1723,8 @@ module Interpreter = struct
         let handle_get_parent x interp = (object_parent interp.story x, interp) in
         let handle_get_prop_len x interp = (property_length_from_address interp.story x, interp) in
         let handle_print_obj x interp = (interpreter_print (object_name interp.story x); 0, interp) in
+        (* TODO: Better job of handling packed addresses *)
+        let handle_print_paddr x interp = (interpreter_print (read_zstring interp.story (x * 2)); 0, interp) in
         let handle_rtrue interp instr = handle_return interp instr 1 in
         let handle_rfalse interp instr = handle_return interp instr 0 in
         let handle_storew arr ind value interp = (0, { interp with story = write_word interp.story (arr + ind * 2) value }) in
@@ -1770,6 +1772,7 @@ module Interpreter = struct
         | OP1_138 -> handle_op1 interpreter instruction handle_print_obj
         | OP1_139 -> handle_ret interpreter instruction 
         | OP1_140 -> handle_jump interpreter instruction 
+        | OP1_141 -> handle_op1 interpreter instruction handle_print_paddr
         
         | OP0_176 -> handle_rtrue interpreter instruction
         | OP0_177 -> handle_rfalse interpreter instruction
