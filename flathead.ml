@@ -150,6 +150,9 @@ module Story = struct
     let fetch_bit n word =
         (word land (1 lsl n)) lsr n = 1;;
         
+    let clear_bit n word = 
+        word land (lnot (1 lsl n));;
+        
     let set_bit n word = 
         word lor (1 lsl n);;
         
@@ -416,6 +419,15 @@ module Story = struct
         let result = set_bit bit byte in
         write_byte story address result;;
         
+    let clear_object_attribute story object_number attribute_number = 
+        if attribute_number < 0 || attribute_number >= attribute_count then failwith "bad attribute";
+        let offset = attribute_number / 8 in
+        let address = (object_tree_base story) + (object_number - 1) * object_table_entry_size + offset in
+        let byte = read_ubyte story address in
+        let bit = 7 - (attribute_number mod 8) in
+        let result = clear_bit bit byte in
+        write_byte story address result;;
+        
     let object_parent story obj = 
         read_ubyte story ((object_tree_base story) + (obj - 1) * object_table_entry_size + 4);;
     
@@ -616,7 +628,7 @@ module Story = struct
         let truncated = if (String.length text) > dictionary_max_word_length then String.sub text 0 dictionary_max_word_length else text in
         let rec aux i =
             if i = count then 0
-            else if truncated = dictionary_entry story i then i
+            else if truncated = dictionary_entry story i then dictionary_entry_address story i
             else aux (i + 1) in
         aux 0;;
     
@@ -1404,6 +1416,8 @@ module Interpreter = struct
         let popped_interpreter = pop_stack interpreter in
         handle_return popped_interpreter instruction result;;
         
+        
+        
     let handle_jump interpreter instruction =
         match instruction.operands with
         | [target_operand] ->  
@@ -1488,6 +1502,12 @@ module Interpreter = struct
         | Some text -> interpreter_print text
         | _ -> failwith "no text in print instruction");
         handle_branch interpreter instruction 0;;
+        
+    let handle_print_ret interpreter instruction =
+        (match instruction.text with
+        | Some text -> interpreter_print text
+        | _ -> failwith "no text in print_ret instruction");
+        handle_return interpreter instruction 1;;
         
     let handle_new_line interpreter instruction = 
         interpreter_print "\n";
@@ -1668,6 +1688,7 @@ module Interpreter = struct
         (* TODO: Make a write byte that takes interpreters *)
        
         let length_copied_interpreter = { tokens_written_interpreter with story = write_byte tokens_written_interpreter.story (parse_address + 1) count } in
+        
         (0, length_copied_interpreter) ;;
         
     let step interpreter =
@@ -1679,6 +1700,7 @@ module Interpreter = struct
         let handle_and x y interp = (((unsigned_word x) land (unsigned_word y)), interp) in
         let handle_test_attr obj attr interp = ((if (Story.object_attribute interp.story obj attr) then 1 else 0), interp) in
         let handle_set_attr obj attr interp = (0, { interp with story = set_object_attribute interp.story obj attr } ) in
+        let handle_clear_attr obj attr interp = (0, { interp with story = clear_object_attribute interp.story obj attr } ) in
         let handle_insert_obj child parent interp = (0, { interp with story = insert_object interp.story child parent } ) in
         let handle_loadw arr ind interp = (Story.read_word interp.story (arr + ind * 2), interp) in
         let handle_loadb arr ind interp = (Story.read_ubyte interp.story (arr + ind), interp) in
@@ -1697,6 +1719,7 @@ module Interpreter = struct
         let handle_rtrue interp instr = handle_return interp instr 1 in
         let handle_rfalse interp instr = handle_return interp instr 0 in
         let handle_storew arr ind value interp = (0, { interp with story = write_word interp.story (arr + ind * 2) value }) in
+        let handle_storeb arr ind value interp = (0, { interp with story = write_byte interp.story (arr + ind) value }) in
         let handle_putprop obj prop value interp = (0, { interp with story = write_property interp.story obj prop value }) in
         let handle_print_char x interp = (interpreter_print (Printf.sprintf "%c" (char_of_int x)); 0, interp) in
         let handle_print_num x interp = (interpreter_print (Printf.sprintf "%d" x); 0, interp) in
@@ -1715,7 +1738,7 @@ module Interpreter = struct
         | OP2_9   -> handle_op2 interpreter instruction handle_and
         | OP2_10  -> handle_op2 interpreter instruction handle_test_attr
         | OP2_11  -> handle_op2 interpreter instruction handle_set_attr
-        
+        | OP2_12  -> handle_op2 interpreter instruction handle_clear_attr
         | OP2_13  -> handle_store interpreter instruction 
         | OP2_14  -> handle_op2 interpreter instruction handle_insert_obj
         | OP2_15  -> handle_op2 interpreter instruction handle_loadw
@@ -1744,6 +1767,7 @@ module Interpreter = struct
         | OP0_176 -> handle_rtrue interpreter instruction
         | OP0_177 -> handle_rfalse interpreter instruction
         | OP0_178 -> handle_print interpreter instruction
+        | OP0_179 -> handle_print_ret interpreter instruction
         
         | OP0_184 -> handle_ret_popped interpreter instruction
         
@@ -1751,9 +1775,8 @@ module Interpreter = struct
         
         | VAR_224 -> handle_call interpreter instruction
         | VAR_225 -> handle_op3 interpreter instruction handle_storew
-        
+        | VAR_226 -> handle_op3 interpreter instruction handle_storeb
         | VAR_227 -> handle_op3 interpreter instruction handle_putprop
-        
         | VAR_228 -> handle_op2 interpreter instruction handle_sread
         | VAR_229 -> handle_op1 interpreter instruction handle_print_char
         | VAR_230 -> handle_op1 interpreter instruction handle_print_num
@@ -1777,8 +1800,8 @@ module Interpreter = struct
 
     (* TODO: Will need to signal a halted interpreter somehow. *)
     let rec run interpreter =
-        (* print_endline (display_interpreter interpreter);     
-        *)
+(*         print_endline (display_interpreter interpreter);      *)
+        
         let next = step interpreter in
         run next;;
 
