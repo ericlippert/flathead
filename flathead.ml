@@ -584,6 +584,9 @@ module Story = struct
     let dictionary_entry_length story =
         read_ubyte story ((dictionary_base story) + (word_separators_count story) + 1);;
         
+    (* TODO: 9 in v4 and up *)
+    let dictionary_max_word_length = 6;;
+        
     let dictionary_entry_count story =     
         read_word story ((dictionary_base story) + (word_separators_count story) + 2);;
     
@@ -610,12 +613,10 @@ module Story = struct
     let dictionary_lookup story text =
         (* TODO: Could make this more efficient via binary search *)
         let count = dictionary_entry_count story in
+        let truncated = if (String.length text) > dictionary_max_word_length then String.sub text 0 dictionary_max_word_length else text in
         let rec aux i =
             if i = count then 0
-            else if starts_with text (dictionary_entry story i) then (
-                let possible = dictionary_entry_address story i in
-                let better = aux (i + 1) in
-                if better = 0 then possible else better)
+            else if truncated = dictionary_entry story i then i
             else aux (i + 1) in
         aux 0;;
     
@@ -1656,10 +1657,11 @@ module Interpreter = struct
                 if count = maximum_parse then 
                     (count, interp)
                 else 
+               ( 
                     let addr_story = write_word interp.story address dictionary_address in
                     let len_story = write_byte addr_story (address + 2) (String.length tok) in
-                    let offset_story = write_byte len_story (address + 3) text_offset in
-                    write_tokens tail (address + 4) (count + 1) { interp with story = offset_story } in
+                    let offset_story = write_byte len_story (address + 3) (text_offset + 1) in
+                    write_tokens tail (address + 4) (count + 1) { interp with story = offset_story } ) in
                     
         let (count, tokens_written_interpreter) =  write_tokens tokens (parse_address + 2) 0 string_copied_interpreter in
         
@@ -1673,6 +1675,7 @@ module Interpreter = struct
         let handle_jl x y interp = ((if (signed_word x) < (signed_word y) then 1 else 0), interp) in
         let handle_jg x y interp = ((if (signed_word x) > (signed_word y) then 1 else 0), interp) in
         let handle_jin x y interp = ((if (object_parent interp.story x) = y then 1 else 0), interp) in
+        let handle_test x y interp = ((if ((unsigned_word x) land (unsigned_word y)) = (unsigned_word y) then 1 else 0), interp) in
         let handle_or x y interp = (((unsigned_word x) lor (unsigned_word y)), interp) in
         let handle_and x y interp = (((unsigned_word x) land (unsigned_word y)), interp) in
         let handle_test_attr obj attr interp = ((if (Story.object_attribute interp.story obj attr) then 1 else 0), interp) in
@@ -1708,7 +1711,7 @@ module Interpreter = struct
         | OP2_4   -> handle_dec_chk interpreter instruction
         | OP2_5   -> handle_inc_chk interpreter instruction
         | OP2_6   -> handle_op2 interpreter instruction handle_jin
-        
+        | OP2_7   -> handle_op2 interpreter instruction handle_test
         | OP2_8   -> handle_op2 interpreter instruction handle_or
         | OP2_9   -> handle_op2 interpreter instruction handle_and
         | OP2_10  -> handle_op2 interpreter instruction handle_test_attr
