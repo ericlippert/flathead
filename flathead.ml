@@ -1273,11 +1273,6 @@ module Interpreter = struct
         let call_instr = Story.decode_instruction result_interpreter.story next_program_counter in
         handle_store_and_branch result_interpreter call_instr value;;
        
-        
-        
-        
-        
-        
     let handle_op1 interpreter instruction compute_result = 
         match instruction.operands with
         | [x_operand] ->  
@@ -1293,7 +1288,7 @@ module Interpreter = struct
             let (y, y_interpreter) = read_operand x_interpreter y_operand in
             let (result, result_interpreter) = compute_result x y y_interpreter in
             handle_store_and_branch result_interpreter instruction result
-       | _ -> failwith "instruction must have two operands";;
+       | _ -> failwith (Printf.sprintf "instruction at %04x must have two operands" instruction.address );;
     
     let handle_op3 interpreter instruction compute_result = 
         match instruction.operands with
@@ -1303,7 +1298,18 @@ module Interpreter = struct
             let (z, z_interpreter) = read_operand y_interpreter z_operand in
             let (result, result_interpreter) = compute_result x y z z_interpreter in
             handle_store_and_branch result_interpreter instruction result
-       | _ -> failwith "instruction must have three operands";;
+       | _ -> failwith (Printf.sprintf "instruction at %04x must have three operands" instruction.address );;
+       
+    let handle_op4 interpreter instruction compute_result = 
+        match instruction.operands with
+        | [w_operand; x_operand; y_operand; z_operand] ->  
+            let (w, w_interpreter) = read_operand interpreter w_operand in
+            let (x, x_interpreter) = read_operand w_interpreter x_operand in
+            let (y, y_interpreter) = read_operand x_interpreter y_operand in
+            let (z, z_interpreter) = read_operand y_interpreter z_operand in
+            let (result, result_interpreter) = compute_result w x y z z_interpreter in
+            handle_store_and_branch result_interpreter instruction result
+       | _ -> failwith (Printf.sprintf "instruction at %04x must have four operands" instruction.address );;
     
     (* Handle calls -- TODO some of these can be made into local methods *)
         
@@ -1416,10 +1422,20 @@ module Interpreter = struct
         handle_branch interpreter instruction 0;;
         
     
-        
+    (* je is interesting in that it is a 2OP that can take 2 to 4 operands. *)
+    
+    
+    let handle_je interpreter instruction = 
+        let handle_je2 test x interp = ((if (signed_word test) = (signed_word x) then 1 else 0), interp) in
+        let handle_je3 test x y interp = ((let test = (signed_word test) in if test = (signed_word x) || test == (signed_word y) then 1 else 0), interp) in
+        let handle_je4 test x y z interp = ((let test = (signed_word test) in if test = (signed_word x) || test = (signed_word y) || test == (signed_word z) then 1 else 0), interp) in
+        match instruction.operands with
+        | [_; _] -> handle_op2 interpreter instruction handle_je2
+        | [_; _; _] -> handle_op3 interpreter instruction handle_je3
+        | [_; _; _; _] -> handle_op4 interpreter instruction handle_je4
+        | _ -> failwith "je instruction requires 2 to 4 operands";;
         
     let step interpreter =
-        let handle_je x y interp = ((if (signed_word x) = (signed_word y) then 1 else 0), interp) in
         let handle_jin x y interp = ((if (object_parent interp.story x) = y then 1 else 0), interp) in
         let handle_or x y interp = (((unsigned_word x) lor (unsigned_word y)), interp) in
         let handle_and x y interp = (((unsigned_word x) land (unsigned_word y)), interp) in
@@ -1436,6 +1452,7 @@ module Interpreter = struct
         let handle_div x y interp = ((signed_word (x / y)), interp) in
         let handle_mod x y interp = ((signed_word (x mod y)), interp) in
         let handle_jz x interp = ((if x = 0 then 1 else 0), interp) in
+        let handle_get_child x interp = (object_child interp.story x, interp) in
         let handle_get_parent x interp = (object_parent interp.story x, interp) in
         let handle_print_obj x interp = (Printf.printf "%s" (object_name interp.story x); 0, interp) in
         let handle_rtrue interp instr = handle_return interp instr 1 in
@@ -1448,7 +1465,7 @@ module Interpreter = struct
     
         let instruction = Story.decode_instruction interpreter.story interpreter.program_counter in
         match instruction.opcode with
-        | OP2_1   -> handle_op2 interpreter instruction handle_je
+        | OP2_1   -> handle_je interpreter instruction 
         
         | OP2_5   -> handle_inc_chk interpreter instruction
         | OP2_6   -> handle_op2 interpreter instruction handle_jin
@@ -1473,6 +1490,7 @@ module Interpreter = struct
         
         | OP1_128 -> handle_op1 interpreter instruction handle_jz
         
+        | OP1_130 -> handle_op1 interpreter instruction handle_get_child
         | OP1_131 -> handle_op1 interpreter instruction handle_get_parent
         
         | OP1_138 -> handle_op1 interpreter instruction handle_print_obj
@@ -1512,7 +1530,7 @@ module Interpreter = struct
 
     (* TODO: Will need to signal a halted interpreter somehow. *)
     let rec run interpreter =
-(*        print_endline (display_interpreter interpreter);   *)
+(*        print_endline (display_interpreter interpreter);    *)
         let next = step interpreter in
         run next;;
 
