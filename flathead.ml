@@ -1342,17 +1342,20 @@ module Interpreter = struct
     let handle_call interpreter instruction =
         let routine_address_operand = List.hd instruction.operands in
         let routine_operands = List.tl instruction.operands in
-        let (routine_address, interpreter) = read_address_operand interpreter routine_address_operand in
+        let (routine_address, routine_interpreter) = read_address_operand interpreter routine_address_operand in
+        let locals_count = Story.locals_count routine_interpreter.story routine_address in
+        let default_locals = create_default_locals routine_interpreter.story routine_address in
+        let (locals, locals_interpreter) = copy_arguments_to_locals routine_interpreter routine_operands default_locals locals_count in
         
-        (* TODO: If the address is zero this is the same as return false, but does it evaluate the operands? *) 
-        
-        let locals_count = Story.locals_count interpreter.story routine_address in
-        let default_locals = create_default_locals interpreter.story routine_address in
-        let (locals, interpreter) = copy_arguments_to_locals interpreter routine_operands default_locals locals_count in
-        
-        let frame = { stack = []; locals = locals; called_from = instruction.address } in 
-        let first_instruction = Story.first_instruction interpreter.story routine_address in
-        { story = interpreter.story; program_counter = first_instruction; frames = frame :: interpreter.frames };;
+        (* We have evaluated all the operands; at this point we need to bail if the 
+           target address is zero *)
+           
+        if routine_address = 0 then 
+            handle_store_and_branch locals_interpreter instruction 0
+        else 
+            let frame = { stack = []; locals = locals; called_from = instruction.address } in 
+            let first_instruction = Story.first_instruction locals_interpreter.story routine_address in
+            { story = locals_interpreter.story; program_counter = first_instruction; frames = frame :: interpreter.frames };;
         
     let handle_ret interpreter instruction = 
         match instruction.operands with
@@ -1397,6 +1400,35 @@ module Interpreter = struct
             handle_branch test_interpreter instruction result
         | _ -> failwith "inc_chk requires a variable and a value";;
         
+    let handle_dec_chk interpreter instruction = 
+        match instruction.operands with
+        | [(Variable variable) as variable_operand ; test_operand] -> 
+            let original = read_operand_no_pop interpreter variable_operand in 
+            let incremented = signed_word (original - 1) in
+            let store_interpreter = do_store_in_place interpreter variable incremented in
+            let (test, test_interpreter) = read_operand store_interpreter test_operand in
+            let result = if (signed_word incremented) < (signed_word test) then 1 else 0 in
+            handle_branch test_interpreter instruction result
+        | _ -> failwith "dec_chk requires a variable and a value";;
+        
+    let handle_inc interpreter instruction = 
+        match instruction.operands with
+        | [(Variable variable) as variable_operand] -> 
+            let original = read_operand_no_pop interpreter variable_operand in 
+            let incremented = signed_word (original + 1) in
+            let store_interpreter = do_store_in_place interpreter variable incremented in
+            handle_branch store_interpreter instruction 0
+        | _ -> failwith "inc requires a variable";;
+        
+    let handle_dec interpreter instruction = 
+        match instruction.operands with
+        | [(Variable variable) as variable_operand] -> 
+            let original = read_operand_no_pop interpreter variable_operand in 
+            let incremented = signed_word (original - 1) in
+            let store_interpreter = do_store_in_place interpreter variable incremented in
+            handle_branch store_interpreter instruction 0
+        | _ -> failwith "dec requires a variable";;
+        
     let handle_pull interpreter instruction =
         match instruction.operands with
         | [(Variable variable)] ->  
@@ -1405,8 +1437,6 @@ module Interpreter = struct
             let store_interpreter = do_store_in_place popped_interpreter variable value in
             handle_branch store_interpreter instruction 0
         | _ -> failwith "pull requires a variable ";;
-        
-       
       
     (* TODO: Consolidate the code in the printing methods *)
        
@@ -1436,6 +1466,8 @@ module Interpreter = struct
         | _ -> failwith "je instruction requires 2 to 4 operands";;
         
     let step interpreter =
+        let handle_jl x y interp = ((if (signed_word x) < (signed_word y) then 1 else 0), interp) in
+        let handle_jg x y interp = ((if (signed_word x) > (signed_word y) then 1 else 0), interp) in
         let handle_jin x y interp = ((if (object_parent interp.story x) = y then 1 else 0), interp) in
         let handle_or x y interp = (((unsigned_word x) lor (unsigned_word y)), interp) in
         let handle_and x y interp = (((unsigned_word x) land (unsigned_word y)), interp) in
@@ -1452,6 +1484,7 @@ module Interpreter = struct
         let handle_div x y interp = ((signed_word (x / y)), interp) in
         let handle_mod x y interp = ((signed_word (x mod y)), interp) in
         let handle_jz x interp = ((if x = 0 then 1 else 0), interp) in
+        let handle_get_sibling x interp = (object_sibling interp.story x, interp) in
         let handle_get_child x interp = (object_child interp.story x, interp) in
         let handle_get_parent x interp = (object_parent interp.story x, interp) in
         let handle_print_obj x interp = (Printf.printf "%s" (object_name interp.story x); 0, interp) in
@@ -1466,7 +1499,9 @@ module Interpreter = struct
         let instruction = Story.decode_instruction interpreter.story interpreter.program_counter in
         match instruction.opcode with
         | OP2_1   -> handle_je interpreter instruction 
-        
+        | OP2_2   -> handle_op2 interpreter instruction handle_jl
+        | OP2_3   -> handle_op2 interpreter instruction handle_jg
+        | OP2_4   -> handle_dec_chk interpreter instruction
         | OP2_5   -> handle_inc_chk interpreter instruction
         | OP2_6   -> handle_op2 interpreter instruction handle_jin
         
@@ -1489,9 +1524,12 @@ module Interpreter = struct
         | OP2_24  -> handle_op2 interpreter instruction handle_mod
         
         | OP1_128 -> handle_op1 interpreter instruction handle_jz
-        
+        | OP1_129 -> handle_op1 interpreter instruction handle_get_sibling
         | OP1_130 -> handle_op1 interpreter instruction handle_get_child
         | OP1_131 -> handle_op1 interpreter instruction handle_get_parent
+        
+        | OP1_133 -> handle_inc interpreter instruction 
+        | OP1_134 -> handle_dec interpreter instruction 
         
         | OP1_138 -> handle_op1 interpreter instruction handle_print_obj
         | OP1_139 -> handle_ret interpreter instruction 
@@ -1530,7 +1568,7 @@ module Interpreter = struct
 
     (* TODO: Will need to signal a halted interpreter somehow. *)
     let rec run interpreter =
-(*        print_endline (display_interpreter interpreter);    *)
+(*        print_endline (display_interpreter interpreter);     *)
         let next = step interpreter in
         run next;;
 
