@@ -1609,7 +1609,7 @@ module Interpreter = struct
         return is printed (so the cursor moves to the next line). If it was interrupted, the cursor is left at
         the rightmost end of the text typed in so far.*)
         
-        print_endline "";
+        interpreter_print "\n";
         
         (* 
         Next, lexical analysis is performed on the text (except that in Versions 5 and later, if parsebuffer
@@ -1650,26 +1650,25 @@ module Interpreter = struct
         
         let tokens = tokenise trimmed in
         
-        let rec write_tokens items address count interp =
+        let rec write_tokens items address count writing_tokens_interpreter =
             match items with
-            | [] -> (count, interp)
+            | [] -> (count, writing_tokens_interpreter)
             | (tok, text_offset, dictionary_address) :: tail -> 
                 if count = maximum_parse then 
-                    (count, interp)
+                    (count, writing_tokens_interpreter)
                 else 
                ( 
-                    let addr_story = write_word interp.story address dictionary_address in
+                    let addr_story = write_word writing_tokens_interpreter.story address dictionary_address in
                     let len_story = write_byte addr_story (address + 2) (String.length tok) in
                     let offset_story = write_byte len_story (address + 3) (text_offset + 1) in
-                    write_tokens tail (address + 4) (count + 1) { interp with story = offset_story } ) in
+                    write_tokens tail (address + 4) (count + 1) { writing_tokens_interpreter with story = offset_story } ) in
                     
         let (count, tokens_written_interpreter) =  write_tokens tokens (parse_address + 2) 0 string_copied_interpreter in
         
         (* TODO: Make a write byte that takes interpreters *)
        
-        let length_copied_interpreter = { interp with story = write_byte interp.story (parse_address + 1) count } in
-        
-        (0, length_copied_interpreter);;
+        let length_copied_interpreter = { tokens_written_interpreter with story = write_byte tokens_written_interpreter.story (parse_address + 1) count } in
+        (0, length_copied_interpreter) ;;
         
     let step interpreter =
         let handle_jl x y interp = ((if (signed_word x) < (signed_word y) then 1 else 0), interp) in
@@ -1778,7 +1777,8 @@ module Interpreter = struct
 
     (* TODO: Will need to signal a halted interpreter somehow. *)
     let rec run interpreter =
-(*        print_endline (display_interpreter interpreter);     *)
+        (* print_endline (display_interpreter interpreter);     
+        *)
         let next = step interpreter in
         run next;;
 
