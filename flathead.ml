@@ -117,7 +117,7 @@ module Memory = struct
         let low = w land 0xFF in
         let first = write_ubyte memory address high in
         write_ubyte first (address + 1) low;;
-        
+       
     let display_bytes memory address length =
         let blocksize = 16 in
         let rec print_loop i acc =
@@ -174,6 +174,14 @@ module Story = struct
         
     let write_byte story address value =
         { memory = Memory.write_ubyte story.memory address value };;
+
+    let write_string story address text =
+        let length = String.length text in
+        let rec aux i s =
+            if i = length then s 
+            else aux (i + 1) (write_byte s (address + i) (int_of_char text.[i])) in
+        let copied = aux 0 story in
+        write_byte copied (address + length) 0;;
         
     (* *)   
     (* Header *)
@@ -582,8 +590,34 @@ module Story = struct
     let dictionary_table_base story =
         (dictionary_base story) + (word_separators_count story) + 4;;
         
+    let dictionary_entry_address story dictionary_number =
+        (dictionary_table_base story) + dictionary_number * (dictionary_entry_length story);;
+        
     let dictionary_entry story dictionary_number =
-        read_zstring story ((dictionary_table_base story) + dictionary_number * (dictionary_entry_length story));;
+        read_zstring story (dictionary_entry_address story dictionary_number);;
+        
+    (* does text1 start with text2? *)
+    let starts_with text1 text2 =
+        let len1 = String.length text1 in
+        let len2 = String.length text2 in
+        let rec aux i =
+            if i = len2 then true
+            else if i = len1 then false 
+            else if text1.[i] <> text2.[i] then false
+            else aux (i + 1) in
+        aux 0;;
+        
+    let dictionary_lookup story text =
+        (* TODO: Could make this more efficient via binary search *)
+        let count = dictionary_entry_count story in
+        let rec aux i =
+            if i = count then 0
+            else if starts_with text (dictionary_entry story i) then (
+                let possible = dictionary_entry_address story i in
+                let better = aux (i + 1) in
+                if better = 0 then possible else better)
+            else aux (i + 1) in
+        aux 0;;
     
     let display_dictionary story =
         let entry_count = dictionary_entry_count story in 
@@ -1444,21 +1478,21 @@ module Interpreter = struct
       
     (* TODO: Consolidate the code in the printing methods *)
        
+    let interpreter_print text = 
+        print_string text;
+        flush stdout;;
        
     let handle_print interpreter instruction =
         (match instruction.text with
-        | Some text -> Printf.printf "%s" text
+        | Some text -> interpreter_print text
         | _ -> failwith "no text in print instruction");
         handle_branch interpreter instruction 0;;
         
     let handle_new_line interpreter instruction = 
-        Printf.printf "\n";
+        interpreter_print "\n";
         handle_branch interpreter instruction 0;;
-        
     
     (* je is interesting in that it is a 2OP that can take 2 to 4 operands. *)
-    
-    
     let handle_je interpreter instruction = 
         let handle_je2 test x interp = ((if (signed_word test) = (signed_word x) then 1 else 0), interp) in
         let handle_je3 test x y interp = ((let test = (signed_word test) in if test = (signed_word x) || test == (signed_word y) then 1 else 0), interp) in
@@ -1468,6 +1502,172 @@ module Interpreter = struct
         | [_; _; _] -> handle_op3 interpreter instruction handle_je3
         | [_; _; _; _] -> handle_op4 interpreter instruction handle_je4
         | _ -> failwith "je instruction requires 2 to 4 operands";;
+        
+    let handle_sread text_address parse_address interp =
+    
+        (* TODO: Get word separator list from story *)
+    
+        let tokenise text = 
+            let length = String.length text in
+            let rec find_space_or_end i = 
+                if i = length then i
+                else if text.[i] = ' ' then i
+                else find_space_or_end (i + 1) in
+            
+            let rec skip_spaces i =
+                if i = length then i 
+                else if text.[i] = ' ' then skip_spaces (i + 1)
+                else i in
+                
+            let rec token start =
+                if start = length then 
+                    None
+                else 
+                    let end_of_token = find_space_or_end start in
+                    let token_text = String.sub text start (end_of_token - start) in
+                    let dictionary_address = dictionary_lookup interp.story token_text in
+                    Some (token_text, start, dictionary_address) in
+                    
+            let rec aux i acc = 
+                match token i with
+                | None -> acc
+                | Some (tok, start, addr) -> aux (skip_spaces (i + String.length tok)) ((tok, start, addr) :: acc) in
+            
+            List.rev (aux (skip_spaces 0) []) in
+            
+            
+            
+        
+        (* SPEC
+        
+        This opcode reads a whole command from the keyboard (no prompt is automatically displayed).
+        
+        It is legal for this to be called with the cursor at any position on any window.
+        
+        TODO: In Versions 1 to 3, the status line is automatically redisplayed first.
+        
+        A sequence of characters is read in from the current input stream until a carriage return (or, in
+        Versions 5 and later, any terminating character) is found.
+        
+        In Versions 1 to 4, byte 0 of the text-buffer should initially contain the maximum number of
+        letters which can be typed, minus 1 (the interpreter should not accept more than this).
+        
+        The text typed is reduced to lower case (so that it can tidily be printed back by the program if need be)
+        and stored in bytes 1 onward, with a zero terminator (but without any other terminator, such as a
+        carriage return code). (This means that if byte 0 contains n then the buffer must contain n+1
+        bytes, which makes it a string array of length n in Inform terminology.)
+        *)
+        
+        (* TODO: Should restrict input to this many chars, not trim it later *)
+        
+        let maximum_letters = read_ubyte interp.story text_address in
+        
+        (* 
+        Interpreters are asked to halt with a suitable error message if the text or parse buffers have
+        length of less than 3 or 6 bytes, respectively: this sometimes occurs due to a previous array being
+        overrun, causing bugs which are very difficult to find.
+        *)
+        
+        if maximum_letters < 3 then failwith "bad text buffer in sread";
+        
+        let text = String.lowercase (input_line stdin) in
+        let trimmed = if (String.length text) > maximum_letters then String.sub text 0 maximum_letters else text in
+        let string_copied_interpreter = { interp with story = write_string interp.story (text_address + 1) trimmed } in
+        
+        (*
+        
+        TODO: This section only relevant to V4 and greater
+        
+        In Versions 5 and later, byte 0 of the text-buffer should initially contain the maximum number
+        of letters which can be typed (the interpreter should not accept more than this). The interpreter
+        stores the number of characters actually typed in byte 1 (not counting the terminating character),
+        and the characters themselves in bytes 2 onward (not storing the terminating character). (Some
+        interpreters wrongly add a zero byte after the text anyway, so it is wise for the buffer to contain
+        at least n+3 bytes.)
+        
+        Moreover, if byte 1 contains a positive value at the start of the input, then read assumes that
+        number of characters are left over from an interrupted previous input, and writes the new characters
+        after those already there. Note that the interpreter does not redisplay the characters left
+        over: the game does this, if it wants to. This is unfortunate for any interpreter wanting to give input
+        text a distinctive appearance on-screen, but 'Beyond Zork', 'Zork Zero' and 'Shogun' clearly
+        require it. ("Just a tremendous pain in my butt" -- Andrew Plotkin; "the most unfortunate feature
+        of the Z-machine design" -- Stefan Jokisch.)
+        
+        In Version 4 and later, if the operands time and routine are supplied (and non-zero) then the
+        routine call routine() is made every time/10 seconds during the keyboard-reading process. If this
+        routine returns true, all input is erased (to zero) and the reading process is terminated at once.
+        (The terminating character code is 0.) The routine is permitted to print to the screen even if it
+        returns false to signal "carry on": the interpreter should notice and redraw the input line so far,
+        before input continues. (Frotz notices by looking to see if the cursor position is at the left-hand
+        margin after the interrupt routine has returned.)
+        
+        *)
+        
+        (*
+        If input was terminated in the usual way, by the player typing a carriage return, then a carriage
+        return is printed (so the cursor moves to the next line). If it was interrupted, the cursor is left at
+        the rightmost end of the text typed in so far.*)
+        
+        print_endline "";
+        
+        (* 
+        Next, lexical analysis is performed on the text (except that in Versions 5 and later, if parsebuffer
+        is zero then this is omitted). Initially, byte 0 of the parse-buffer should hold the maximum
+        number of textual words which can be parsed. (If this is n, the buffer must be at least 2 +
+        4*n bytes long to hold the results of the analysis.) 
+        *)
+        
+        let maximum_parse = read_ubyte string_copied_interpreter.story parse_address in
+        
+        if maximum_parse < 1 then failwith "bad parse buffer in sread";
+        
+        (*        
+        
+        The interpreter divides the text into words and looks them up in the dictionary
+        
+        The number of words is written in byte 1 and one 4-byte block is written for each word, from
+        byte 2 onwards (except that it should stop before going beyond the maximum number of words
+        specified). 
+        
+        Each block consists of the byte address of the word in the dictionary, if it is in the
+        dictionary, or 0 if it isn't; followed by a byte giving the number of letters in the word; and finally
+        a byte giving the position in the text-buffer of the first letter of the word.
+        
+        In Version 5 and later, this is a store instruction: the return value is the terminating character
+        (note that the user pressing his "enter" key may cause either 10 or 13 to be returned; the author
+        recommends that interpreters return 10). 
+        
+        A timed-out input returns 0.
+        
+        Versions 1 and 2 and early Version 3 games mistakenly write the parse buffer length 240 into
+        byte 0 of the parse buffer: later games fix this bug and write 59, because 2+4*59 = 238 so that 59
+        is the maximum number of textual words which can be parsed into a buffer of length 240 bytes.
+        Old versions of the Inform 5 library commit the same error. Neither mistake has very serious
+        consequences.
+        
+        *)
+        
+        let tokens = tokenise trimmed in
+        
+        let rec write_tokens items address count interp =
+            match items with
+            | [] -> (count, interp)
+            | (tok, text_offset, dictionary_address) :: tail -> 
+                if count = maximum_parse then 
+                    (count, interp)
+                else 
+                    let addr_story = write_word interp.story address dictionary_address in
+                    let len_story = write_byte addr_story (address + 2) (String.length tok) in
+                    let offset_story = write_byte len_story (address + 3) text_offset in
+                    write_tokens tail (address + 4) (count + 1) { interp with story = offset_story } in
+                    
+        let (count, tokens_written_interpreter) =  write_tokens tokens (parse_address + 2) 0 string_copied_interpreter in
+        
+        (* TODO: Make a write byte that takes interpreters *)
+       
+        let length_copied_interpreter = { interp with story = write_byte interp.story (parse_address + 1) count } in
+        
+        (0, length_copied_interpreter);;
         
     let step interpreter =
         let handle_jl x y interp = ((if (signed_word x) < (signed_word y) then 1 else 0), interp) in
@@ -1491,13 +1691,13 @@ module Interpreter = struct
         let handle_get_sibling x interp = (object_sibling interp.story x, interp) in
         let handle_get_child x interp = (object_child interp.story x, interp) in
         let handle_get_parent x interp = (object_parent interp.story x, interp) in
-        let handle_print_obj x interp = (Printf.printf "%s" (object_name interp.story x); 0, interp) in
+        let handle_print_obj x interp = (interpreter_print (object_name interp.story x); 0, interp) in
         let handle_rtrue interp instr = handle_return interp instr 1 in
         let handle_rfalse interp instr = handle_return interp instr 0 in
         let handle_storew arr ind value interp = (0, { interp with story = write_word interp.story (arr + ind * 2) value }) in
         let handle_putprop obj prop value interp = (0, { interp with story = write_property interp.story obj prop value }) in
-        let handle_print_char x interp = (Printf.printf "%c" (char_of_int x); 0, interp) in
-        let handle_print_num x interp = (Printf.printf "%d" x; 0, interp) in
+        let handle_print_char x interp = (interpreter_print (Printf.sprintf "%c" (char_of_int x)); 0, interp) in
+        let handle_print_num x interp = (interpreter_print (Printf.sprintf "%d" x); 0, interp) in
         let handle_push x interp = (0, push_stack interp x) in
     
         let instruction = Story.decode_instruction interpreter.story interpreter.program_counter in
@@ -1552,6 +1752,7 @@ module Interpreter = struct
         
         | VAR_227 -> handle_op3 interpreter instruction handle_putprop
         
+        | VAR_228 -> handle_op2 interpreter instruction handle_sread
         | VAR_229 -> handle_op1 interpreter instruction handle_print_char
         | VAR_230 -> handle_op1 interpreter instruction handle_print_num
         
@@ -1594,8 +1795,9 @@ Story.display_all_routines story;;
 print_endline (Story.display_reachable_instructions story (Story.initial_program_counter story));; 
 print_endline (display_abbreviation_table s);;
 print_endline (display_default_property_table s);; 
-print_endline (display_dictionary s);;  
+print_endline (Story.display_dictionary story);;  
 *)
 
 let interp = Interpreter.make story;;
 Interpreter.run interp;;
+
