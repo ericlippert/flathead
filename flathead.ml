@@ -1428,58 +1428,6 @@ module Interpreter = struct
     (* There can be more or fewer arguments than there are locals; we have to deal
     with both cases. *)
     
-    let handle_call interpreter instruction =
-        
-        (* The packed address is already unpacked if the operand is a constant, but not if the operand is a variable. *)
-        
-        let routine_address_operand = List.hd instruction.operands in
-        let routine_operands = List.tl instruction.operands in
-        let (routine_address, routine_interpreter) =
-            match routine_address_operand with
-            | Large large -> (large, interpreter)
-            | Small small -> (small, interpreter)
-            | Variable Stack -> (decode_packed_address interpreter.story (peek_stack interpreter), pop_stack interpreter)
-            | Variable Local local -> (decode_packed_address interpreter.story (IntMap.find local (current_frame interpreter).locals), interpreter)
-            | Variable Global global -> (decode_packed_address interpreter.story (read_global interpreter.story global), interpreter) in
-        
-        (* We now have the routine address and its operands. Operands must be copied to locals. 
-           Locals must be given their default values first, and then if there are corresponding operands
-           (the arguments are copied to the first n locals) then we overwrite them. *)
-           
-        let count = locals_count routine_interpreter.story routine_address in
-        let rec create_default_locals map i = 
-            if i > count then map
-            else create_default_locals (IntMap.add i (local_default_value routine_interpreter.story routine_address i) map) (i + 1) in
-        let default_locals = create_default_locals IntMap.empty 1 in
-        
-        (* We now have a map that contains all the locals initialized to their default values. *)
-        
-        (* Now copy the arguments to the corresponding place in the locals map. *)
-        (* Note that we must evaluate all the operands even if they are not being copied to locals; they might pop the stack. *)
-        
-        let rec copy_arguments operands_copied_interpreter remaining_operands acc_locals current_local =
-            match remaining_operands with
-            | [] -> (acc_locals, operands_copied_interpreter)
-            | operand :: tail -> 
-                let (argument_value, new_interpreter) = read_operand operands_copied_interpreter operand in
-                let new_locals = if current_local <= count then IntMap.add current_local argument_value acc_locals else acc_locals in
-                copy_arguments new_interpreter tail new_locals (current_local + 1) in
-        
-        let (locals, locals_interpreter) = copy_arguments routine_interpreter routine_operands default_locals 1 in
-        
-        (* We have evaluated all the operands; at this point we need to bail if the 
-           target address is zero. Calling zero is the same as calling a routine that 
-           does nothing but return false. *)
-           
-        if routine_address = 0 then 
-            handle_store_and_branch locals_interpreter instruction 0
-        else 
-            let frame = { stack = []; locals = locals; called_from = instruction.address } in 
-            let first_instruction = first_instruction locals_interpreter.story routine_address in
-            set_program_counter (add_frame interpreter frame) first_instruction;;
-        
-        
-        
        
     (* TODO: These instructions treat variables as storage rather than values *)
     (* TODO: There may be a way to consolidate the code here *)
@@ -1871,7 +1819,60 @@ module Interpreter = struct
         let handle_rtrue () = handle_return interpreter instruction 1 in
         
         let handle_rfalse () = handle_return interpreter instruction 0 in
+        
+        let handle_call () =
             
+            (* The packed address is already unpacked if the operand is a constant, but not if the operand is a variable. *)
+            
+            let routine_address_operand = List.hd instruction.operands in
+            let routine_operands = List.tl instruction.operands in
+            let (routine_address, routine_interpreter) =
+                match routine_address_operand with
+                | Large large -> (large, interpreter)
+                | Small small -> (small, interpreter)
+                | Variable Stack -> (decode_packed_address interpreter.story (peek_stack interpreter), pop_stack interpreter)
+                | Variable Local local -> (decode_packed_address interpreter.story (IntMap.find local (current_frame interpreter).locals), interpreter)
+                | Variable Global global -> (decode_packed_address interpreter.story (read_global interpreter.story global), interpreter) in
+            
+            (* We now have the routine address and its operands. Operands must be copied to locals. 
+               Locals must be given their default values first, and then if there are corresponding operands
+               (the arguments are copied to the first n locals) then we overwrite them. *)
+               
+            let count = locals_count routine_interpreter.story routine_address in
+            let rec create_default_locals map i = 
+                if i > count then map
+                else create_default_locals (IntMap.add i (local_default_value routine_interpreter.story routine_address i) map) (i + 1) in
+            let default_locals = create_default_locals IntMap.empty 1 in
+            
+            (* We now have a map that contains all the locals initialized to their default values. *)
+            
+            (* Now copy the arguments to the corresponding place in the locals map. *)
+            (* Note that we must evaluate all the operands even if they are not being copied to locals; they might pop the stack. *)
+            
+            let rec copy_arguments operands_copied_interpreter remaining_operands acc_locals current_local =
+                match remaining_operands with
+                | [] -> (acc_locals, operands_copied_interpreter)
+                | operand :: tail -> 
+                    let (argument_value, new_interpreter) = read_operand operands_copied_interpreter operand in
+                    let new_locals = if current_local <= count then IntMap.add current_local argument_value acc_locals else acc_locals in
+                    copy_arguments new_interpreter tail new_locals (current_local + 1) in
+            
+            let (locals, locals_interpreter) = copy_arguments routine_interpreter routine_operands default_locals 1 in
+            
+            (* We have evaluated all the operands; at this point we need to bail if the 
+               target address is zero. Calling zero is the same as calling a routine that 
+               does nothing but return false. *)
+               
+            if routine_address = 0 then 
+                handle_store_and_branch locals_interpreter instruction 0
+            else 
+                let frame = { stack = []; locals = locals; called_from = instruction.address } in 
+                let first_instruction = first_instruction locals_interpreter.story routine_address in
+                set_program_counter (add_frame interpreter frame) first_instruction in
+            
+            
+            
+                
         (* The big dispatch *)
         
         match instruction.opcode with
@@ -1939,7 +1940,7 @@ module Interpreter = struct
         | OP0_190 -> failwith "TODO: instruction for version greater than 3"
         | OP0_191 -> failwith "TODO: instruction for version greater than 3"
         
-        | VAR_224 -> handle_call interpreter instruction
+        | VAR_224 -> handle_call ()
         | VAR_225 -> handle_op3 handle_storew
         | VAR_226 -> handle_op3 handle_storeb
         | VAR_227 -> handle_op3 handle_putprop
