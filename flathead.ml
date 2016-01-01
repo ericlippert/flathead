@@ -2,6 +2,10 @@
 
 (* Helper method that takes an item and a function that produces related items.
    The result is the transitive closure of the relation. *)
+  
+(* TODO: This is not very efficient because of the call to List.mem in there.
+   TODO: A solution involving an immutable set would be more performant for
+   TODO: large closures. *)
    
 let transitive_closure_many items relation =
     let rec merge related set stack = 
@@ -56,14 +60,16 @@ module ImmutableBytes = struct
              instead of chars? The total memory consumed by all the nodes
              would be smaller. *)
 
-
     type t = 
     {
         original_bytes : string;
         edits : char IntMap.t 
     };;
     
-    let make bytes = { original_bytes = bytes; edits = IntMap.empty };;
+    let make bytes = { 
+        original_bytes = bytes; 
+        edits = IntMap.empty 
+    };;
     
     let read_byte bytes address =
         let c = 
@@ -76,7 +82,6 @@ module ImmutableBytes = struct
             ((value mod 256) + 256 ) mod 256 in
         let b = char_of_int (byte_of_int value) in
         { bytes with edits = IntMap.add address b bytes.edits };;
-    
 end
 
 module Memory = struct
@@ -88,45 +93,36 @@ module Memory = struct
         static_offset : int
     };;
     
-    let make dynamic static =
-        { dynamic_memory = ImmutableBytes.make dynamic; static_memory = static; static_offset = String.length dynamic };;
+    let make dynamic static = { 
+        dynamic_memory = ImmutableBytes.make dynamic; 
+        static_memory = static; 
+        static_offset = String.length dynamic 
+    };;
     
     let read_byte memory address =
-        if address < memory.static_offset then ImmutableBytes.read_byte memory.dynamic_memory address
-        else int_of_char (memory.static_memory.[address - memory.static_offset]);;
+        if address < memory.static_offset then 
+            ImmutableBytes.read_byte memory.dynamic_memory address
+        else 
+            int_of_char (memory.static_memory.[address - memory.static_offset]);;
         
-    let read_ushort memory address =
+    let read_word memory address =
         let high = read_byte memory address in
         let low = read_byte memory (address + 1) in
         256 * high + low;;
         
-    let read_short memory address = 
-        signed_word (read_ushort memory address);;
-        
-    let ushort_of_int value = 
-        ((value mod 65536) + 65536 ) mod 65536;;
-        
     let write_byte memory address value = 
-        if address >= memory.static_offset then failwith "attempt to write static memory"
-        else { memory with dynamic_memory = ImmutableBytes.write_byte memory.dynamic_memory address value };;
+        if address >= memory.static_offset then 
+            failwith "attempt to write static memory"
+        else 
+            { memory with dynamic_memory = ImmutableBytes.write_byte memory.dynamic_memory address value };;
         
-    let write_ushort memory address value = 
-        let w = ushort_of_int value in
+    let write_word memory address value = 
+        let w = unsigned_word value in
         let high = w lsr 8 in
         let low = w land 0xFF in
         let first = write_byte memory address high in
         write_byte first (address + 1) low;;
        
-    let display_bytes memory address length =
-        let blocksize = 16 in
-        let rec print_loop i acc =
-            if i = length then
-                acc
-            else (
-                let s = if i mod blocksize = 0 then Printf.sprintf "\n%06x: " (i + address) else "" in
-                let s2 = Printf.sprintf "%02x " (read_byte memory (i + address)) in
-            print_loop (i + 1) (acc ^ s ^ s2)) in
-        (print_loop 0 "") ^ "\n";;
 end
    
 module Story = struct
@@ -139,9 +135,6 @@ module Story = struct
     (* Dealing with memory *)
     (* *)   
     
-    let display_bytes story address length =
-        Memory.display_bytes story.memory address length;;
-    
     let fetch_bit n word =
         (word land (1 lsl n)) lsr n = 1;;
         
@@ -152,24 +145,32 @@ module Story = struct
         word lor (1 lsl n);;
         
     let set_bit_to n word value =
-        if value then set_bit n word else clear_bit n word;;
+        if value then set_bit n word 
+        else clear_bit n word;;
         
     let fetch_bits high length word =
         let mask = lnot (-1 lsl length) in
         (word lsr (high - length + 1)) land mask;;
         
-    let read_word story address = 
-        Memory.read_ushort story.memory address;;
+    (* A "word address" is only used in the abbreviation table, and is always
+    just half the real address. A "packed address" is used in calls and fetching
+    strings, and is half the real address in v3 but different for other versions. *)
+    
+    let decode_word_address packed =
+        packed * 2;;
         
     (* TODO: only works for v3 *)
     let decode_packed_address story packed =
         packed * 2;;
+        
+    let read_word story address = 
+        Memory.read_word story.memory address;;
     
     let read_byte story address =
         Memory.read_byte story.memory address;;
         
     let write_word story address value =
-        { memory = Memory.write_ushort story.memory address value };;
+        { memory = Memory.write_word story.memory address value };;
         
     let write_byte story address value =
         { memory = Memory.write_byte story.memory address value };;
@@ -182,6 +183,22 @@ module Story = struct
             else aux (i + 1) (write_byte s (address + i) (int_of_char text.[i])) in
         let copied = aux 0 story in
         write_byte copied (address + length) 0;;
+    
+    (* Debugging method for displaying a raw block of memory. *)    
+    let display_bytes story address length =
+        let blocksize = 16 in
+        let rec print_loop i acc =
+            if i = length then
+                acc
+            else (
+                let s = 
+                    if i mod blocksize = 0 then 
+                        Printf.sprintf "\n%06x: " (i + address) 
+                    else 
+                        "" in
+                let s2 = Printf.sprintf "%02x " (read_byte story (i + address)) in
+            print_loop (i + 1) (acc ^ s ^ s2)) in
+        (print_loop 0 "") ^ "\n";;
         
     (* *)   
     (* Header *)
@@ -261,8 +278,9 @@ module Story = struct
     let abbreviation_table_length = 96;;
     
     let abbreviation_address story n = 
-        if n < 0 || n >= abbreviation_table_length then failwith "bad offset into abbreviation table";
-        decode_packed_address story (read_word story ((abbreviations_table_base story) + (n * 2)));;
+        if n < 0 || n >= abbreviation_table_length then 
+            failwith "bad offset into abbreviation table";
+        decode_word_address (read_word story ((abbreviations_table_base story) + (n * 2)));;
         
     type string_mode = 
         | Alphabet of int 
@@ -301,9 +319,7 @@ module Story = struct
         If the current zchar is 4 or 5 then the next is an offset into the
         uppercase or punctuation alphabets, except if the current is 5
         and the next is 6. In that case the two zchars following are a single
-        10-bit character.  
-        
-        *)
+        10-bit character. *)
         
         let process_zchar zchar mode =
             match (mode, zchar) with
@@ -319,20 +335,27 @@ module Story = struct
             | (Leading, _) -> ("", (Trailing zchar)) 
             | (Trailing high, _) -> (String.make 1 (Char.chr (high * 32 + zchar)), Alphabet 0) in
          
+        (* TODO: This could be made tail recursive *)
         let rec aux mode1 current_address =
+            let zchar_bit_size = 5 in
             let word = read_word story current_address in
             let is_end = fetch_bit 15 word in
-            let zchar1 = fetch_bits 14 5 word in
-            let zchar2 = fetch_bits 9 5 word in
-            let zchar3 = fetch_bits 4 5 word in
+            let zchar1 = fetch_bits 14 zchar_bit_size word in
+            let zchar2 = fetch_bits 9 zchar_bit_size word in
+            let zchar3 = fetch_bits 4 zchar_bit_size word in
             let (text1, mode2) = process_zchar zchar1 mode1 in
             let (text2, mode3) = process_zchar zchar2 mode2 in
             let (text3, mode_next) = process_zchar zchar3 mode3 in
-            let text_next = if is_end then "" else aux mode_next (current_address + 2) in
+            let text_next = 
+                if is_end then "" 
+                else aux mode_next (current_address + 2) in
             text1 ^ text2 ^ text3 ^ text_next in
             
         aux (Alphabet 0) address;;
-        
+       
+    (* A debugging method for looking at memory broken up into the 
+    1 / 5 / 5 / 5 bit chunks used by zstrings. *)
+     
     let display_zchar_bytes story offset length =
         let rec aux i acc =
             if i > length then acc
@@ -361,7 +384,9 @@ module Story = struct
     (* *)   
     
     (* TODO: 63 in version 4 and above *)
-    let default_property_table_size = 31;;
+    let default_property_table_size story = 
+        31;;
+        
     let default_property_table_entry_size = 2;;
     
     let default_property_table_base = object_table_base;;
@@ -369,19 +394,20 @@ module Story = struct
     (* TODO: The spec implies that default properties
        are numbered starting at 1; is this right? *)
     let default_property_value story n =
-        if n < 1 || n > default_property_table_size then failwith "invalid index into default property table"
+        if n < 1 || n > (default_property_table_size story) then failwith "invalid index into default property table"
         else  read_word story ((default_property_table_base story) + (n - 1) * default_property_table_entry_size);;
         
+    (* A debugging method for looking at the default property table *)
     let display_default_property_table story =
         let rec display_loop i acc =
-            if i > default_property_table_size then acc
+            if i > (default_property_table_size story) then acc
             else (
                 let s = Printf.sprintf "%02x: %04x\n" i (default_property_value story i) in
                 display_loop (i + 1) (acc ^ s)) in
         display_loop 1 "";;
         
     let object_tree_base story =
-        (default_property_table_base story) + default_property_table_entry_size * default_property_table_size;;
+        (default_property_table_base story) + default_property_table_entry_size * (default_property_table_size story);;
          
     (* TODO: Object table entry is larger in version 4 *)
     let object_table_entry_size = 9;;    
@@ -390,61 +416,78 @@ module Story = struct
        Assume that the address of the first property block in the first object is
        the bottom of the object tree table. *)
        
+    let object_address story object_number = 
+        (object_tree_base story) + (object_number - 1) * object_table_entry_size;;
+       
     let object_attributes_word_1 story n = 
-        read_word story ((object_tree_base story) + (n - 1) * object_table_entry_size);;
+        read_word story (object_address story n);;
         
     let object_attributes_word_2 story n = 
-        read_word story ((object_tree_base story) + (n - 1) * object_table_entry_size + 2);;
+        let attributes2_offset = 2 in
+        read_word story ((object_address story n) + attributes2_offset);;
         
     let attribute_count = 32;;
     (* TODO: 48 attributes in version 4 *)
     
+    (* TODO: Factor out common code in these methods *)
+    
     let object_attribute story object_number attribute_number =
-        if attribute_number < 0 || attribute_number >= attribute_count then failwith "bad attribute";
+        if attribute_number < 0 || attribute_number >= attribute_count then 
+            failwith "bad attribute";
         let offset = attribute_number / 8 in
-        let address = (object_tree_base story) + (object_number - 1) * object_table_entry_size + offset in
+        let address = (object_address story object_number) + offset in
         let byte = read_byte story address in
         let bit = 7 - (attribute_number mod 8) in
         fetch_bit bit byte;;
         
     let set_object_attribute story object_number attribute_number = 
-        if attribute_number < 0 || attribute_number >= attribute_count then failwith "bad attribute";
+        if attribute_number < 0 || attribute_number >= attribute_count then 
+            failwith "bad attribute";
         let offset = attribute_number / 8 in
-        let address = (object_tree_base story) + (object_number - 1) * object_table_entry_size + offset in
+        let address = (object_address story object_number) + offset in
         let byte = read_byte story address in
         let bit = 7 - (attribute_number mod 8) in
         let result = set_bit bit byte in
         write_byte story address result;;
         
     let clear_object_attribute story object_number attribute_number = 
-        if attribute_number < 0 || attribute_number >= attribute_count then failwith "bad attribute";
+        if attribute_number < 0 || attribute_number >= attribute_count then 
+            failwith "bad attribute";
         let offset = attribute_number / 8 in
-        let address = (object_tree_base story) + (object_number - 1) * object_table_entry_size + offset in
+        let address =  (object_address story object_number) + offset in
         let byte = read_byte story address in
         let bit = 7 - (attribute_number mod 8) in
         let result = clear_bit bit byte in
         write_byte story address result;;
         
-    let object_parent story obj = 
-        read_byte story ((object_tree_base story) + (obj - 1) * object_table_entry_size + 4);;
+    let object_parent_offset = 4;;
     
-    let set_object_parent story obj new_parent = 
-        write_byte story ((object_tree_base story) + (obj - 1) * object_table_entry_size + 4) new_parent;;
+    let object_parent story object_number = 
+        read_byte story ((object_address story object_number) + object_parent_offset);;
     
-    let object_sibling story obj = 
-        read_byte story ((object_tree_base story) + (obj - 1) * object_table_entry_size + 5);;
+    let set_object_parent story object_number new_parent = 
+        write_byte story ((object_address story object_number) + object_parent_offset) new_parent;;
+    
+    let object_sibling_offset = 5;;
+    
+    let object_sibling story object_number = 
+        read_byte story ((object_address story object_number) + object_sibling_offset);;
 
-    let set_object_sibling story obj new_sibling = 
-        write_byte story ((object_tree_base story) + (obj - 1) * object_table_entry_size + 5) new_sibling;;
+    let set_object_sibling story object_number new_sibling = 
+        write_byte story ((object_address story object_number) + object_sibling_offset) new_sibling;;
         
-    let object_child story obj = 
-        read_byte story ((object_tree_base story) + (obj - 1) * object_table_entry_size + 6);;
+    let object_child_offset = 6;;    
+    
+    let object_child story object_number = 
+        read_byte story ((object_address story object_number) + object_child_offset);;
         
-    let set_object_child story obj new_child = 
-        write_byte story ((object_tree_base story) + (obj - 1) * object_table_entry_size + 6) new_child;;
+    let set_object_child story object_number new_child = 
+        write_byte story ((object_address story object_number) + object_child_offset) new_child;;
         
-    let object_property_address story n = 
-        read_word story ((object_tree_base story) + (n - 1) * object_table_entry_size + 7);;
+    let object_property_offset = 7;;
+    
+    let object_property_address story object_number = 
+        read_word story ((object_address story object_number) + object_property_offset);;
        
     let object_count story =
         ((object_property_address story 1) - (object_tree_base story)) / object_table_entry_size;;
