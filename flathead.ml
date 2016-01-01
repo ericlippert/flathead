@@ -419,46 +419,38 @@ module Story = struct
     let object_address story object_number = 
         (object_tree_base story) + (object_number - 1) * object_table_entry_size;;
        
-    let object_attributes_word_1 story n = 
-        read_word story (object_address story n);;
+    let object_attributes_word_1 story object_number = 
+        read_word story (object_address story object_number);;
         
-    let object_attributes_word_2 story n = 
+    let object_attributes_word_2 story object_number = 
         let attributes2_offset = 2 in
-        read_word story ((object_address story n) + attributes2_offset);;
+        read_word story ((object_address story object_number) + attributes2_offset);;
         
     let attribute_count = 32;;
     (* TODO: 48 attributes in version 4 *)
     
-    (* TODO: Factor out common code in these methods *)
-    
-    let object_attribute story object_number attribute_number =
+    let object_attribute_address story object_number attribute_number =
         if attribute_number < 0 || attribute_number >= attribute_count then 
             failwith "bad attribute";
         let offset = attribute_number / 8 in
         let address = (object_address story object_number) + offset in
-        let byte = read_byte story address in
         let bit = 7 - (attribute_number mod 8) in
+        (address, bit);;
+    
+    let object_attribute story object_number attribute_number =
+        let (address, bit) = object_attribute_address story object_number attribute_number in
+        let byte = read_byte story address in
         fetch_bit bit byte;;
         
     let set_object_attribute story object_number attribute_number = 
-        if attribute_number < 0 || attribute_number >= attribute_count then 
-            failwith "bad attribute";
-        let offset = attribute_number / 8 in
-        let address = (object_address story object_number) + offset in
+        let (address, bit) = object_attribute_address story object_number attribute_number in
         let byte = read_byte story address in
-        let bit = 7 - (attribute_number mod 8) in
-        let result = set_bit bit byte in
-        write_byte story address result;;
+        write_byte story address (set_bit bit byte);;
         
     let clear_object_attribute story object_number attribute_number = 
-        if attribute_number < 0 || attribute_number >= attribute_count then 
-            failwith "bad attribute";
-        let offset = attribute_number / 8 in
-        let address =  (object_address story object_number) + offset in
+        let (address, bit) = object_attribute_address story object_number attribute_number in
         let byte = read_byte story address in
-        let bit = 7 - (attribute_number mod 8) in
-        let result = clear_bit bit byte in
-        write_byte story address result;;
+        write_byte story address (clear_bit bit byte);;
         
     let object_parent_offset = 4;;
     
@@ -508,40 +500,32 @@ module Story = struct
         
     let invalid_object = 0;;
        
-    (* TODO: large amounts of overlap between remove_object and insert_object. *)
+    (* Takes a child object and detatches it from its parent *)
     
-    let insert_object story child parent =
-        let original_parent = object_parent story child in
-        let edit1 = 
-            if original_parent <> invalid_object then (
-                let first_child_of_original_parent = object_child story original_parent in
-                if child = first_child_of_original_parent then
-                    let new_first_child = object_sibling story child in
-                    set_object_child story original_parent new_first_child
-                else
-                    let previous_sibling = find_previous_sibling story child in
-                    let next_sibling = object_sibling story child in
-                    set_object_sibling story previous_sibling next_sibling)
-            else story in
-        let edit2 = set_object_parent edit1 child parent in
-        let old_first_child = object_child edit2 parent in
-        let edit3 = set_object_sibling edit2 child old_first_child in
-        set_object_child edit3 parent child;;
-        
     let remove_object story child =
         let original_parent = object_parent story child in
-        let edit1 = 
-            if original_parent <> invalid_object then (
-                let first_child_of_original_parent = object_child story original_parent in
-                if child = first_child_of_original_parent then
-                    let new_first_child = object_sibling story child in
-                    set_object_child story original_parent new_first_child
+        if original_parent = invalid_object then 
+            story
+        else 
+            let edit1 = (
+                if child = object_child story original_parent then
+                    set_object_child story original_parent (object_sibling story child)
                 else
-                    let previous_sibling = find_previous_sibling story child in
-                    let next_sibling = object_sibling story child in
-                    set_object_sibling story previous_sibling next_sibling)
-            else story in
-        set_object_parent edit1 child invalid_object;;
+                    set_object_sibling story (find_previous_sibling story child) (object_sibling story child)) in
+            set_object_parent edit1 child invalid_object;;
+
+    (* Takes a child object and a parent object, and causes the child to be the 
+    first child of the parent. *)
+    
+    let insert_object story child parent =
+        (* Detatch the new child from its old parent *)
+        let edit1 = remove_object story child in
+        (* Hook up the new child to its new parent *)
+        let edit2 = set_object_parent edit1 child parent in
+        (* Hook up the sibling chain *)
+        let edit3 = set_object_sibling edit2 child (object_child edit2 parent) in
+        (* Make the child the new first child of the parent *)
+        set_object_child edit3 parent child;;
         
     (* Produces a list of (number, length, address) tuples *)
     let property_addresses story object_number =
