@@ -528,6 +528,13 @@ module Story = struct
                     aux tail in
         aux (property_addresses story object_number);;
         
+    let get_next_property story object_number property_number =
+        let rec aux addrs =
+            match addrs with
+            | [] -> 0
+            | (number, _, _) :: tail -> if number > property_number then number else aux tail in
+        aux (property_addresses story object_number);;
+        
     let write_property story object_number property_number value =
         let rec aux addresses =
             match addresses with
@@ -1584,12 +1591,8 @@ module Interpreter = struct
                 match token i with
                 | None -> acc
                 | Some (tok, start, addr) -> aux (skip_spaces (i + String.length tok)) ((tok, start, addr) :: acc) in
-            
             List.rev (aux (skip_spaces 0) []) in
             
-            
-            
-        
         (* SPEC
         
         This opcode reads a whole command from the keyboard (no prompt is automatically displayed).
@@ -1737,7 +1740,7 @@ module Interpreter = struct
         let handle_loadb arr ind interp = (Story.read_ubyte interp.story (arr + ind), interp) in
         let handle_get_prop obj prop interp = (object_property interp.story obj prop, interp) in
         let handle_get_prop_addr obj prop interp = (Story.property_address interp.story obj prop, interp) in
-        let handle_get_next_prop obj prop interp = failwith "TODO get_next_prop not implemented" in
+        let handle_get_next_prop obj prop interp = (Story.get_next_property interp.story obj prop, interp) in
         let handle_add x y interp = ((signed_word (x + y)), interp) in
         let handle_sub x y interp = ((signed_word (x - y)), interp) in
         let handle_mul x y interp = ((signed_word (x * y)), interp) in
