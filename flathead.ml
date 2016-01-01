@@ -1774,6 +1774,7 @@ module Interpreter = struct
         let handle_get_child x interp = (object_child interp.story x, interp) in
         let handle_get_parent x interp = (object_parent interp.story x, interp) in
         let handle_get_prop_len x interp = (property_length_from_address interp.story x, interp) in
+        let handle_print_addr x interp = (interpreter_print (read_zstring interp.story x); 0, interp) in
         let handle_remove_obj x interp = (0, { interp with story = remove_object interp.story x}) in
         let handle_print_obj x interp = (interpreter_print (object_name interp.story x); 0, interp) in
         (* TODO: Better job of handling packed addresses *)
@@ -1837,7 +1838,7 @@ module Interpreter = struct
         | OP1_132 -> handle_op1 interpreter instruction handle_get_prop_len
         | OP1_133 -> handle_inc interpreter instruction 
         | OP1_134 -> handle_dec interpreter instruction 
-        | OP1_135 -> failwith "TODO: print_addr"
+        | OP1_135 -> handle_op1 interpreter instruction handle_print_addr
         | OP1_136 -> failwith "TODO: instruction for version greater than 3"
         | OP1_137 -> handle_op1 interpreter instruction handle_remove_obj
         | OP1_138 -> handle_op1 interpreter instruction handle_print_obj
