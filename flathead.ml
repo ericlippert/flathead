@@ -1216,6 +1216,10 @@ end
 module Interpreter = struct
 
     open Story;;
+    
+    type state = 
+        | Running
+        | Halted;;
 
     type frame =
     {
@@ -1232,7 +1236,8 @@ module Interpreter = struct
         random_w : Int32.t;
         random_x : Int32.t;
         random_y : Int32.t;
-        random_z : Int32.t
+        random_z : Int32.t;
+        state : state
     };;
     
     let make story = 
@@ -1245,6 +1250,7 @@ module Interpreter = struct
         random_x = Int32.of_int 123;
         random_y = Int32.of_int 123;
         random_z = Int32.of_int 123;
+        state = Running
     };;
     
     let random_next interp n =
@@ -1316,7 +1322,6 @@ module Interpreter = struct
         | Global global -> write_global interpreter global value
         | Stack -> push_stack interpreter value;;
  
-
     (* TODO: Is there a way to make this more elegant? *)
 
     let rec handle_branch interpreter instruction result =
@@ -1441,8 +1446,6 @@ module Interpreter = struct
         let popped_interpreter = pop_stack interpreter in
         handle_return popped_interpreter instruction result;;
         
-        
-        
     let handle_jump interpreter instruction =
         match instruction.operands with
         | [target_operand] ->  
@@ -1537,6 +1540,9 @@ module Interpreter = struct
     let handle_new_line interpreter instruction = 
         interpreter_print "\n";
         handle_branch interpreter instruction 0;;
+        
+    let handle_quit interpreter instruction =
+        { interpreter with state = Halted };;
     
     (* je is interesting in that it is a 2OP that can take 2 to 4 operands. *)
     let handle_je interpreter instruction = 
@@ -1807,6 +1813,7 @@ module Interpreter = struct
         
         | OP0_184 -> handle_ret_popped interpreter instruction
         
+        | OP0_186 -> handle_quit interpreter instruction
         | OP0_187 -> handle_new_line interpreter instruction
         
         | VAR_224 -> handle_call interpreter instruction
@@ -1837,9 +1844,9 @@ module Interpreter = struct
     (* TODO: Will need to signal a halted interpreter somehow. *)
     let rec run interpreter =
 (*         print_endline (display_interpreter interpreter);      *)
-        
-        let next = step interpreter in
-        run next;;
+        match interpreter.state with
+        | Halted -> ()
+        | Running -> run (step interpreter);;
 
 end
 
