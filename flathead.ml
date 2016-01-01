@@ -542,11 +542,12 @@ module Story = struct
         let first_property_address = property_header_address + 1 + property_name_word_length * 2 in
         aux [] first_property_address;;
         
+    (* Takes the address of a property data block, returns the length. 
+    The length is always in the top three bits of the byte before the block. *)
+    
     let property_length_from_address story address =
         if address = 0 then 0 
-        else
-            let b = read_byte story (address - 1) in
-            1 + fetch_bits 7 3 b;;
+        else 1 + (fetch_bits 7 3 (read_byte story (address - 1)));;
         
     let property_address story object_number property_number =
         let rec aux addresses =
@@ -555,6 +556,8 @@ module Story = struct
             | (number, _, address) :: tail -> if number = property_number then address else aux tail in
         aux (property_addresses story object_number);;
         
+    (* Fetch the one or two byte value associated with a given property of a given object.
+    If the object does not have that property then fetch the default property value. *)
     let object_property story object_number property_number =
         let rec aux addresses =
             match addresses with
@@ -571,6 +574,9 @@ module Story = struct
                     aux tail in
         aux (property_addresses story object_number);;
         
+    (* Given a property number, find the first property of an object
+    greater than it. Note that this assumes that properties are enumerated in 
+    order by property_addresses. Returns zero if there is no such property. *)
     let get_next_property story object_number property_number =
         let rec aux addrs =
             match addrs with
@@ -578,6 +584,7 @@ module Story = struct
             | (number, _, _) :: tail -> if number > property_number then number else aux tail in
         aux (property_addresses story object_number);;
         
+    (* Writes a one or two byte property associated with a given object. *)
     let write_property story object_number property_number value =
         let rec aux addresses =
             match addresses with
@@ -590,6 +597,7 @@ module Story = struct
         | 2 -> write_word story address value
         | _ -> failwith "property cannot be set";;
             
+    (* Debugging method for displaying the property numbers and values for a given object *)
     let display_properties story object_number =
         List.fold_left (fun s (property_number, length, address) -> 
             s ^ 
@@ -615,17 +623,17 @@ module Story = struct
                 display_loop (i + 1) (acc ^ s)) in
         display_loop 1 "";;
         
-    let null_object = 0;;
-        
+    (* Count down all the objects in the object table and record which ones have no parent. *)
     let object_roots story =
-        let rec aux i acc =
-            if i < 1 then acc
-            else aux (i -1) (if (object_parent story i) = null_object then (i :: acc) else acc) in
+        let rec aux object_number acc =
+            if object_number = invalid_object then acc
+            else if (object_parent story object_number) = invalid_object then aux (object_number - 1) (object_number :: acc)
+            else aux (object_number - 1) acc in
         aux (object_count story) [];;
        
     let display_object_tree story =
         let rec aux acc indent i =
-            if i = null_object then acc 
+            if i = invalid_object then acc 
             else (
                 let o = (Printf.sprintf "%s %02x %s\n" indent i (object_name story i)) in
                 let c = aux (acc ^ o) ("    " ^ indent) (object_child story i) in
@@ -667,21 +675,16 @@ module Story = struct
     let dictionary_entry story dictionary_number =
         read_zstring story (dictionary_entry_address story dictionary_number);;
         
-    (* does text1 start with text2? *)
-    let starts_with text1 text2 =
-        let len1 = String.length text1 in
-        let len2 = String.length text2 in
-        let rec aux i =
-            if i = len2 then true
-            else if i = len1 then false 
-            else if text1.[i] <> text2.[i] then false
-            else aux (i + 1) in
-        aux 0;;
-        
+    (* Takes a string and finds the address of the corresponding zstring in the dictionary *)
+    (* Note this is the address of the dictionary string, not the dictionary entry number. *)
     let dictionary_lookup story text =
         (* TODO: Could make this more efficient via binary search *)
         let count = dictionary_entry_count story in
-        let truncated = if (String.length text) > dictionary_max_word_length then String.sub text 0 dictionary_max_word_length else text in
+        let truncated = 
+            if (String.length text) > dictionary_max_word_length then 
+                String.sub text 0 dictionary_max_word_length 
+            else 
+                text in
         let rec aux i =
             if i = count then 0
             else if truncated = dictionary_entry story i then dictionary_entry_address story i
@@ -1173,6 +1176,9 @@ module Story = struct
         | OP0_186 (* quit *) -> false
         | _ -> true;;
         
+    (* Suppose an instruction either has a branch portion to an address,
+    or a jump to an address. What is that address? *)
+    
     let branch_target instr =
         let br_target = 
             match instr.branch with
@@ -1189,6 +1195,12 @@ module Story = struct
         | (_, Some j) -> Some j
         | _ -> None;;
         
+    (* Any given instruction in a routine either goes on to the next instruction,
+    when it is done, or branches to another instruction when it is done, or terminates
+    the routine. Given the address of an instruction, what are all the reachable instructions
+    in this routine? Note that this could miss instructions if a jump is made to a location
+    read from a variable. *)
+    
     let all_reachable_addresses_in_routine story instr_address = 
         let immediately_reachable_addresses address = 
             let instr = decode_instruction story address in
@@ -1227,6 +1239,7 @@ module Story = struct
 
     (* Takes the address of the first instruction in a routine, produces
        a list of addresses of all routines called in the routine. *)
+    (* Again, this can miss routines that are called with a variable as the address. *)
        
     let reachable_routines_in_routine story instr_address =
         let reachable_instrs = all_reachable_addresses_in_routine story instr_address in
@@ -1244,18 +1257,24 @@ module Story = struct
         let all_routines = reflexive_closure_many called_by_main relation in
         List.sort compare all_routines;;
         
-    (* TODO: Have this return a string? *)
+    (* TODO: Have this return a string? Will want to break pure functionality here and use a mutable buffer 
+    because this can get long. *)
     let display_all_routines story = 
         List.iter (fun r -> Printf.printf "\n---\n%s" (display_routine story r)) (all_routines story);;
+        
+    let first_global = 16;;
+    let last_global = 255;;
     
     (* Note that globals are indexed starting at 16 *)
-    let read_global story n = 
-        if n < 16 || n > 255 then failwith "global variable index out of range";
-        read_word story ((global_variables_table_base story) + (n - 16) * 2)
+    let read_global story global_number = 
+        if global_number < first_global || global_number > last_global then 
+            failwith "global variable index out of range";
+        read_word story ((global_variables_table_base story) + (global_number - first_global) * 2)
         
-    let write_global story n value =
-        if n < 16 || n > 255 then failwith "global variable index out of range";
-        write_word story ((global_variables_table_base story) + (n - 16) * 2) value;;
+    let write_global story global_number value =
+        if global_number < first_global || global_number > last_global then 
+            failwith "global variable index out of range";
+        write_word story ((global_variables_table_base story) + (global_number - first_global) * 2) value;;
         
 end
 
