@@ -1228,15 +1228,34 @@ module Interpreter = struct
     {
         story : Story.t;
         program_counter : int;
-        frames : frame list
+        frames : frame list;
+        random_w : Int32.t;
+        random_x : Int32.t;
+        random_y : Int32.t;
+        random_z : Int32.t
     };;
     
     let make story = 
     { 
         story = story; 
         program_counter = Story.initial_program_counter story;
-        frames = [ { stack = []; locals = IntMap.empty; called_from = 0 } ]
+        frames = [ { stack = []; locals = IntMap.empty; called_from = 0 } ];
+        (* TODO: Seed these randomly *)
+        random_w = Int32.of_int 123;
+        random_x = Int32.of_int 123;
+        random_y = Int32.of_int 123;
+        random_z = Int32.of_int 123;
     };;
+    
+    let random_next interp n =
+        (* See wikipedia article on xorshift *)
+        let t = Int32.logxor interp.random_x (Int32.shift_left interp.random_x 11) in
+        let new_x = interp.random_y in
+        let new_y = interp.random_z in
+        let new_z = interp.random_w in
+        let new_w = Int32.logxor (Int32.logxor (Int32.logxor interp.random_w (Int32.shift_right_logical interp.random_w 19)) t) (Int32.shift_right_logical t 8) in
+        let result = 1 + (Int32.to_int (Int32.rem new_w (Int32.of_int n)) + n) mod n in
+        (result, { interp with random_w = new_w; random_x = new_x; random_y = new_y; random_z = new_z });;
     
     let current_frame interpreter = 
         List.hd interpreter.frames;;
@@ -1408,7 +1427,7 @@ module Interpreter = struct
         else 
             let frame = { stack = []; locals = locals; called_from = instruction.address } in 
             let first_instruction = Story.first_instruction locals_interpreter.story routine_address in
-            { story = locals_interpreter.story; program_counter = first_instruction; frames = frame :: interpreter.frames };;
+            { locals_interpreter with story = locals_interpreter.story; program_counter = first_instruction; frames = frame :: interpreter.frames };;
         
     let handle_ret interpreter instruction = 
         match instruction.operands with
@@ -1733,6 +1752,13 @@ module Interpreter = struct
         let handle_print_char x interp = (interpreter_print (Printf.sprintf "%c" (char_of_int x)); 0, interp) in
         let handle_print_num x interp = (interpreter_print (Printf.sprintf "%d" x); 0, interp) in
         let handle_push x interp = (0, push_stack interp x) in
+        let handle_random x interp = 
+            if x = 0 then 
+                (0, { interp with random_w = (Random.self_init(); Random.int32 (Int32.of_int 1000000)) })
+            else if x < 0 then
+                (0, { interp with random_w = Int32.of_int x; random_x = Int32.of_int 123; random_y = Int32.of_int 123; random_z = Int32.of_int 123 })
+            else
+                random_next interp x in
     
         let instruction = Story.decode_instruction interpreter.story interpreter.program_counter in
         match instruction.opcode with
@@ -1790,7 +1816,7 @@ module Interpreter = struct
         | VAR_228 -> handle_op2 interpreter instruction handle_sread
         | VAR_229 -> handle_op1 interpreter instruction handle_print_char
         | VAR_230 -> handle_op1 interpreter instruction handle_print_num
-        
+        | VAR_231 -> handle_op1 interpreter instruction handle_random 
         | VAR_232 -> handle_op1 interpreter instruction handle_push
         | VAR_233 -> handle_pull interpreter instruction 
         
