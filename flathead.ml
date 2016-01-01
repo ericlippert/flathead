@@ -1320,6 +1320,12 @@ module Interpreter = struct
     
     let current_frame interpreter = 
         List.hd interpreter.frames;;
+        
+    let add_frame interpreter frame =
+        { interpreter with frames = frame :: interpreter.frames };;
+        
+    let remove_frame interpreter =
+        { interpreter with frames = List.tl (interpreter.frames) };;
     
     let peek_stack interpreter = 
         List.hd (current_frame interpreter).stack;;
@@ -1333,6 +1339,9 @@ module Interpreter = struct
         match interpreter.frames with
         | h :: t -> { interpreter with frames = ({ h with stack = value :: h.stack }) :: t }
         | _ -> failwith "frame set is empty"
+        
+    let set_program_counter interpreter new_program_counter = 
+        { interpreter with program_counter = new_program_counter };;
    
     (* Reading operands can change the state of the interpreter, because it can
        pop the stack. *)
@@ -1351,10 +1360,6 @@ module Interpreter = struct
         | Variable Stack -> (value, pop_stack interpreter)
         | _ -> (value, interpreter);;
    
-   
-        
-   
-   
     let write_local interpreter local value =
         match interpreter.frames with
         | h :: t -> { interpreter with frames = ({ h with locals = IntMap.add local value h.locals }) :: t }
@@ -1368,12 +1373,28 @@ module Interpreter = struct
         | Local local -> write_local interpreter local value
         | Global global -> write_global interpreter global value
         | Stack -> push_stack interpreter value;;
- 
-    (* TODO: Is there a way to make this more elegant? *)
-
+        
+    (* Note that we have a rare case of mutually recursive functions here; OCaml tends
+       to encourage directly recursive functions but not so much mutually recursive functions.
+       
+       Z-machine instructions essentially have three parts. The first part evaluates the
+       operands. The second part either causes a side effect or computes a result. 
+       The third part stores the result and computes what instruction to run next.
+       
+       Almost all instructions do the three parts in that order. Calls and returns are
+       the weird ones. A call does the first part -- the operands are evaluated. But 
+       the back half of the call -- the production of the result and the decision about
+       where to go after the call -- are executed by the corresponding return.
+       
+       That's why we need this code to be mutually recursive. The branch in the third
+       half of the instruction can do a return, so it needs to be able to return. But
+       the return needs to be able to handle the storage of the result *in the context 
+       of the call instruction we are returning to*, and then handle the branch to
+       the instruction after the call. *)
+       
     let rec handle_branch interpreter instruction result =
         let next_instruction () =
-            { interpreter with program_counter = interpreter.program_counter + instruction.length } in
+            set_program_counter interpreter (interpreter.program_counter + instruction.length) in
         match instruction.branch with
         | None -> next_instruction ()
         | Some (sense, Return_false) -> 
@@ -1383,7 +1404,7 @@ module Interpreter = struct
             if (result <> 0) = sense then handle_return interpreter instruction 1
             else next_instruction ()
         | Some (sense, Branch_address branch_target) -> 
-            if (result <> 0) = sense then { interpreter with program_counter = branch_target }  
+            if (result <> 0) = sense then set_program_counter interpreter branch_target
             else next_instruction ()
             
     and handle_store_and_branch interpreter instruction result = 
@@ -1395,60 +1416,15 @@ module Interpreter = struct
         
     and handle_return interpreter instruction value =
         let next_program_counter = (current_frame interpreter).called_from in
-        let result_interpreter = { interpreter with program_counter = next_program_counter; frames = List.tl interpreter.frames } in
+        let result_interpreter = set_program_counter (remove_frame interpreter) next_program_counter in
         let call_instr = decode_instruction result_interpreter.story next_program_counter in
         handle_store_and_branch result_interpreter call_instr value;;
-        
-    let handle_op0 interpreter instruction compute_result = 
-        let (result, result_interpreter) = compute_result interpreter in
-        handle_store_and_branch result_interpreter instruction result;;
+
     
-    let handle_op1 interpreter instruction compute_result = 
-        match instruction.operands with
-        | [x_operand] ->  
-            let (x, operand_interpreter) = read_operand interpreter x_operand in
-            let (result, result_interpreter) = compute_result x operand_interpreter in
-            handle_store_and_branch result_interpreter instruction result
-       | _ -> failwith "instruction must have one operand";;
     
-    let handle_op2 interpreter instruction compute_result = 
-        match instruction.operands with
-        | [x_operand; y_operand] ->  
-            let (x, x_interpreter) = read_operand interpreter x_operand in
-            let (y, y_interpreter) = read_operand x_interpreter y_operand in
-            let (result, result_interpreter) = compute_result x y y_interpreter in
-            handle_store_and_branch result_interpreter instruction result
-       | _ -> failwith (Printf.sprintf "instruction at %04x must have two operands" instruction.address );;
-    
-    let handle_op3 interpreter instruction compute_result = 
-        match instruction.operands with
-        | [x_operand; y_operand; z_operand] ->  
-            let (x, x_interpreter) = read_operand interpreter x_operand in
-            let (y, y_interpreter) = read_operand x_interpreter y_operand in
-            let (z, z_interpreter) = read_operand y_interpreter z_operand in
-            let (result, result_interpreter) = compute_result x y z z_interpreter in
-            handle_store_and_branch result_interpreter instruction result
-       | _ -> failwith (Printf.sprintf "instruction at %04x must have three operands" instruction.address );;
-       
-    let handle_op4 interpreter instruction compute_result = 
-        match instruction.operands with
-        | [w_operand; x_operand; y_operand; z_operand] ->  
-            let (w, w_interpreter) = read_operand interpreter w_operand in
-            let (x, x_interpreter) = read_operand w_interpreter x_operand in
-            let (y, y_interpreter) = read_operand x_interpreter y_operand in
-            let (z, z_interpreter) = read_operand y_interpreter z_operand in
-            let (result, result_interpreter) = compute_result w x y z z_interpreter in
-            handle_store_and_branch result_interpreter instruction result
-       | _ -> failwith (Printf.sprintf "instruction at %04x must have four operands" instruction.address );;
     
     (* Handle calls -- TODO some of these can be made into local methods *)
         
-    let create_default_locals story routine_address =
-        let count = locals_count story routine_address in
-        let rec aux map i = 
-            if i > count then map
-            else aux (IntMap.add i (local_default_value story routine_address i) map) (i + 1) in
-        aux IntMap.empty 1;;
         
     (* 
         Always evaluate the operand -- we might be popping the stack
@@ -1457,7 +1433,8 @@ module Interpreter = struct
    
     (* There can be more or fewer arguments than there are locals; we have to deal
     with both cases. *)
-     
+    
+    (* TODO: This can be moved into handle_call *) 
     let copy_arguments_to_locals interpreter operands locals locals_count =
         let rec aux operands_copied_interpreter operands locals n =
             match operands with
@@ -1469,7 +1446,9 @@ module Interpreter = struct
             aux interpreter operands locals 1;;
        
     let handle_call interpreter instruction =
+        
         (* The packed address is already unpacked if the operand is a constant, but not if the operand is a variable. *)
+        
         let routine_address_operand = List.hd instruction.operands in
         let routine_operands = List.tl instruction.operands in
         let (routine_address, routine_interpreter) =
@@ -1479,19 +1458,31 @@ module Interpreter = struct
             | Variable Stack -> (decode_packed_address interpreter.story (peek_stack interpreter), pop_stack interpreter)
             | Variable Local local -> (decode_packed_address interpreter.story (IntMap.find local (current_frame interpreter).locals), interpreter)
             | Variable Global global -> (decode_packed_address interpreter.story (read_global interpreter.story global), interpreter) in
-        let locals_count = locals_count routine_interpreter.story routine_address in
-        let default_locals = create_default_locals routine_interpreter.story routine_address in
-        let (locals, locals_interpreter) = copy_arguments_to_locals routine_interpreter routine_operands default_locals locals_count in
+        
+        (* We now have the routine address and its operands. Operands must be copied to locals. 
+           Locals must be given their default values first, and then if there are corresponding operands
+           (the arguments are copied to the first n locals) then we overwrite them. *)
+           
+        let count = locals_count routine_interpreter.story routine_address in
+        let rec create_default_locals map i = 
+            if i > count then map
+            else create_default_locals (IntMap.add i (local_default_value routine_interpreter.story routine_address i) map) (i + 1) in
+        let default_locals = create_default_locals IntMap.empty 1 in
+        
+        (* We now have a map that contains all the locals initialized to their default values. *)
+        
+        let (locals, locals_interpreter) = copy_arguments_to_locals routine_interpreter routine_operands default_locals count in
         
         (* We have evaluated all the operands; at this point we need to bail if the 
-           target address is zero *)
+           target address is zero. Calling zero is the same as calling a routine that 
+           does nothing but return false. *)
            
         if routine_address = 0 then 
             handle_store_and_branch locals_interpreter instruction 0
         else 
             let frame = { stack = []; locals = locals; called_from = instruction.address } in 
             let first_instruction = first_instruction locals_interpreter.story routine_address in
-            { locals_interpreter with story = locals_interpreter.story; program_counter = first_instruction; frames = frame :: interpreter.frames };;
+            set_program_counter (add_frame interpreter frame) first_instruction;;
         
     let handle_ret interpreter instruction = 
         match instruction.operands with
@@ -1509,7 +1500,7 @@ module Interpreter = struct
         match instruction.operands with
         | [target_operand] ->  
             let (target, target_interpreter) = read_operand interpreter target_operand in
-            { target_interpreter with program_counter = target }
+            set_program_counter target_interpreter target
         | _ -> failwith "instruction must have one operand";;
        
     (* TODO: These instructions treat variables as storage rather than values *)
@@ -1603,16 +1594,6 @@ module Interpreter = struct
     let handle_quit interpreter instruction =
         { interpreter with state = Halted };;
     
-    (* je is interesting in that it is a 2OP that can take 2 to 4 operands. *)
-    let handle_je interpreter instruction = 
-        let handle_je2 test x interp = ((if (signed_word test) = (signed_word x) then 1 else 0), interp) in
-        let handle_je3 test x y interp = ((let test = (signed_word test) in if test = (signed_word x) || test == (signed_word y) then 1 else 0), interp) in
-        let handle_je4 test x y z interp = ((let test = (signed_word test) in if test = (signed_word x) || test = (signed_word y) || test == (signed_word z) then 1 else 0), interp) in
-        match instruction.operands with
-        | [_; _] -> handle_op2 interpreter instruction handle_je2
-        | [_; _; _] -> handle_op3 interpreter instruction handle_je3
-        | [_; _; _; _] -> handle_op4 interpreter instruction handle_je4
-        | _ -> failwith "je instruction requires 2 to 4 operands";;
         
     let handle_sread text_address parse_address interp =
     
@@ -1778,8 +1759,53 @@ module Interpreter = struct
         (0, length_copied_interpreter) ;;
         
     let step interpreter =
+        let instruction = decode_instruction interpreter.story interpreter.program_counter in
     
-        (* Helper routines for specific instructions *)
+        (* Some helper routines for generic instructions that simply evaluate operands,
+           compute a result from them, store, and branch. *)
+        
+        let handle_op0 compute_result = 
+            let (result, result_interpreter) = compute_result interpreter in
+            handle_store_and_branch result_interpreter instruction result in
+            
+        let handle_op1 compute_result = 
+            match instruction.operands with
+            | [x_operand] ->  
+                let (x, operand_interpreter) = read_operand interpreter x_operand in
+                let (result, result_interpreter) = compute_result x operand_interpreter in
+                handle_store_and_branch result_interpreter instruction result
+           | _ -> failwith "instruction must have one operand" in
+           
+        let handle_op2 compute_result = 
+            match instruction.operands with
+            | [x_operand; y_operand] ->  
+                let (x, x_interpreter) = read_operand interpreter x_operand in
+                let (y, y_interpreter) = read_operand x_interpreter y_operand in
+                let (result, result_interpreter) = compute_result x y y_interpreter in
+                handle_store_and_branch result_interpreter instruction result
+           | _ -> failwith (Printf.sprintf "instruction at %04x must have two operands" instruction.address ) in
+           
+        let handle_op3 compute_result = 
+            match instruction.operands with
+            | [x_operand; y_operand; z_operand] ->  
+                let (x, x_interpreter) = read_operand interpreter x_operand in
+                let (y, y_interpreter) = read_operand x_interpreter y_operand in
+                let (z, z_interpreter) = read_operand y_interpreter z_operand in
+                let (result, result_interpreter) = compute_result x y z z_interpreter in
+                handle_store_and_branch result_interpreter instruction result
+           | _ -> failwith (Printf.sprintf "instruction at %04x must have three operands" instruction.address ) in
+           
+        let handle_op4 compute_result = 
+            match instruction.operands with
+            | [w_operand; x_operand; y_operand; z_operand] ->  
+                let (w, w_interpreter) = read_operand interpreter w_operand in
+                let (x, x_interpreter) = read_operand w_interpreter x_operand in
+                let (y, y_interpreter) = read_operand x_interpreter y_operand in
+                let (z, z_interpreter) = read_operand y_interpreter z_operand in
+                let (result, result_interpreter) = compute_result w x y z z_interpreter in
+                handle_store_and_branch result_interpreter instruction result
+           | _ -> failwith (Printf.sprintf "instruction at %04x must have four operands" instruction.address ) in
+        
     
         let handle_jl x y interp = ((if (signed_word x) < (signed_word y) then 1 else 0), interp) in
         let handle_jg x y interp = ((if (signed_word x) > (signed_word y) then 1 else 0), interp) in
@@ -1823,7 +1849,6 @@ module Interpreter = struct
         let handle_print_num x interp = (interpreter_print (Printf.sprintf "%d" x); 0, interp) in
         let handle_push x interp = (0, push_stack interp x) in
         let handle_pop interp = (0, pop_stack interp) in
-        
         let handle_random n interp = 
             let random_next () =
                 (* See wikipedia article on xorshift *)
@@ -1841,67 +1866,79 @@ module Interpreter = struct
             else
                 random_next() in
                 
+        (* Some helpers for instructions that are a bit unusual *)
+        
+        (* je is interesting in that it is a 2OP that can take 2 to 4 operands. *)
+        let handle_je () = 
+            let handle_je2 test x interp = ((if (signed_word test) = (signed_word x) then 1 else 0), interp) in
+            let handle_je3 test x y interp = ((let test = (signed_word test) in if test = (signed_word x) || test == (signed_word y) then 1 else 0), interp) in
+            let handle_je4 test x y z interp = ((let test = (signed_word test) in if test = (signed_word x) || test = (signed_word y) || test == (signed_word z) then 1 else 0), interp) in
+            match instruction.operands with
+            | [_; _] -> handle_op2 handle_je2
+            | [_; _; _] -> handle_op3 handle_je3
+            | [_; _; _; _] -> handle_op4 handle_je4
+            | _ -> failwith "je instruction requires 2 to 4 operands" in
+                
         (* The big dispatch *)
     
-        let instruction = decode_instruction interpreter.story interpreter.program_counter in
         match instruction.opcode with
         | ILLEGAL -> failwith "illegal operand"
-        | OP2_1   -> handle_je interpreter instruction 
-        | OP2_2   -> handle_op2 interpreter instruction handle_jl
-        | OP2_3   -> handle_op2 interpreter instruction handle_jg
+        | OP2_1   -> handle_je () 
+        | OP2_2   -> handle_op2 handle_jl
+        | OP2_3   -> handle_op2 handle_jg
         | OP2_4   -> handle_dec_chk interpreter instruction
         | OP2_5   -> handle_inc_chk interpreter instruction
-        | OP2_6   -> handle_op2 interpreter instruction handle_jin
-        | OP2_7   -> handle_op2 interpreter instruction handle_test
-        | OP2_8   -> handle_op2 interpreter instruction handle_or
-        | OP2_9   -> handle_op2 interpreter instruction handle_and
-        | OP2_10  -> handle_op2 interpreter instruction handle_test_attr
-        | OP2_11  -> handle_op2 interpreter instruction handle_set_attr
-        | OP2_12  -> handle_op2 interpreter instruction handle_clear_attr
+        | OP2_6   -> handle_op2 handle_jin
+        | OP2_7   -> handle_op2 handle_test
+        | OP2_8   -> handle_op2 handle_or
+        | OP2_9   -> handle_op2 handle_and
+        | OP2_10  -> handle_op2 handle_test_attr
+        | OP2_11  -> handle_op2 handle_set_attr
+        | OP2_12  -> handle_op2 handle_clear_attr
         | OP2_13  -> handle_store interpreter instruction 
-        | OP2_14  -> handle_op2 interpreter instruction handle_insert_obj
-        | OP2_15  -> handle_op2 interpreter instruction handle_loadw
-        | OP2_16  -> handle_op2 interpreter instruction handle_loadb
-        | OP2_17  -> handle_op2 interpreter instruction handle_get_prop
-        | OP2_18  -> handle_op2 interpreter instruction handle_get_prop_addr
-        | OP2_19  -> handle_op2 interpreter instruction handle_get_next_prop
-        | OP2_20  -> handle_op2 interpreter instruction handle_add
-        | OP2_21  -> handle_op2 interpreter instruction handle_sub 
-        | OP2_22  -> handle_op2 interpreter instruction handle_mul
-        | OP2_23  -> handle_op2 interpreter instruction handle_div
-        | OP2_24  -> handle_op2 interpreter instruction handle_mod
+        | OP2_14  -> handle_op2 handle_insert_obj
+        | OP2_15  -> handle_op2 handle_loadw
+        | OP2_16  -> handle_op2 handle_loadb
+        | OP2_17  -> handle_op2 handle_get_prop
+        | OP2_18  -> handle_op2 handle_get_prop_addr
+        | OP2_19  -> handle_op2 handle_get_next_prop
+        | OP2_20  -> handle_op2 handle_add
+        | OP2_21  -> handle_op2 handle_sub 
+        | OP2_22  -> handle_op2 handle_mul
+        | OP2_23  -> handle_op2 handle_div
+        | OP2_24  -> handle_op2 handle_mod
         | OP2_25
         | OP2_26
         | OP2_27
         | OP2_28 -> failwith "TODO: instruction for version greater than 3"
         
-        | OP1_128 -> handle_op1 interpreter instruction handle_jz
-        | OP1_129 -> handle_op1 interpreter instruction handle_get_sibling
-        | OP1_130 -> handle_op1 interpreter instruction handle_get_child
-        | OP1_131 -> handle_op1 interpreter instruction handle_get_parent
-        | OP1_132 -> handle_op1 interpreter instruction handle_get_prop_len
+        | OP1_128 -> handle_op1 handle_jz
+        | OP1_129 -> handle_op1 handle_get_sibling
+        | OP1_130 -> handle_op1 handle_get_child
+        | OP1_131 -> handle_op1 handle_get_parent
+        | OP1_132 -> handle_op1 handle_get_prop_len
         | OP1_133 -> handle_inc interpreter instruction 
         | OP1_134 -> handle_dec interpreter instruction 
-        | OP1_135 -> handle_op1 interpreter instruction handle_print_addr
+        | OP1_135 -> handle_op1 handle_print_addr
         | OP1_136 -> failwith "TODO: instruction for version greater than 3"
-        | OP1_137 -> handle_op1 interpreter instruction handle_remove_obj
-        | OP1_138 -> handle_op1 interpreter instruction handle_print_obj
+        | OP1_137 -> handle_op1 handle_remove_obj
+        | OP1_138 -> handle_op1 handle_print_obj
         | OP1_139 -> handle_ret interpreter instruction 
         | OP1_140 -> handle_jump interpreter instruction 
-        | OP1_141 -> handle_op1 interpreter instruction handle_print_paddr
-        | OP1_142 -> handle_op1 interpreter instruction handle_load
-        | OP1_143 -> handle_op1 interpreter instruction handle_not
+        | OP1_141 -> handle_op1 handle_print_paddr
+        | OP1_142 -> handle_op1 handle_load
+        | OP1_143 -> handle_op1 handle_not
         
         | OP0_176 -> handle_rtrue interpreter instruction
         | OP0_177 -> handle_rfalse interpreter instruction
         | OP0_178 -> handle_print interpreter instruction
         | OP0_179 -> handle_print_ret interpreter instruction
-        | OP0_180 -> handle_op0 interpreter instruction handle_nop
+        | OP0_180 -> handle_op0 handle_nop
         | OP0_181 -> failwith "TODO: save"
         | OP0_182 -> failwith "TODO: restore"
         | OP0_183 -> failwith "TODO: restart"
         | OP0_184 -> handle_ret_popped interpreter instruction
-        | OP0_185 -> handle_op0 interpreter instruction handle_pop
+        | OP0_185 -> handle_op0 handle_pop
         | OP0_186 -> handle_quit interpreter instruction
         | OP0_187 -> handle_new_line interpreter instruction
         | OP0_188 -> failwith "TODO: show_status"
@@ -1910,14 +1947,14 @@ module Interpreter = struct
         | OP0_191 -> failwith "TODO: instruction for version greater than 3"
         
         | VAR_224 -> handle_call interpreter instruction
-        | VAR_225 -> handle_op3 interpreter instruction handle_storew
-        | VAR_226 -> handle_op3 interpreter instruction handle_storeb
-        | VAR_227 -> handle_op3 interpreter instruction handle_putprop
-        | VAR_228 -> handle_op2 interpreter instruction handle_sread
-        | VAR_229 -> handle_op1 interpreter instruction handle_print_char
-        | VAR_230 -> handle_op1 interpreter instruction handle_print_num
-        | VAR_231 -> handle_op1 interpreter instruction handle_random 
-        | VAR_232 -> handle_op1 interpreter instruction handle_push
+        | VAR_225 -> handle_op3 handle_storew
+        | VAR_226 -> handle_op3 handle_storeb
+        | VAR_227 -> handle_op3 handle_putprop
+        | VAR_228 -> handle_op2 handle_sread
+        | VAR_229 -> handle_op1 handle_print_char
+        | VAR_230 -> handle_op1 handle_print_num
+        | VAR_231 -> handle_op1 handle_random 
+        | VAR_232 -> handle_op1 handle_push
         | VAR_233 -> handle_pull interpreter instruction 
         | VAR_234 -> failwith "TODO: split_window"
         | VAR_235 -> failwith "TODO: set_window"
