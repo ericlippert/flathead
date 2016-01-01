@@ -1737,6 +1737,7 @@ module Interpreter = struct
         let handle_loadb arr ind interp = (Story.read_ubyte interp.story (arr + ind), interp) in
         let handle_get_prop obj prop interp = (object_property interp.story obj prop, interp) in
         let handle_get_prop_addr obj prop interp = (Story.property_address interp.story obj prop, interp) in
+        let handle_get_next_prop obj prop interp = failwith "TODO get_next_prop not implemented" in
         let handle_add x y interp = ((signed_word (x + y)), interp) in
         let handle_sub x y interp = ((signed_word (x - y)), interp) in
         let handle_mul x y interp = ((signed_word (x * y)), interp) in
@@ -1768,6 +1769,7 @@ module Interpreter = struct
     
         let instruction = Story.decode_instruction interpreter.story interpreter.program_counter in
         match instruction.opcode with
+        | ILLEGAL -> failwith "illegal operand"
         | OP2_1   -> handle_je interpreter instruction 
         | OP2_2   -> handle_op2 interpreter instruction handle_jl
         | OP2_3   -> handle_op2 interpreter instruction handle_jg
@@ -1786,12 +1788,16 @@ module Interpreter = struct
         | OP2_16  -> handle_op2 interpreter instruction handle_loadb
         | OP2_17  -> handle_op2 interpreter instruction handle_get_prop
         | OP2_18  -> handle_op2 interpreter instruction handle_get_prop_addr
-        
+        | OP2_19  -> handle_op2 interpreter instruction handle_get_next_prop
         | OP2_20  -> handle_op2 interpreter instruction handle_add
         | OP2_21  -> handle_op2 interpreter instruction handle_sub 
         | OP2_22  -> handle_op2 interpreter instruction handle_mul
         | OP2_23  -> handle_op2 interpreter instruction handle_div
         | OP2_24  -> handle_op2 interpreter instruction handle_mod
+        | OP2_25
+        | OP2_26
+        | OP2_27
+        | OP2_28 -> failwith "TODO: instruction for version greater than 3"
         
         | OP1_128 -> handle_op1 interpreter instruction handle_jz
         | OP1_129 -> handle_op1 interpreter instruction handle_get_sibling
@@ -1800,21 +1806,32 @@ module Interpreter = struct
         | OP1_132 -> handle_op1 interpreter instruction handle_get_prop_len
         | OP1_133 -> handle_inc interpreter instruction 
         | OP1_134 -> handle_dec interpreter instruction 
-        
+        | OP1_135 -> failwith "TODO: print_addr"
+        | OP1_136 -> failwith "TODO: instruction for version greater than 3"
+        | OP1_137 -> failwith "TODO: remove_obj"
         | OP1_138 -> handle_op1 interpreter instruction handle_print_obj
         | OP1_139 -> handle_ret interpreter instruction 
         | OP1_140 -> handle_jump interpreter instruction 
         | OP1_141 -> handle_op1 interpreter instruction handle_print_paddr
+        | OP1_142 -> failwith "TODO: load"
+        | OP1_143 -> failwith "TODO: not"
         
         | OP0_176 -> handle_rtrue interpreter instruction
         | OP0_177 -> handle_rfalse interpreter instruction
         | OP0_178 -> handle_print interpreter instruction
         | OP0_179 -> handle_print_ret interpreter instruction
-        
+        | OP0_180 -> failwith "TODO: nop"
+        | OP0_181 -> failwith "TODO: save"
+        | OP0_182 -> failwith "TODO: restore"
+        | OP0_183 -> failwith "TODO: restart"
         | OP0_184 -> handle_ret_popped interpreter instruction
-        
+        | OP0_185 -> failwith "TODO: pop"
         | OP0_186 -> handle_quit interpreter instruction
         | OP0_187 -> handle_new_line interpreter instruction
+        | OP0_188 -> failwith "TODO: show_status"
+        | OP0_189 -> failwith "TODO: verify"
+        | OP0_190 -> failwith "TODO: instruction for version greater than 3"
+        | OP0_191 -> failwith "TODO: instruction for version greater than 3"
         
         | VAR_224 -> handle_call interpreter instruction
         | VAR_225 -> handle_op3 interpreter instruction handle_storew
@@ -1826,8 +1843,28 @@ module Interpreter = struct
         | VAR_231 -> handle_op1 interpreter instruction handle_random 
         | VAR_232 -> handle_op1 interpreter instruction handle_push
         | VAR_233 -> handle_pull interpreter instruction 
-        
-        | _ -> failwith (Printf.sprintf "instruction not yet implemented:%s" (Story.display_instruction instruction));;
+        | VAR_234 -> failwith "TODO: split_window"
+        | VAR_235 -> failwith "TODO: set_window"
+        | VAR_236
+        | VAR_237
+        | VAR_238
+        | VAR_239
+        | VAR_240
+        | VAR_241
+        | VAR_242 -> failwith "TODO: instruction for version greater than 3"
+        | VAR_243 -> failwith "TODO: output_stream"
+        | VAR_244 -> failwith "TODO: input_stream"
+        | VAR_245
+        | VAR_246
+        | VAR_247
+        | VAR_248
+        | VAR_249
+        | VAR_250
+        | VAR_251
+        | VAR_252
+        | VAR_253
+        | VAR_254
+        | VAR_255 -> failwith "TODO: instruction for version greater than 3";;
         
     let display_locals interpreter = 
         IntMap.fold (fun local value acc -> acc ^ (Printf.sprintf "local%01x=%04x " local value)) (current_frame interpreter).locals "";;
