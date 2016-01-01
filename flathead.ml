@@ -37,7 +37,6 @@ let read_entire_file filename =
     really_input file bytes 0 length;
     close_in file;
     bytes;;
-   
   
 let unsigned_word word = 
     ((word mod 65536) + 65536) mod 65536;;
@@ -66,16 +65,16 @@ module ImmutableBytes = struct
     
     let make bytes = { original_bytes = bytes; edits = IntMap.empty };;
     
-    let read_ubyte bytes address =
+    let read_byte bytes address =
         let c = 
             if IntMap.mem address bytes.edits then IntMap.find address bytes.edits
             else  bytes.original_bytes.[address] in
         int_of_char c;;
         
-    let write_ubyte bytes address value = 
-        let ubyte_of_int value = 
+    let write_byte bytes address value = 
+        let byte_of_int value = 
             ((value mod 256) + 256 ) mod 256 in
-        let b = char_of_int (ubyte_of_int value) in
+        let b = char_of_int (byte_of_int value) in
         { bytes with edits = IntMap.add address b bytes.edits };;
     
 end
@@ -92,13 +91,13 @@ module Memory = struct
     let make dynamic static =
         { dynamic_memory = ImmutableBytes.make dynamic; static_memory = static; static_offset = String.length dynamic };;
     
-    let read_ubyte memory address =
-        if address < memory.static_offset then ImmutableBytes.read_ubyte memory.dynamic_memory address
+    let read_byte memory address =
+        if address < memory.static_offset then ImmutableBytes.read_byte memory.dynamic_memory address
         else int_of_char (memory.static_memory.[address - memory.static_offset]);;
         
     let read_ushort memory address =
-        let high = read_ubyte memory address in
-        let low = read_ubyte memory (address + 1) in
+        let high = read_byte memory address in
+        let low = read_byte memory (address + 1) in
         256 * high + low;;
         
     let read_short memory address = 
@@ -107,16 +106,16 @@ module Memory = struct
     let ushort_of_int value = 
         ((value mod 65536) + 65536 ) mod 65536;;
         
-    let write_ubyte memory address value = 
+    let write_byte memory address value = 
         if address >= memory.static_offset then failwith "attempt to write static memory"
-        else { memory with dynamic_memory = ImmutableBytes.write_ubyte memory.dynamic_memory address value };;
+        else { memory with dynamic_memory = ImmutableBytes.write_byte memory.dynamic_memory address value };;
         
     let write_ushort memory address value = 
         let w = ushort_of_int value in
         let high = w lsr 8 in
         let low = w land 0xFF in
-        let first = write_ubyte memory address high in
-        write_ubyte first (address + 1) low;;
+        let first = write_byte memory address high in
+        write_byte first (address + 1) low;;
        
     let display_bytes memory address length =
         let blocksize = 16 in
@@ -125,7 +124,7 @@ module Memory = struct
                 acc
             else (
                 let s = if i mod blocksize = 0 then Printf.sprintf "\n%06x: " (i + address) else "" in
-                let s2 = Printf.sprintf "%02x " (read_ubyte memory (i + address)) in
+                let s2 = Printf.sprintf "%02x " (read_byte memory (i + address)) in
             print_loop (i + 1) (acc ^ s ^ s2)) in
         (print_loop 0 "") ^ "\n";;
 end
@@ -137,15 +136,11 @@ module Story = struct
     };;
 
     (* *)   
-    (* Debugging *)
+    (* Dealing with memory *)
     (* *)   
-
+    
     let display_bytes story address length =
         Memory.display_bytes story.memory address length;;
-        
-    (* *)   
-    (* Decoding memory *)
-    (* *)   
     
     let fetch_bit n word =
         (word land (1 lsl n)) lsr n = 1;;
@@ -156,28 +151,30 @@ module Story = struct
     let set_bit n word = 
         word lor (1 lsl n);;
         
+    let set_bit_to n word value =
+        if value then set_bit n word else clear_bit n word;;
+        
     let fetch_bits high length word =
         let mask = lnot (-1 lsl length) in
         (word lsr (high - length + 1)) land mask;;
         
-    let read_byte_address story address = 
-        Memory.read_ushort story.memory address;;
-    
     let read_word story address = 
         Memory.read_ushort story.memory address;;
-    
-    let read_word_address story address =
-        (Memory.read_ushort story.memory address) * 2;;
         
-    let read_ubyte story address =
-        Memory.read_ubyte story.memory address;;
+    (* TODO: only works for v3 *)
+    let decode_packed_address story packed =
+        packed * 2;;
+    
+    let read_byte story address =
+        Memory.read_byte story.memory address;;
         
     let write_word story address value =
         { memory = Memory.write_ushort story.memory address value };;
         
     let write_byte story address value =
-        { memory = Memory.write_ubyte story.memory address value };;
+        { memory = Memory.write_byte story.memory address value };;
 
+    (* Writes a series of bytes into memory. Does not zstring encode them. *)
     let write_string story address text =
         let length = String.length text in
         let rec aux i s =
@@ -195,39 +192,39 @@ module Story = struct
     let header_size = 64;;     
     let version_offset = 0;;
     let version story = 
-        read_ubyte story version_offset;;
+        read_byte story version_offset;;
 
     (* TODO: Flags *)
         
-    let high_memory_base_offset = 4;;
     let high_memory_base story =
-        read_byte_address story high_memory_base_offset;;
+        let high_memory_base_offset = 4 in
+        read_word story high_memory_base_offset;;
         
-    let initial_program_counter_offset = 6;;
     let initial_program_counter story =
-        read_byte_address story initial_program_counter_offset;;
+        let initial_program_counter_offset = 6 in
+        read_word story initial_program_counter_offset;;
 
-    let dictionary_base_offset = 8;;
     let dictionary_base story =
-        read_byte_address story dictionary_base_offset;;
+        let dictionary_base_offset = 8 in
+        read_word story dictionary_base_offset;;
        
-    let object_table_base_offset = 10;;
     let object_table_base story = 
-        read_byte_address story object_table_base_offset;;
+        let object_table_base_offset = 10 in
+        read_word story object_table_base_offset;;
         
-    let global_variables_table_base_offset = 12;;
     let global_variables_table_base story = 
-        read_byte_address story global_variables_table_base_offset ;;
+        let global_variables_table_base_offset = 12 in
+        read_word story global_variables_table_base_offset ;;
        
     let static_memory_base_offset = 14;;
     let static_memory_base story = 
-        read_byte_address story static_memory_base_offset ;;
+        read_word story static_memory_base_offset ;;
 
     (* TODO: Flags 2 *)
     
-    let abbreviations_table_base_offset = 24;;
     let abbreviations_table_base story = 
-        read_byte_address story abbreviations_table_base_offset ;;
+        let abbreviations_table_base_offset = 24 in
+        read_word story abbreviations_table_base_offset ;;
         
     let display_header story =
         Printf.sprintf "Version                     : %d\n" (version story) ^
@@ -265,7 +262,7 @@ module Story = struct
     
     let abbreviation_address story n = 
         if n < 0 || n >= abbreviation_table_length then failwith "bad offset into abbreviation table";
-        read_word_address story ((abbreviations_table_base story) + (n * 2));;
+        decode_packed_address story (read_word story ((abbreviations_table_base story) + (n * 2)));;
         
     type string_mode = 
         | Alphabet of int 
@@ -406,7 +403,7 @@ module Story = struct
         if attribute_number < 0 || attribute_number >= attribute_count then failwith "bad attribute";
         let offset = attribute_number / 8 in
         let address = (object_tree_base story) + (object_number - 1) * object_table_entry_size + offset in
-        let byte = read_ubyte story address in
+        let byte = read_byte story address in
         let bit = 7 - (attribute_number mod 8) in
         fetch_bit bit byte;;
         
@@ -414,7 +411,7 @@ module Story = struct
         if attribute_number < 0 || attribute_number >= attribute_count then failwith "bad attribute";
         let offset = attribute_number / 8 in
         let address = (object_tree_base story) + (object_number - 1) * object_table_entry_size + offset in
-        let byte = read_ubyte story address in
+        let byte = read_byte story address in
         let bit = 7 - (attribute_number mod 8) in
         let result = set_bit bit byte in
         write_byte story address result;;
@@ -423,25 +420,25 @@ module Story = struct
         if attribute_number < 0 || attribute_number >= attribute_count then failwith "bad attribute";
         let offset = attribute_number / 8 in
         let address = (object_tree_base story) + (object_number - 1) * object_table_entry_size + offset in
-        let byte = read_ubyte story address in
+        let byte = read_byte story address in
         let bit = 7 - (attribute_number mod 8) in
         let result = clear_bit bit byte in
         write_byte story address result;;
         
     let object_parent story obj = 
-        read_ubyte story ((object_tree_base story) + (obj - 1) * object_table_entry_size + 4);;
+        read_byte story ((object_tree_base story) + (obj - 1) * object_table_entry_size + 4);;
     
     let set_object_parent story obj new_parent = 
         write_byte story ((object_tree_base story) + (obj - 1) * object_table_entry_size + 4) new_parent;;
     
     let object_sibling story obj = 
-        read_ubyte story ((object_tree_base story) + (obj - 1) * object_table_entry_size + 5);;
+        read_byte story ((object_tree_base story) + (obj - 1) * object_table_entry_size + 5);;
 
     let set_object_sibling story obj new_sibling = 
         write_byte story ((object_tree_base story) + (obj - 1) * object_table_entry_size + 5) new_sibling;;
         
     let object_child story obj = 
-        read_ubyte story ((object_tree_base story) + (obj - 1) * object_table_entry_size + 6);;
+        read_byte story ((object_tree_base story) + (obj - 1) * object_table_entry_size + 6);;
         
     let set_object_child story obj new_child = 
         write_byte story ((object_tree_base story) + (obj - 1) * object_table_entry_size + 6) new_child;;
@@ -453,7 +450,7 @@ module Story = struct
         ((object_property_address story 1) - (object_tree_base story)) / object_table_entry_size;;
         
     let object_name story n = 
-        let length = read_ubyte story (object_property_address story n) in
+        let length = read_byte story (object_property_address story n) in
         if length = 0 then "<unnamed>" 
         else read_zstring story ((object_property_address story n) + 1);;
         
@@ -506,7 +503,7 @@ module Story = struct
     (* Produces a list of (number, length, address) tuples *)
     let property_addresses story object_number =
         let rec aux acc address =
-            let b = read_ubyte story address in
+            let b = read_byte story address in
             if b = 0 then 
                 acc 
             else 
@@ -514,14 +511,14 @@ module Story = struct
                 let property_number = (fetch_bits 4 5 b) in
                 aux ((property_number, property_length, address + 1) :: acc) (address + 1 + property_length) in
         let property_header_address = object_property_address story object_number in
-        let property_name_word_length = read_ubyte story property_header_address in
+        let property_name_word_length = read_byte story property_header_address in
         let first_property_address = property_header_address + 1 + property_name_word_length * 2 in
         aux [] first_property_address;;
         
     let property_length_from_address story address =
         if address = 0 then 0 
         else
-            let b = read_ubyte story (address - 1) in
+            let b = read_byte story (address - 1) in
             1 + fetch_bits 7 3 b;;
         
     let property_address story object_number property_number =
@@ -538,7 +535,7 @@ module Story = struct
             | (number, length, address) :: tail -> 
                 if number = property_number then (
                     if length = 1 then
-                        read_ubyte story address 
+                        read_byte story address 
                     else if length = 2 then
                         read_word story address
                     else
@@ -615,18 +612,18 @@ module Story = struct
     (* TODO: Only supports version 3 *)
     
     let word_separators_count story = 
-        read_ubyte story (dictionary_base story);;
+        read_byte story (dictionary_base story);;
     
     let word_separators story = 
         let base = dictionary_base story in
-        let count = read_ubyte story base in
+        let count = read_byte story base in
         let rec aux acc i = 
             if i < 1 then acc 
-            else aux ((read_ubyte story (base + i)) :: acc) (i - 1) in
+            else aux ((read_byte story (base + i)) :: acc) (i - 1) in
         aux [] count;;
     
     let dictionary_entry_length story =
-        read_ubyte story ((dictionary_base story) + (word_separators_count story) + 1);;
+        read_byte story ((dictionary_base story) + (word_separators_count story) + 1);;
         
     (* TODO: 9 in v4 and up *)
     let dictionary_max_word_length = 6;;
@@ -858,10 +855,6 @@ module Story = struct
             text : string option;
         };;
     
-        (* TODO: Only works for version 3 *)
-        let resolve_packed_address addr = 
-            addr * 2;;
-    
         let is_call opcode = 
             match opcode with
             | VAR_224 (* call / call_vs *)
@@ -926,8 +919,8 @@ module Story = struct
             match operand_types with
             | [] -> []
             | Large_operand :: types -> (Large (read_word story operand_address))  :: (decode_operands (operand_address + 2) types)
-            | Small_operand :: types -> (Small (read_ubyte story operand_address))  :: (decode_operands (operand_address + 1) types)
-            | Variable_operand :: types -> (Variable (decode_variable (read_ubyte story operand_address))) :: (decode_operands (operand_address + 1) types)
+            | Small_operand :: types -> (Small (read_byte story operand_address))  :: (decode_operands (operand_address + 1) types)
+            | Variable_operand :: types -> (Variable (decode_variable (read_byte story operand_address))) :: (decode_operands (operand_address + 1) types)
             | Omitted :: _ -> failwith "omitted operand type passed to decode operands" in
         
         let rec operand_size operand_types =
@@ -939,18 +932,18 @@ module Story = struct
         (* Spec 4.7 *)
         
         let branch_size branch_code_address =
-            let b = (read_ubyte story branch_code_address) in 
+            let b = (read_byte story branch_code_address) in 
             if (fetch_bit 6 b) then 1 else 2 in
         
         let decode_branch branch_code_address total_length =
-            let b = (read_ubyte story branch_code_address) in 
+            let b = (read_byte story branch_code_address) in 
             let sense = (fetch_bit 7 b) in
             let bottom6 = fetch_bits 5 6 b in
             let offset = 
                 if (fetch_bit 6 b) then 
                     bottom6 
                 else
-                    let unsigned = 256 * bottom6 + (read_ubyte story (branch_code_address + 1)) in
+                    let unsigned = 256 * bottom6 + (read_byte story (branch_code_address + 1)) in
                     if unsigned < 8192 then unsigned else unsigned - 16384 in
             match offset with
             | 0 -> (sense, Return_false)
@@ -965,7 +958,7 @@ module Story = struct
                 | _ -> instr.operands in   
             let munge_call_operands () =
                 match instr.operands with
-                | (Large large) :: tail -> (Large (resolve_packed_address large)) :: tail
+                | (Large large) :: tail -> (Large (decode_packed_address story large)) :: tail
                 | _ -> instr.operands in
             let munge_jump_operands () =
                 match instr.operands with
@@ -1017,7 +1010,7 @@ module Story = struct
         
         *)
     
-        let b = read_ubyte story address in
+        let b = read_byte story address in
         
         let form = match fetch_bits 7 2 b with
         | 3 -> Variable_form
@@ -1073,13 +1066,13 @@ module Story = struct
             | 1 -> [ Small_operand; Variable_operand ]
             | 2 -> [ Variable_operand; Small_operand ]
             | _ -> [ Variable_operand; Variable_operand ])
-        | Variable_form -> decode_variable_types (read_ubyte story (address + opcode_length)) in
+        | Variable_form -> decode_variable_types (read_byte story (address + opcode_length)) in
         
         let type_length = (match form with Variable_form -> 1 | _ -> 0) in
         let operands = decode_operands (address + opcode_length + type_length) operand_types in
         let operand_length = operand_size operand_types in
         let store_address = address + opcode_length + type_length + operand_length in
-        let store = if has_store opcode then Some (decode_variable (read_ubyte story store_address)) else None in
+        let store = if has_store opcode then Some (decode_variable (read_byte story store_address)) else None in
         let store_length = if has_store opcode then 1 else 0 in
         let branch_code_address = store_address + store_length in
         let branch_length = if has_branch opcode then (branch_size branch_code_address) else 0 in
@@ -1183,7 +1176,7 @@ module Story = struct
         List.fold_left (fun a b -> a ^ (display_instruction (decode_instruction story b))) "" reachable;;
  
     let locals_count story routine_address =
-        let c = read_ubyte story routine_address in
+        let c = read_byte story routine_address in
         if c > 15 then failwith "routine must have fewer than 16 locals";
         c;;
  
@@ -1269,7 +1262,7 @@ module Interpreter = struct
     let make story = 
     { 
         story = story; 
-        program_counter = Story.initial_program_counter story;
+        program_counter = initial_program_counter story;
         frames = [ { stack = []; locals = IntMap.empty; called_from = 0 } ];
         (* TODO: Seed these randomly *)
         random_w = Int32.of_int 123;
@@ -1314,7 +1307,7 @@ module Interpreter = struct
         | Small small -> small
         | Variable Stack -> peek_stack interpreter
         | Variable Local local -> IntMap.find local (current_frame interpreter).locals
-        | Variable Global global -> Story.read_global interpreter.story global;;
+        | Variable Global global -> read_global interpreter.story global;;
         
     let read_operand interpreter operand =
         let value = read_operand_no_pop interpreter operand in
@@ -1329,7 +1322,7 @@ module Interpreter = struct
         | Small small -> (small, interpreter)
         | Variable Stack -> (2 * (peek_stack interpreter), pop_stack interpreter)
         | Variable Local local -> (2 * (IntMap.find local (current_frame interpreter).locals), interpreter)
-        | Variable Global global -> (2 * (Story.read_global interpreter.story global), interpreter);;
+        | Variable Global global -> (2 * (read_global interpreter.story global), interpreter);;
     
     let next_instruction interpreter instruction =
         { interpreter with program_counter = interpreter.program_counter + instruction.length };;
@@ -1340,7 +1333,7 @@ module Interpreter = struct
         | _ -> failwith "frame set is empty"
         
     let write_global interpreter global value = 
-        { interpreter with story = Story.write_global interpreter.story global value };;
+        { interpreter with story = write_global interpreter.story global value };;
 
     let do_store interpreter variable value =
         match variable with
@@ -1373,7 +1366,7 @@ module Interpreter = struct
     and handle_return interpreter instruction value =
         let next_program_counter = (current_frame interpreter).called_from in
         let result_interpreter = { interpreter with program_counter = next_program_counter; frames = List.tl interpreter.frames } in
-        let call_instr = Story.decode_instruction result_interpreter.story next_program_counter in
+        let call_instr = decode_instruction result_interpreter.story next_program_counter in
         handle_store_and_branch result_interpreter call_instr value;;
         
     let handle_op0 interpreter instruction compute_result = 
@@ -1421,10 +1414,10 @@ module Interpreter = struct
     (* Handle calls -- TODO some of these can be made into local methods *)
         
     let create_default_locals story routine_address =
-        let count = Story.locals_count story routine_address in
+        let count = locals_count story routine_address in
         let rec aux map i = 
             if i > count then map
-            else aux (IntMap.add i (Story.local_default_value story routine_address i) map) (i + 1) in
+            else aux (IntMap.add i (local_default_value story routine_address i) map) (i + 1) in
         aux IntMap.empty 1;;
         
     (* 
@@ -1450,7 +1443,7 @@ module Interpreter = struct
         let routine_address_operand = List.hd instruction.operands in
         let routine_operands = List.tl instruction.operands in
         let (routine_address, routine_interpreter) = read_address_operand interpreter routine_address_operand in
-        let locals_count = Story.locals_count routine_interpreter.story routine_address in
+        let locals_count = locals_count routine_interpreter.story routine_address in
         let default_locals = create_default_locals routine_interpreter.story routine_address in
         let (locals, locals_interpreter) = copy_arguments_to_locals routine_interpreter routine_operands default_locals locals_count in
         
@@ -1461,7 +1454,7 @@ module Interpreter = struct
             handle_store_and_branch locals_interpreter instruction 0
         else 
             let frame = { stack = []; locals = locals; called_from = instruction.address } in 
-            let first_instruction = Story.first_instruction locals_interpreter.story routine_address in
+            let first_instruction = first_instruction locals_interpreter.story routine_address in
             { locals_interpreter with story = locals_interpreter.story; program_counter = first_instruction; frames = frame :: interpreter.frames };;
         
     let handle_ret interpreter instruction = 
@@ -1638,7 +1631,7 @@ module Interpreter = struct
         
         (* TODO: Should restrict input to this many chars, not trim it later *)
         
-        let maximum_letters = read_ubyte interp.story text_address in
+        let maximum_letters = read_byte interp.story text_address in
         
         (* 
         Interpreters are asked to halt with a suitable error message if the text or parse buffers have
@@ -1695,7 +1688,7 @@ module Interpreter = struct
         4*n bytes long to hold the results of the analysis.) 
         *)
         
-        let maximum_parse = read_ubyte string_copied_interpreter.story parse_address in
+        let maximum_parse = read_byte string_copied_interpreter.story parse_address in
         
         if maximum_parse < 1 then failwith "bad parse buffer in sread";
         
@@ -1755,15 +1748,15 @@ module Interpreter = struct
         let handle_test x y interp = ((if ((unsigned_word x) land (unsigned_word y)) = (unsigned_word y) then 1 else 0), interp) in
         let handle_or x y interp = (((unsigned_word x) lor (unsigned_word y)), interp) in
         let handle_and x y interp = (((unsigned_word x) land (unsigned_word y)), interp) in
-        let handle_test_attr obj attr interp = ((if (Story.object_attribute interp.story obj attr) then 1 else 0), interp) in
+        let handle_test_attr obj attr interp = ((if (object_attribute interp.story obj attr) then 1 else 0), interp) in
         let handle_set_attr obj attr interp = (0, { interp with story = set_object_attribute interp.story obj attr } ) in
         let handle_clear_attr obj attr interp = (0, { interp with story = clear_object_attribute interp.story obj attr } ) in
         let handle_insert_obj child parent interp = (0, { interp with story = insert_object interp.story child parent } ) in
-        let handle_loadw arr ind interp = (Story.read_word interp.story (arr + ind * 2), interp) in
-        let handle_loadb arr ind interp = (Story.read_ubyte interp.story (arr + ind), interp) in
+        let handle_loadw arr ind interp = (read_word interp.story (arr + ind * 2), interp) in
+        let handle_loadb arr ind interp = (read_byte interp.story (arr + ind), interp) in
         let handle_get_prop obj prop interp = (object_property interp.story obj prop, interp) in
-        let handle_get_prop_addr obj prop interp = (Story.property_address interp.story obj prop, interp) in
-        let handle_get_next_prop obj prop interp = (Story.get_next_property interp.story obj prop, interp) in
+        let handle_get_prop_addr obj prop interp = (property_address interp.story obj prop, interp) in
+        let handle_get_next_prop obj prop interp = (get_next_property interp.story obj prop, interp) in
         let handle_add x y interp = ((signed_word (x + y)), interp) in
         let handle_sub x y interp = ((signed_word (x - y)), interp) in
         let handle_mul x y interp = ((signed_word (x * y)), interp) in
@@ -1799,7 +1792,7 @@ module Interpreter = struct
             else
                 random_next interp x in
     
-        let instruction = Story.decode_instruction interpreter.story interpreter.program_counter in
+        let instruction = decode_instruction interpreter.story interpreter.program_counter in
         match instruction.opcode with
         | ILLEGAL -> failwith "illegal operand"
         | OP2_1   -> handle_je interpreter instruction 
@@ -1907,7 +1900,7 @@ module Interpreter = struct
     let display_interpreter interpreter = 
         let locals = display_locals interpreter in
         let stack = display_stack interpreter in
-        let instr = Story.display_instructions interpreter.story interpreter.program_counter 1 in
+        let instr = display_instructions interpreter.story interpreter.program_counter 1 in
         locals ^ "\n" ^ stack ^ "\n" ^ instr;;
 
     let rec run interpreter =
