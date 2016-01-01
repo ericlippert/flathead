@@ -156,8 +156,8 @@ module Story = struct
     just half the real address. A "packed address" is used in calls and fetching
     strings, and is half the real address in v3 but different for other versions. *)
     
-    let decode_word_address packed =
-        packed * 2;;
+    let decode_word_address word_address =
+        word_address * 2;;
         
     (* TODO: only works for v3 *)
     let decode_packed_address story packed =
@@ -1318,16 +1318,6 @@ module Interpreter = struct
         state = Running
     };;
     
-    let random_next interp n =
-        (* See wikipedia article on xorshift *)
-        let t = Int32.logxor interp.random_x (Int32.shift_left interp.random_x 11) in
-        let new_x = interp.random_y in
-        let new_y = interp.random_z in
-        let new_z = interp.random_w in
-        let new_w = Int32.logxor (Int32.logxor (Int32.logxor interp.random_w (Int32.shift_right_logical interp.random_w 19)) t) (Int32.shift_right_logical t 8) in
-        let result = 1 + (Int32.to_int (Int32.rem new_w (Int32.of_int n)) + n) mod n in
-        (result, { interp with random_w = new_w; random_x = new_x; random_y = new_y; random_z = new_z });;
-    
     let current_frame interpreter = 
         List.hd interpreter.frames;;
     
@@ -1360,19 +1350,11 @@ module Interpreter = struct
         match operand with
         | Variable Stack -> (value, pop_stack interpreter)
         | _ -> (value, interpreter);;
+   
+   
         
-    (* TODO: Be smarter about packed addresses *)
-    let read_address_operand interpreter operand =
-        match operand with
-        | Large large -> (large, interpreter)
-        | Small small -> (small, interpreter)
-        | Variable Stack -> (2 * (peek_stack interpreter), pop_stack interpreter)
-        | Variable Local local -> (2 * (IntMap.find local (current_frame interpreter).locals), interpreter)
-        | Variable Global global -> (2 * (read_global interpreter.story global), interpreter);;
-    
-    let next_instruction interpreter instruction =
-        { interpreter with program_counter = interpreter.program_counter + instruction.length };;
-        
+   
+   
     let write_local interpreter local value =
         match interpreter.frames with
         | h :: t -> { interpreter with frames = ({ h with locals = IntMap.add local value h.locals }) :: t }
@@ -1390,17 +1372,19 @@ module Interpreter = struct
     (* TODO: Is there a way to make this more elegant? *)
 
     let rec handle_branch interpreter instruction result =
+        let next_instruction () =
+            { interpreter with program_counter = interpreter.program_counter + instruction.length } in
         match instruction.branch with
-        | None -> next_instruction interpreter instruction
+        | None -> next_instruction ()
         | Some (sense, Return_false) -> 
             if (result <> 0) = sense then handle_return interpreter instruction 0
-            else next_instruction interpreter instruction
+            else next_instruction ()
         | Some (sense, Return_true) -> 
             if (result <> 0) = sense then handle_return interpreter instruction 1
-            else next_instruction interpreter instruction
+            else next_instruction ()
         | Some (sense, Branch_address branch_target) -> 
             if (result <> 0) = sense then { interpreter with program_counter = branch_target }  
-            else next_instruction interpreter instruction
+            else next_instruction ()
             
     and handle_store_and_branch interpreter instruction result = 
         let store_interpreter = 
@@ -1470,25 +1454,31 @@ module Interpreter = struct
         Always evaluate the operand -- we might be popping the stack
         If the local number is valid then update the locals map with
         the argument. *)
-    
-    let copy_argument_to_locals interpreter operand locals locals_count n =
-        let (value, new_interpreter) = read_operand interpreter operand in
-        let new_locals = if n <= locals_count then IntMap.add n value locals else locals in
-        (new_locals, new_interpreter);;
-        
+   
+    (* There can be more or fewer arguments than there are locals; we have to deal
+    with both cases. *)
+     
     let copy_arguments_to_locals interpreter operands locals locals_count =
-        let rec aux interpreter operands locals n =
+        let rec aux operands_copied_interpreter operands locals n =
             match operands with
-            | [] -> (locals, interpreter)
+            | [] -> (locals, operands_copied_interpreter)
             | operand :: tail -> 
-                let (new_locals, new_interpreter) = copy_argument_to_locals interpreter operand locals locals_count n in
+                let (value, new_interpreter) = read_operand operands_copied_interpreter operand in
+                let new_locals = if n <= locals_count then IntMap.add n value locals else locals in
                 aux new_interpreter tail new_locals (n + 1) in
             aux interpreter operands locals 1;;
        
     let handle_call interpreter instruction =
+        (* The packed address is already unpacked if the operand is a constant, but not if the operand is a variable. *)
         let routine_address_operand = List.hd instruction.operands in
         let routine_operands = List.tl instruction.operands in
-        let (routine_address, routine_interpreter) = read_address_operand interpreter routine_address_operand in
+        let (routine_address, routine_interpreter) =
+            match routine_address_operand with
+            | Large large -> (large, interpreter)
+            | Small small -> (small, interpreter)
+            | Variable Stack -> (decode_packed_address interpreter.story (peek_stack interpreter), pop_stack interpreter)
+            | Variable Local local -> (decode_packed_address interpreter.story (IntMap.find local (current_frame interpreter).locals), interpreter)
+            | Variable Global global -> (decode_packed_address interpreter.story (read_global interpreter.story global), interpreter) in
         let locals_count = locals_count routine_interpreter.story routine_address in
         let default_locals = create_default_locals routine_interpreter.story routine_address in
         let (locals, locals_interpreter) = copy_arguments_to_locals routine_interpreter routine_operands default_locals locals_count in
@@ -1788,6 +1778,9 @@ module Interpreter = struct
         (0, length_copied_interpreter) ;;
         
     let step interpreter =
+    
+        (* Helper routines for specific instructions *)
+    
         let handle_jl x y interp = ((if (signed_word x) < (signed_word y) then 1 else 0), interp) in
         let handle_jg x y interp = ((if (signed_word x) > (signed_word y) then 1 else 0), interp) in
         let handle_jin x y interp = ((if (object_parent interp.story x) = y then 1 else 0), interp) in
@@ -1830,13 +1823,25 @@ module Interpreter = struct
         let handle_print_num x interp = (interpreter_print (Printf.sprintf "%d" x); 0, interp) in
         let handle_push x interp = (0, push_stack interp x) in
         let handle_pop interp = (0, pop_stack interp) in
-        let handle_random x interp = 
-            if x = 0 then 
+        
+        let handle_random n interp = 
+            let random_next () =
+                (* See wikipedia article on xorshift *)
+                let t = Int32.logxor interp.random_x (Int32.shift_left interp.random_x 11) in
+                let new_x = interp.random_y in
+                let new_y = interp.random_z in
+                let new_z = interp.random_w in
+                let new_w = Int32.logxor (Int32.logxor (Int32.logxor interp.random_w (Int32.shift_right_logical interp.random_w 19)) t) (Int32.shift_right_logical t 8) in
+                let result = 1 + (Int32.to_int (Int32.rem new_w (Int32.of_int n)) + n) mod n in
+                (result, { interp with random_w = new_w; random_x = new_x; random_y = new_y; random_z = new_z }) in
+            if n = 0 then 
                 (0, { interp with random_w = (Random.self_init(); Random.int32 (Int32.of_int 1000000)) })
-            else if x < 0 then
-                (0, { interp with random_w = Int32.of_int x; random_x = Int32.of_int 123; random_y = Int32.of_int 123; random_z = Int32.of_int 123 })
+            else if n < 0 then
+                (0, { interp with random_w = Int32.of_int n; random_x = Int32.of_int 123; random_y = Int32.of_int 123; random_z = Int32.of_int 123 })
             else
-                random_next interp x in
+                random_next() in
+                
+        (* The big dispatch *)
     
         let instruction = decode_instruction interpreter.story interpreter.program_counter in
         match instruction.opcode with
