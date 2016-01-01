@@ -466,10 +466,14 @@ module Story = struct
         let first_child = object_child story parent in
         aux first_child;;
         
+    let invalid_object = 0;;
+       
+    (* TODO: large amounts of overlap between remove_object and insert_object. *)
+    
     let insert_object story child parent =
         let original_parent = object_parent story child in
         let edit1 = 
-            if original_parent <> 0 then (
+            if original_parent <> invalid_object then (
                 let first_child_of_original_parent = object_child story original_parent in
                 if child = first_child_of_original_parent then
                     let new_first_child = object_sibling story child in
@@ -483,6 +487,21 @@ module Story = struct
         let old_first_child = object_child edit2 parent in
         let edit3 = set_object_sibling edit2 child old_first_child in
         set_object_child edit3 parent child;;
+        
+    let remove_object story child =
+        let original_parent = object_parent story child in
+        let edit1 = 
+            if original_parent <> invalid_object then (
+                let first_child_of_original_parent = object_child story original_parent in
+                if child = first_child_of_original_parent then
+                    let new_first_child = object_sibling story child in
+                    set_object_child story original_parent new_first_child
+                else
+                    let previous_sibling = find_previous_sibling story child in
+                    let next_sibling = object_sibling story child in
+                    set_object_sibling story previous_sibling next_sibling)
+            else story in
+        set_object_parent edit1 child invalid_object;;
         
     (* Produces a list of (number, length, address) tuples *)
     let property_addresses story object_number =
@@ -1356,7 +1375,11 @@ module Interpreter = struct
         let result_interpreter = { interpreter with program_counter = next_program_counter; frames = List.tl interpreter.frames } in
         let call_instr = Story.decode_instruction result_interpreter.story next_program_counter in
         handle_store_and_branch result_interpreter call_instr value;;
-       
+        
+    let handle_op0 interpreter instruction compute_result = 
+        let (result, result_interpreter) = compute_result interpreter in
+        handle_store_and_branch result_interpreter instruction result;;
+    
     let handle_op1 interpreter instruction compute_result = 
         match instruction.operands with
         | [x_operand] ->  
@@ -1751,17 +1774,22 @@ module Interpreter = struct
         let handle_get_child x interp = (object_child interp.story x, interp) in
         let handle_get_parent x interp = (object_parent interp.story x, interp) in
         let handle_get_prop_len x interp = (property_length_from_address interp.story x, interp) in
+        let handle_remove_obj x interp = (0, { interp with story = remove_object interp.story x}) in
         let handle_print_obj x interp = (interpreter_print (object_name interp.story x); 0, interp) in
         (* TODO: Better job of handling packed addresses *)
         let handle_print_paddr x interp = (interpreter_print (read_zstring interp.story (x * 2)); 0, interp) in
+        let handle_load x interp = (x, interp) in
+        let handle_not x interp = (unsigned_word (lnot x), interp) in
         let handle_rtrue interp instr = handle_return interp instr 1 in
         let handle_rfalse interp instr = handle_return interp instr 0 in
+        let handle_nop interp = (0, interp) in
         let handle_storew arr ind value interp = (0, { interp with story = write_word interp.story (arr + ind * 2) value }) in
         let handle_storeb arr ind value interp = (0, { interp with story = write_byte interp.story (arr + ind) value }) in
         let handle_putprop obj prop value interp = (0, { interp with story = write_property interp.story obj prop value }) in
         let handle_print_char x interp = (interpreter_print (Printf.sprintf "%c" (char_of_int x)); 0, interp) in
         let handle_print_num x interp = (interpreter_print (Printf.sprintf "%d" x); 0, interp) in
         let handle_push x interp = (0, push_stack interp x) in
+        let handle_pop interp = (0, pop_stack interp) in
         let handle_random x interp = 
             if x = 0 then 
                 (0, { interp with random_w = (Random.self_init(); Random.int32 (Int32.of_int 1000000)) })
@@ -1811,24 +1839,24 @@ module Interpreter = struct
         | OP1_134 -> handle_dec interpreter instruction 
         | OP1_135 -> failwith "TODO: print_addr"
         | OP1_136 -> failwith "TODO: instruction for version greater than 3"
-        | OP1_137 -> failwith "TODO: remove_obj"
+        | OP1_137 -> handle_op1 interpreter instruction handle_remove_obj
         | OP1_138 -> handle_op1 interpreter instruction handle_print_obj
         | OP1_139 -> handle_ret interpreter instruction 
         | OP1_140 -> handle_jump interpreter instruction 
         | OP1_141 -> handle_op1 interpreter instruction handle_print_paddr
-        | OP1_142 -> failwith "TODO: load"
-        | OP1_143 -> failwith "TODO: not"
+        | OP1_142 -> handle_op1 interpreter instruction handle_load
+        | OP1_143 -> handle_op1 interpreter instruction handle_not
         
         | OP0_176 -> handle_rtrue interpreter instruction
         | OP0_177 -> handle_rfalse interpreter instruction
         | OP0_178 -> handle_print interpreter instruction
         | OP0_179 -> handle_print_ret interpreter instruction
-        | OP0_180 -> failwith "TODO: nop"
+        | OP0_180 -> handle_op0 interpreter instruction handle_nop
         | OP0_181 -> failwith "TODO: save"
         | OP0_182 -> failwith "TODO: restore"
         | OP0_183 -> failwith "TODO: restart"
         | OP0_184 -> handle_ret_popped interpreter instruction
-        | OP0_185 -> failwith "TODO: pop"
+        | OP0_185 -> handle_op0 interpreter instruction handle_pop
         | OP0_186 -> handle_quit interpreter instruction
         | OP0_187 -> handle_new_line interpreter instruction
         | OP0_188 -> failwith "TODO: show_status"
@@ -1881,7 +1909,6 @@ module Interpreter = struct
         let instr = Story.display_instructions interpreter.story interpreter.program_counter 1 in
         locals ^ "\n" ^ stack ^ "\n" ^ instr;;
 
-    (* TODO: Will need to signal a halted interpreter somehow. *)
     let rec run interpreter =
 (*         print_endline (display_interpreter interpreter);      *)
         match interpreter.state with
