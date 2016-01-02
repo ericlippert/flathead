@@ -46,13 +46,26 @@ let rec wrap_lines lines wrap_size =
         | [] -> ([], 0)
         | h :: t -> 
             let len = String.length h in
-            if len > wrap_size then
+            if String.contains h '\r' then
+                (* Recursive case 1: there is a break in the last string.
+                   Split the string, solve the wrapping problem with no return,
+                   and then recurse on the remainder of the string. *)
+                let b = String.index h '\r' in
+                let f = String.sub h 0 b in
+                let r = String.sub h (b + 1) (len - b - 1) in
+                let (w1, c1) = wrap_lines (f :: t) wrap_size in
+                let (w2, c2) = wrap_lines (r :: w1) wrap_size in
+                (w2, c1 + c2 + 1) (* Note that count should be zero *)
+            else if len > wrap_size then
+                (* Recursive case 2: there are no breaks but the line is too long.
+                   Find a space to break on, break it, and recurse. *)
                 let space_location = reverse_index_from h ' ' wrap_size in
                 let break_point = match space_location with
                     | None -> wrap_size
                     | Some location -> location in
                 aux ((String.sub h (break_point + 1) (len - break_point - 1)) :: (String.sub h 0 break_point) :: t) (count + 1)
             else
+                (* Base case: the line has no breaks and is short enough. Do nothing. *)
                 (lines, count) in
     aux lines 0;;
             
@@ -134,7 +147,6 @@ let try_to_complete_printing interpreter =
             lines_added_since_last_input = new_interpreter.lines_added_since_last_input - moved_into_pending
         };;
 
-(* TODO: This assumes that there are no newlines in the string *)
 let do_print interpreter s = 
     let (new_transcript, lines_added) = wrap_lines (add_to_lines interpreter.transcript s) text_max_width in
     try_to_complete_printing { interpreter with 
@@ -167,7 +179,7 @@ let step_with_input interpreter input =
     | (Prompting_is_waiting_for_string, _) -> complete_prompting interpreter input
     | _ -> failwith "not expecting input"
     
-let lorem = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.";;
+let lorem = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.\r\rUt enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.";;
 let prompt = "> ";;
 
 let main_interpreter = {
@@ -186,7 +198,8 @@ let main_interpreter = {
     Prompt;
     Newline;
     Print prompt;
-    Prompt
+    Prompt; 
+    Quit
         ];
     state = Running; 
     transcript = []; 
