@@ -1,5 +1,7 @@
 (* Z-Machine tools written in OCaml, as part of my efforts to learn the language. *)
 
+let text_max_width = 60;;
+
 (* Some helper methods to start with. *)
 
 (* Takes a string, a character and an index; finds
@@ -1356,7 +1358,8 @@ module Interpreter = struct
         random_y : Int32.t;
         random_z : Int32.t;
         state : state ;
-        transcript : string list
+        transcript : string list;
+        has_new_output : bool
     };;
     
     let make story = 
@@ -1370,7 +1373,8 @@ module Interpreter = struct
         random_y = Int32.of_int 123;
         random_z = Int32.of_int 123;
         state = Running;
-        transcript = [""]
+        transcript = [""];
+        has_new_output = false
     };;
     
     let current_frame interpreter = 
@@ -1552,11 +1556,9 @@ module Interpreter = struct
       
     let interpreter_print interpreter text = 
         (* TODO: Set the text window width in the story file *)
-        (* TODO: signal that there is new text in the interpreter *)
         (* TODO: Implement the ---MORE--- feature *)
-        let text_max_width = 40 in
         let (new_transcript, lines_added) = wrap_lines (add_to_lines interpreter.transcript text) text_max_width in
-        { interpreter with transcript = new_transcript };;
+        { interpreter with transcript = new_transcript; has_new_output = true };;
         
     let complete_sread interpreter instruction input =  
     
@@ -1757,6 +1759,7 @@ module Interpreter = struct
         { interpreter with state = Waiting_for_input maximum_letters } ;;
         
     let step interpreter =
+        let interpreter = if interpreter.has_new_output then {interpreter with has_new_output = false} else interpreter in
     
         match interpreter.state with
         | Halted -> failwith "interpreter is halted"
@@ -2125,28 +2128,29 @@ open Graphics;;
 open_graph "";;
 
 let text_max_height = 20;;
+let text_font_size = 11;;
 
-let text_max_width = 40;;
+set_font "Lucida Console";;
 
 (* Takes a list of strings, the (x, y) coordinates of the bottom left
    corner of a window, the height of the window in lines, and the number of pixels
    per line. Pops the list until the window is full or the list is empty. *)
    
-let display_lines lines x y max_lines line_height = 
+let display_lines lines x y max_lines = 
     let rec aux lines n = 
         if n > max_lines then ()
         else
             match lines with
             | [] -> ()
             | line :: tail -> (
-                moveto x (y + line_height * n);
+                moveto x (y + (text_font_size + 1) * n);
                 draw_string line;
                 aux tail (n + 1) ) in
     aux lines 0;;
 
 let draw transcript =
     clear_graph();
-    display_lines transcript 100 100 text_max_height 10;;
+    display_lines transcript 100 100 text_max_height ;;
     (* (display_interpreter interpreter);      *)
 
 open Interpreter;;
@@ -2171,7 +2175,7 @@ let wait_for_string interpreter max =
 
 let interp = Interpreter.make story;;
 let rec run interpreter =
-    draw interpreter.transcript;
+    if interpreter.has_new_output then draw interpreter.transcript;
     match interpreter.state with
     | Waiting_for_input max ->
         let command = wait_for_string interpreter max in
