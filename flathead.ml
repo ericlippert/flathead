@@ -1,5 +1,57 @@
 (* Z-Machine tools written in OCaml, as part of my efforts to learn the language. *)
 
+(* Some helper methods to start with. *)
+
+(* Takes a string, a character and an index; finds
+the highest index that matches the character at or before
+the given index. If there is no match then None is returned. *)
+
+let rec reverse_index_from text target index =
+    if index < 0 then None
+    else if text.[index] = target then Some index
+    else reverse_index_from text target (index - 1);;
+
+(* Word-wraps the last line in a list of lines. Assumes that
+the tail of the list is already word-wrapped. Returns the 
+new list and the number of lines added to the given list. *)
+    
+let rec wrap_lines lines line_length =
+    let rec aux lines count =
+        match lines with
+        | [] -> ([], 0)
+        | h :: t -> 
+            let len = String.length h in
+            if String.contains h '\n' then
+                (* Recursive case 1: there is a break in the last string.
+                   Split the string, solve the wrapping problem with no return,
+                   and then recurse on the remainder of the string. *)
+                let b = String.index h '\n' in
+                let f = String.sub h 0 b in
+                let r = String.sub h (b + 1) (len - b - 1) in
+                let (w1, c1) = wrap_lines (f :: t) line_length in
+                let (w2, c2) = wrap_lines (r :: w1) line_length in
+                (w2, c1 + c2 + 1) (* Note that count should be zero *)
+            else if len > line_length then
+                (* Recursive case 2: there are no breaks but the line is too long.
+                   Find a space to break on, break it, and recurse. *)
+                let space_location = reverse_index_from h ' ' line_length in
+                let break_point = match space_location with
+                    | None -> line_length
+                    | Some location -> location in
+                aux ((String.sub h (break_point + 1) (len - break_point - 1)) :: (String.sub h 0 break_point) :: t) (count + 1)
+            else
+                (* Base case: the line has no breaks and is short enough. Do nothing. *)
+                (lines, count) in
+    aux lines 0;;
+           
+(* Takes a list of strings, concatenates a string onto the head, or, if there
+is no head, then it becomes the head. *)
+ 
+let add_to_lines lines str =
+    match lines with 
+    | [] -> [str]
+    | h :: t -> (h ^ str) :: t ;;
+    
 (* Helper method that takes an item and a function that produces related items.
    The result is the transitive closure of the relation. *)
   
@@ -1284,6 +1336,7 @@ module Interpreter = struct
     
     type state = 
         | Running
+        | Waiting_for_input of int
         | Halted;;
 
     type frame =
@@ -1302,7 +1355,8 @@ module Interpreter = struct
         random_x : Int32.t;
         random_y : Int32.t;
         random_z : Int32.t;
-        state : state
+        state : state ;
+        transcript : string list
     };;
     
     let make story = 
@@ -1315,7 +1369,8 @@ module Interpreter = struct
         random_x = Int32.of_int 123;
         random_y = Int32.of_int 123;
         random_z = Int32.of_int 123;
-        state = Running
+        state = Running;
+        transcript = [""]
     };;
     
     let current_frame interpreter = 
@@ -1495,15 +1550,19 @@ module Interpreter = struct
             handle_branch store_interpreter instruction 0
         | _ -> failwith "pull requires a variable ";;
       
-    let interpreter_print text = 
+    let interpreter_print interpreter text = 
+        let text_max_width = 40 in
         print_string text;
-        flush stdout;;
+        flush stdout;
+        let (new_transcript, lines_added) = wrap_lines (add_to_lines interpreter.transcript text) text_max_width in
+        { interpreter with transcript = new_transcript };;
         
-    let handle_sread text_address parse_address interp =
+    let complete_sread interpreter instruction input =  
+    
     
         (* TODO: Get word separator list from story *)
     
-        let tokenise text = 
+        let tokenise text interp = 
             let length = String.length text in
             let rec find_space_or_end i = 
                 if i = length then i
@@ -1529,42 +1588,29 @@ module Interpreter = struct
                 | None -> acc
                 | Some (tok, start, addr) -> aux (skip_spaces (i + String.length tok)) ((tok, start, addr) :: acc) in
             List.rev (aux (skip_spaces 0) []) in
+      
+        let running_interpreter = { interpreter with state = Running } in
+
             
-        (* SPEC
+        let (text_address, parse_address, operands_interpreter) =
+            match instruction.operands with
+                | [x_operand; y_operand] ->  
+                    let (x, x_interpreter) = read_operand running_interpreter x_operand in
+                    let (y, y_interpreter) = read_operand x_interpreter y_operand in
+                    (x, y, y_interpreter) 
+           | _ -> failwith (Printf.sprintf "instruction at %04x must have two operands" instruction.address ) in
+           
+
+
         
-        This opcode reads a whole command from the keyboard (no prompt is automatically displayed).
+
+
+        let text = String.lowercase input in
         
-        It is legal for this to be called with the cursor at any position on any window.
+        let maximum_letters = read_byte operands_interpreter.story text_address in
         
-        TODO: In Versions 1 to 3, the status line is automatically redisplayed first.
-        
-        A sequence of characters is read in from the current input stream until a carriage return (or, in
-        Versions 5 and later, any terminating character) is found.
-        
-        In Versions 1 to 4, byte 0 of the text-buffer should initially contain the maximum number of
-        letters which can be typed, minus 1 (the interpreter should not accept more than this).
-        
-        The text typed is reduced to lower case (so that it can tidily be printed back by the program if need be)
-        and stored in bytes 1 onward, with a zero terminator (but without any other terminator, such as a
-        carriage return code). (This means that if byte 0 contains n then the buffer must contain n+1
-        bytes, which makes it a string array of length n in Inform terminology.)
-        *)
-        
-        (* TODO: Should restrict input to this many chars, not trim it later *)
-        
-        let maximum_letters = read_byte interp.story text_address in
-        
-        (* 
-        Interpreters are asked to halt with a suitable error message if the text or parse buffers have
-        length of less than 3 or 6 bytes, respectively: this sometimes occurs due to a previous array being
-        overrun, causing bugs which are very difficult to find.
-        *)
-        
-        if maximum_letters < 3 then failwith "bad text buffer in sread";
-        
-        let text = String.lowercase (input_line stdin) in
         let trimmed = if (String.length text) > maximum_letters then String.sub text 0 maximum_letters else text in
-        let string_copied_interpreter = { interp with story = write_string interp.story (text_address + 1) trimmed } in
+        let string_copied_interpreter = { operands_interpreter with story = write_string operands_interpreter.story (text_address + 1) trimmed } in
         
         (*
         
@@ -1600,7 +1646,10 @@ module Interpreter = struct
         return is printed (so the cursor moves to the next line). If it was interrupted, the cursor is left at
         the rightmost end of the text typed in so far.*)
         
-        interpreter_print "\n";
+       
+        (*TODO: The input needs to go into the transcript buffer *)
+       
+        let transcript_interpreter = interpreter_print string_copied_interpreter (trimmed ^ "\n") in
         
         (* 
         Next, lexical analysis is performed on the text (except that in Versions 5 and later, if parsebuffer
@@ -1609,7 +1658,7 @@ module Interpreter = struct
         4*n bytes long to hold the results of the analysis.) 
         *)
         
-        let maximum_parse = read_byte string_copied_interpreter.story parse_address in
+        let maximum_parse = read_byte transcript_interpreter.story parse_address in
         
         if maximum_parse < 1 then failwith "bad parse buffer in sread";
         
@@ -1639,7 +1688,7 @@ module Interpreter = struct
         
         *)
         
-        let tokens = tokenise trimmed in
+        let tokens = tokenise trimmed transcript_interpreter in
         
         let rec write_tokens items address count writing_tokens_interpreter =
             match items with
@@ -1654,15 +1703,80 @@ module Interpreter = struct
                     let offset_story = write_byte len_story (address + 3) (text_offset + 1) in
                     write_tokens tail (address + 4) (count + 1) { writing_tokens_interpreter with story = offset_story } ) in
                     
-        let (count, tokens_written_interpreter) =  write_tokens tokens (parse_address + 2) 0 string_copied_interpreter in
+        let (count, tokens_written_interpreter) =  write_tokens tokens (parse_address + 2) 0 transcript_interpreter in
         
         (* TODO: Make a write byte that takes interpreters *)
        
         let length_copied_interpreter = { tokens_written_interpreter with story = write_byte tokens_written_interpreter.story (parse_address + 1) count } in
         
-        (0, length_copied_interpreter) ;;
+        
+        handle_store_and_branch length_copied_interpreter instruction 0;;
+        
+    let handle_sread interpreter instruction =
+    
+        (* This instruction is broken up into two halves. The first determines the size of
+        the text buffer needed and then gives back an interpreter set to "I need input". 
+        The second half does the actual work once the host has provided the data.
+    
+        Note that we are doing something unusual here. We potentially pop two values 
+        off the stack, but we discard the mutated interpreter state. We will simply
+        compute the values again in the original interpreter on the completion side
+        of the instruction! Immutable data structures for the win! *)
+        
+         let (text_address, _) = 
+            match instruction.operands with
+            | [x_operand; y_operand] -> read_operand interpreter x_operand 
+            | _ -> failwith (Printf.sprintf "instruction at %04x must have two operands" instruction.address ) in
+                
+           
+    
+            
+        (* SPEC
+        
+        This opcode reads a whole command from the keyboard (no prompt is automatically displayed).
+        
+        It is legal for this to be called with the cursor at any position on any window.
+        
+        TODO: In Versions 1 to 3, the status line is automatically redisplayed first.
+        
+        A sequence of characters is read in from the current input stream until a carriage return (or, in
+        Versions 5 and later, any terminating character) is found.
+        
+        In Versions 1 to 4, byte 0 of the text-buffer should initially contain the maximum number of
+        letters which can be typed, minus 1 (the interpreter should not accept more than this).
+        
+        The text typed is reduced to lower case (so that it can tidily be printed back by the program if need be)
+        and stored in bytes 1 onward, with a zero terminator (but without any other terminator, such as a
+        carriage return code). (This means that if byte 0 contains n then the buffer must contain n+1
+        bytes, which makes it a string array of length n in Inform terminology.)
+        *)
+        
+        (* TODO: Should restrict input to this many chars, not trim it later *)
+        
+        let maximum_letters = read_byte interpreter.story text_address in
+        
+        (* 
+        Interpreters are asked to halt with a suitable error message if the text or parse buffers have
+        length of less than 3 or 6 bytes, respectively: this sometimes occurs due to a previous array being
+        overrun, causing bugs which are very difficult to find.
+        *)
+        
+        if maximum_letters < 3 then failwith "bad text buffer in sread";
+        
+        (* TODO: At this point set the state to "needs input" and return that interpreter.
+        The host will get the input and call back to complete the process. *)
+        
+        { interpreter with state = Waiting_for_input maximum_letters } ;;
+        
+        
         
     let step interpreter =
+    
+        match interpreter.state with
+        | Halted -> failwith "interpreter is halted"
+        | Waiting_for_input _ -> failwith "interpreter is waiting for input"
+        | Running -> ();
+    
         let instruction = decode_instruction interpreter.story interpreter.program_counter in
     
         (* Some helper routines for generic instructions that simply evaluate operands,
@@ -1738,25 +1852,25 @@ module Interpreter = struct
         let handle_get_child x interp = (object_child interp.story x, interp) in
         let handle_get_parent x interp = (object_parent interp.story x, interp) in
         let handle_get_prop_len x interp = (property_length_from_address interp.story x, interp) in
-        let handle_print_addr x interp = (interpreter_print (read_zstring interp.story x); 0, interp) in
+        let handle_print_addr x interp = (0, interpreter_print interp (read_zstring interp.story x)) in
         let handle_remove_obj x interp = (0, { interp with story = remove_object interp.story x}) in
-        let handle_print_obj x interp = (interpreter_print (object_name interp.story x); 0, interp) in
-        let handle_print_paddr x interp = (interpreter_print (read_zstring interp.story (decode_packed_address interp.story x)); 0, interp) in
+        let handle_print_obj x interp = (0, interpreter_print interp (object_name interp.story x)) in
+        let handle_print_paddr x interp = (0, interpreter_print interp (read_zstring interp.story (decode_packed_address interp.story x))) in
         let handle_load x interp = (x, interp) in
         let handle_not x interp = (unsigned_word (lnot x), interp) in
         let handle_nop interp = (0, interp) in
         let handle_storew arr ind value interp = (0, { interp with story = write_word interp.story (arr + ind * 2) value }) in
         let handle_storeb arr ind value interp = (0, { interp with story = write_byte interp.story (arr + ind) value }) in
         let handle_putprop obj prop value interp = (0, { interp with story = write_property interp.story obj prop value }) in
-        let handle_print_char x interp = (interpreter_print (Printf.sprintf "%c" (char_of_int x)); 0, interp) in
-        let handle_print_num x interp = (interpreter_print (Printf.sprintf "%d" x); 0, interp) in
+        let handle_print_char x interp = (0, interpreter_print interp (Printf.sprintf "%c" (char_of_int x))) in
+        let handle_print_num x interp = (0, interpreter_print interp (Printf.sprintf "%d" x)) in
         let handle_push x interp = (0, push_stack interp x) in
         let handle_pop interp = (0, pop_stack interp) in
-        let handle_new_line interp = (interpreter_print "\n"; 0, interp) in
+        let handle_new_line interp = (0, interpreter_print interp "\n") in
         let handle_print interp =
-            ((match instruction.text with
-            | Some text -> interpreter_print text
-            | _ -> failwith "no text in print instruction") ; 0, interp) in
+            (0, (match instruction.text with
+            | Some text -> interpreter_print interp text
+            | _ -> failwith "no text in print instruction") ) in
         let handle_random n interp = 
             let random_next () =
                 (* See wikipedia article on xorshift *)
@@ -1801,10 +1915,11 @@ module Interpreter = struct
             { interpreter with state = Halted } in
             
         let handle_print_ret () =
-            (match instruction.text with
-            | Some text -> interpreter_print text
-            | _ -> failwith "no text in print_ret instruction");
-            handle_return interpreter instruction 1 in
+            let printed_interpreter = 
+                (match instruction.text with
+                | Some text -> interpreter_print interpreter text
+                | _ -> failwith "no text in print_ret instruction") in
+            handle_return printed_interpreter instruction 1 in
             
         let handle_ret_popped () = 
             handle_return (pop_stack interpreter) instruction (peek_stack interpreter) in
@@ -1944,7 +2059,7 @@ module Interpreter = struct
         | VAR_225 -> handle_op3 handle_storew
         | VAR_226 -> handle_op3 handle_storeb
         | VAR_227 -> handle_op3 handle_putprop
-        | VAR_228 -> handle_op2 handle_sread
+        | VAR_228 -> handle_sread interpreter instruction
         | VAR_229 -> handle_op1 handle_print_char
         | VAR_230 -> handle_op1 handle_print_num
         | VAR_231 -> handle_op1 handle_random 
@@ -1985,10 +2100,17 @@ module Interpreter = struct
         let instr = display_instructions interpreter.story interpreter.program_counter 1 in
         locals ^ "\n" ^ stack ^ "\n" ^ instr;;
 
+    let step_with_input interpreter input = 
+        let instruction = decode_instruction interpreter.story interpreter.program_counter in
+        match instruction.opcode with
+        | VAR_228 -> complete_sread interpreter instruction input
+        | _ -> failwith "not waiting for input";;
+
     let rec run interpreter =
 (*         print_endline (display_interpreter interpreter);      *)
         match interpreter.state with
-        | Halted -> ()
+        | Waiting_for_input max ->  run (step_with_input interpreter (input_line stdin) )
+        | Halted -> interpreter
         | Running -> run (step interpreter);;
 
 end
@@ -2011,5 +2133,9 @@ print_endline (Story.display_dictionary story);;
 *)
 
 let interp = Interpreter.make story;;
-Interpreter.run interp;;
+let finished = Interpreter.run interp;;
+
+List.iter print_endline (List.rev finished.Interpreter.transcript);;
+
+
 
