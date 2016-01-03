@@ -1551,14 +1551,14 @@ module Interpreter = struct
         | _ -> failwith "pull requires a variable ";;
       
     let interpreter_print interpreter text = 
+        (* TODO: Set the text window width in the story file *)
+        (* TODO: signal that there is new text in the interpreter *)
+        (* TODO: Implement the ---MORE--- feature *)
         let text_max_width = 40 in
-        print_string text;
-        flush stdout;
         let (new_transcript, lines_added) = wrap_lines (add_to_lines interpreter.transcript text) text_max_width in
         { interpreter with transcript = new_transcript };;
         
     let complete_sread interpreter instruction input =  
-    
     
         (* TODO: Get word separator list from story *)
     
@@ -1591,7 +1591,6 @@ module Interpreter = struct
       
         let running_interpreter = { interpreter with state = Running } in
 
-            
         let (text_address, parse_address, operands_interpreter) =
             match instruction.operands with
                 | [x_operand; y_operand] ->  
@@ -1600,11 +1599,6 @@ module Interpreter = struct
                     (x, y, y_interpreter) 
            | _ -> failwith (Printf.sprintf "instruction at %04x must have two operands" instruction.address ) in
            
-
-
-        
-
-
         let text = String.lowercase input in
         
         let maximum_letters = read_byte operands_interpreter.story text_address in
@@ -1647,9 +1641,7 @@ module Interpreter = struct
         the rightmost end of the text typed in so far.*)
         
        
-        (*TODO: The input needs to go into the transcript buffer *)
-       
-        let transcript_interpreter = interpreter_print string_copied_interpreter (trimmed ^ "\n") in
+        let transcript_interpreter = interpreter_print string_copied_interpreter (text ^ "\n") in
         
         (* 
         Next, lexical analysis is performed on the text (except that in Versions 5 and later, if parsebuffer
@@ -1709,7 +1701,6 @@ module Interpreter = struct
        
         let length_copied_interpreter = { tokens_written_interpreter with story = write_byte tokens_written_interpreter.story (parse_address + 1) count } in
         
-        
         handle_store_and_branch length_copied_interpreter instruction 0;;
         
     let handle_sread interpreter instruction =
@@ -1723,14 +1714,11 @@ module Interpreter = struct
         compute the values again in the original interpreter on the completion side
         of the instruction! Immutable data structures for the win! *)
         
-         let (text_address, _) = 
+        let (text_address, _) = 
             match instruction.operands with
             | [x_operand; y_operand] -> read_operand interpreter x_operand 
             | _ -> failwith (Printf.sprintf "instruction at %04x must have two operands" instruction.address ) in
                 
-           
-    
-            
         (* SPEC
         
         This opcode reads a whole command from the keyboard (no prompt is automatically displayed).
@@ -1767,8 +1755,6 @@ module Interpreter = struct
         The host will get the input and call back to complete the process. *)
         
         { interpreter with state = Waiting_for_input maximum_letters } ;;
-        
-        
         
     let step interpreter =
     
@@ -1917,7 +1903,7 @@ module Interpreter = struct
         let handle_print_ret () =
             let printed_interpreter = 
                 (match instruction.text with
-                | Some text -> interpreter_print interpreter text
+                | Some text -> interpreter_print interpreter (text ^ "\n")
                 | _ -> failwith "no text in print_ret instruction") in
             handle_return printed_interpreter instruction 1 in
             
@@ -2106,14 +2092,16 @@ module Interpreter = struct
         | VAR_228 -> complete_sread interpreter instruction input
         | _ -> failwith "not waiting for input";;
 
-    let rec run interpreter =
-(*         print_endline (display_interpreter interpreter);      *)
-        match interpreter.state with
-        | Waiting_for_input max ->  run (step_with_input interpreter (input_line stdin) )
-        | Halted -> interpreter
-        | Running -> run (step interpreter);;
 
 end
+
+
+
+
+
+
+
+
 
 let story = Story.load_story "ZORK1.DAT";;
 
@@ -2132,10 +2120,66 @@ print_endline (display_default_property_table s);;
 print_endline (Story.display_dictionary story);;  
 *)
 
-let interp = Interpreter.make story;;
-let finished = Interpreter.run interp;;
+open Graphics;;
 
-List.iter print_endline (List.rev finished.Interpreter.transcript);;
+open_graph "";;
+
+let text_max_height = 20;;
+
+let text_max_width = 40;;
+
+(* Takes a list of strings, the (x, y) coordinates of the bottom left
+   corner of a window, the height of the window in lines, and the number of pixels
+   per line. Pops the list until the window is full or the list is empty. *)
+   
+let display_lines lines x y max_lines line_height = 
+    let rec aux lines n = 
+        if n > max_lines then ()
+        else
+            match lines with
+            | [] -> ()
+            | line :: tail -> (
+                moveto x (y + line_height * n);
+                draw_string line;
+                aux tail (n + 1) ) in
+    aux lines 0;;
+
+let draw transcript =
+    clear_graph();
+    display_lines transcript 100 100 text_max_height 10;;
+    (* (display_interpreter interpreter);      *)
+
+open Interpreter;;
+let string_of_char x = String.make 1 x;;
+
+let wait_for_string interpreter max =
+    let rec input_loop user_input =
+        let transcript = interpreter.transcript in
+        let (to_display, _) = wrap_lines (add_to_lines transcript user_input) text_max_width in
+        draw to_display;
+         
+        let status = wait_next_event [Key_pressed] in
+        let key = string_of_char status.key in
+        let length = String.length user_input in
+        if key = "\r" then user_input
+        else if key = "\b" then (
+            if length = 0 then input_loop user_input 
+            else input_loop (String.sub user_input 0 (length - 1)))
+        else if length > max then input_loop user_input
+        else input_loop (user_input ^ key) in
+    input_loop "";;
+
+let interp = Interpreter.make story;;
+let rec run interpreter =
+    draw interpreter.transcript;
+    match interpreter.state with
+    | Waiting_for_input max ->
+        let command = wait_for_string interpreter max in
+        run (step_with_input interpreter command)
+    | Halted -> interpreter
+    | Running -> run (step interpreter);;
+
+let finished = run interp;;
 
 
 
