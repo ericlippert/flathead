@@ -1,8 +1,11 @@
 (* Z-Machine tools written in OCaml, as part of my efforts to learn the language. *)
 
-let text_max_width = 60;;
 
 (* Some helper methods to start with. *)
+
+(* Turns a given character into a string *)
+
+let string_of_char x = String.make 1 x;;
 
 (* Takes a string, a character and an index; finds
 the highest index that matches the character at or before
@@ -12,6 +15,233 @@ let rec reverse_index_from text target index =
     if index < 0 then None
     else if text.[index] = target then Some index
     else reverse_index_from text target (index - 1);;
+
+(* Takes a list and a count; produces a new list which has up to
+   that many items taken from the head of the given list *)
+
+let take items n = 
+    let rec aux items n acc = 
+    match (items, n) with
+    | (_, 0) -> acc
+    | ([], _) -> acc
+    | ((h :: t), _) -> aux t (n - 1) (h :: acc) in
+    List.rev (aux items n []);;
+    
+(* Takes a list and a count; removes the given number of items from
+   the head of the list. *)
+    
+let rec drop items n = 
+    match(items, n) with
+    | (_, 0) -> items
+    | ([], _) -> []
+    | (h :: t, _) -> drop t (n - 1);;
+
+module Deque = struct
+
+    (* Simplified version of Chris Okasaki's deque. *)
+
+    let c = 3;;
+
+    type 'a t = 
+    { 
+        front : 'a list;
+        front_length : int;
+        back : 'a list;
+        back_length : int
+    };;
+    
+    (* Invariants: front_length and back_length are the lengths of the lists *)
+    (* Invariants: front_length <= c * back_length + 1 *)
+    (* Invariants: back_length <= c * front_length + 1 *)
+    
+    exception Empty;;
+   
+    let empty = { front = []; front_length = 0; back = []; back_length = 0 };;
+    
+    let is_empty deque = deque.front_length + deque.back_length = 0;;
+    
+    let balance deque = 
+        if deque.front_length > c * deque.back_length + 1 then
+            let new_front_length = (deque.front_length + deque.back_length) / 2 in
+            let new_back_length = deque.front_length + deque.back_length - new_front_length in
+            { 
+                front = take deque.front new_front_length; 
+                front_length = new_front_length; 
+                back = deque.back @ (List.rev (drop deque.front new_front_length)); 
+                back_length = new_back_length
+            }
+        else if deque.back_length > c * deque.front_length + 1 then
+            let new_front_length = (deque.front_length + deque.back_length) / 2 in
+            let new_back_length = deque.front_length + deque.back_length - new_front_length in
+            { 
+                front = deque.front @ List.rev(drop deque.back new_back_length);
+                front_length = new_front_length; 
+                back = take deque.back new_back_length;
+                back_length = new_back_length
+            }
+        else deque;;
+        
+    let enqueue_front deque item = 
+        balance { deque with front = item :: deque.front; front_length = deque.front_length + 1};;
+        
+    let enqueue_back deque item = 
+        balance { deque with back = item :: deque.back; back_length = deque.back_length + 1};;
+        
+    let peek_front deque = 
+        match deque with
+        | { front = []; back = [] } -> raise Empty 
+        | { front = h :: _} -> h
+        | { back = [h] } -> h
+        | _ -> failwith "peek_front: Front is empty, back has more than one item";;
+        
+    let peek_back deque = 
+        match deque with
+        | { front = []; back = [] } -> raise Empty 
+        | { back = h :: _} -> h
+        | { front = [h] } -> h
+        | _ -> failwith "peek_back: Back is empty, front has more than one item";;
+        
+    let dequeue_front deque = 
+        match deque with
+        | { front = []; back = [] } -> raise Empty 
+        | { front = [_]; back = [] } -> empty
+        | { front = []; back = [_] } -> empty
+        | { front = _ :: t } -> balance { deque with front = t; front_length = deque.front_length - 1 }
+        | _ -> failwith "dequeue_front: Front is empty, back has more than one item";;
+           
+    let dequeue_back deque = 
+        match deque with
+        | { front = []; back = [] } -> raise Empty 
+        | { front = [_]; back = [] } -> empty
+        | { front = []; back = [_] } -> empty
+        | { back = _ :: t } -> balance { deque with back = t; back_length = deque.back_length - 1 }
+        | _ -> failwith "dequeue_back: Back is empty, front has more than one item";;
+           
+    let rec peek_front_at deque n =
+        if n = 0 then peek_front deque
+        else peek_front_at (dequeue_front deque) (n - 1);;
+        
+    let rec peek_back_at deque n =
+        if n = 0 then peek_back deque
+        else peek_back_at (dequeue_back deque) (n - 1);;
+        
+    let rec set_front_at deque item n =
+        if n = 0 then enqueue_front (dequeue_front deque) item
+        else enqueue_front (set_front_at (dequeue_front deque) item (n - 1)) (peek_front deque);;
+        
+    let rec set_back_at deque item n = 
+        if n = 0 then enqueue_back (dequeue_back deque) item
+        else enqueue_back (set_back_at (dequeue_back deque) item (n - 1)) (peek_back deque);;
+        
+end
+
+
+(* Helper method that produces a deque with a given item in it some number of times *)
+
+let enqueue_duplicate item times =
+    let rec aux n deque =
+        if n = 0 then deque 
+        else aux (n - 1) (Deque.enqueue_front deque item) in
+    aux times Deque.empty;
+
+module Screen = struct
+
+    open Deque;;
+
+    (* Cursor position is one-based; (1, 1) is the top left, (width, height) is the bottom right. *)
+
+    type t =
+    {
+        lines : string Deque.t;
+        height : int;
+        width : int;
+        cursor : int * int;
+        needs_scroll : bool;
+        word_wrap : bool;
+        pending : string;
+        scroll_count : int
+    };;
+    
+    let make height width = 
+    {
+        lines = enqueue_duplicate (String.make width ' ') height;
+        height = height;
+        width = width;
+        cursor = (1, height);
+        needs_scroll = false;
+        word_wrap = true;
+        pending = "";
+        scroll_count = 0
+    };;
+    
+    let carriage_return screen = 
+        let (_, y) = screen.cursor in
+        if screen.needs_scroll then 
+            { screen with pending = screen.pending ^ "\n" }
+        else if y = screen.height then
+            { screen with needs_scroll = true }
+        else 
+            { screen with cursor = (1, y + 1) };;
+
+    let rec print screen text = 
+        let len = String.length text in
+        if len = 0 then 
+            screen 
+        else if screen.needs_scroll then 
+            { screen with pending = screen.pending ^ text }
+        else 
+            let (x, y) = screen.cursor in
+            let left_in_line = screen.width - x + 1 in
+            if String.contains text '\n' then
+                let b = String.index text '\n' in
+                let f = String.sub text 0 b in
+                let r = String.sub text (b + 1) (len - b - 1) in
+                let s1 = print screen f in
+                let s2 = carriage_return s1 in
+                print s2 r
+            else if len >= left_in_line then
+                let line = peek_front_at screen.lines (screen.height - y) in
+                let over_length_line = (String.sub line 0 (x - 1)) ^ text in
+                let b = if screen.word_wrap then  
+                    let space_location = reverse_index_from over_length_line ' ' (screen.width - 1) in
+                    match space_location with None -> (screen.width - 1) | Some location -> location 
+                else 
+                    (screen.width - 1) in
+                let new_line = (String.sub over_length_line 0 (b + 1)) ^ (String.make (screen.width - b - 1) ' ')  in
+                let r = String.sub over_length_line (b + 1) ((String.length over_length_line) - b - 1) in
+                let s1 = { screen with lines = set_front_at screen.lines new_line (screen.height - y) } in
+                let s2 = carriage_return s1 in
+                print s2 r
+            else
+                let line = peek_front_at screen.lines (screen.height - y) in
+                let new_line = (String.sub line 0 (x - 1)) ^ text ^ (String.sub line (x + len - 1) (screen.width - x - len + 1)) in
+                { screen with 
+                    lines = set_front_at screen.lines new_line (screen.height - y);
+                    cursor = (x + len, y)
+                };;
+            
+    let scroll screen = 
+        let new_screen = { screen with 
+            lines = enqueue_front (dequeue_back screen.lines) (String.make screen.width ' ');
+            cursor = (1, screen.height);
+            needs_scroll = false;
+            pending = "";
+            scroll_count = screen.scroll_count + 1 } in
+        print new_screen screen.pending;;
+
+    let rec fully_scroll screen =
+        if screen.needs_scroll then fully_scroll (scroll screen) 
+        else { screen with scroll_count = 0};;
+        
+    let set_cursor screen x y = 
+        { (fully_scroll screen) with cursor = (x, y) };;
+        
+    let more screen = 
+        { screen with lines = set_front_at screen.lines ("[MORE]" ^ (String.make (screen.width - 6) ' ')) 0 };;
+
+end
+
+(* TODO: This logic is duplicated in the screen type. Eliminate this. *)
 
 (* Word-wraps the last line in a list of lines. Assumes that
 the tail of the list is already word-wrapped. Returns the 
@@ -1357,12 +1587,16 @@ module Interpreter = struct
         random_x : Int32.t;
         random_y : Int32.t;
         random_z : Int32.t;
-        state : state ;
+        state : state;
         transcript : string list;
+        screen : Screen.t;
         has_new_output : bool
     };;
     
-    let make story = 
+    let make story screen = 
+    
+    (* TODO: Need to set appropriate words for screen size *)
+    
     { 
         story = story; 
         program_counter = initial_program_counter story;
@@ -1374,6 +1608,7 @@ module Interpreter = struct
         random_z = Int32.of_int 123;
         state = Running;
         transcript = [""];
+        screen = screen;
         has_new_output = false
     };;
     
@@ -1553,12 +1788,15 @@ module Interpreter = struct
             let store_interpreter = do_store_in_place popped_interpreter variable value in
             handle_branch store_interpreter instruction 0
         | _ -> failwith "pull requires a variable ";;
+    
+    let add_to_transcript interpreter text =
+        let transcript_width = 80 in
+        let (new_transcript, _) = wrap_lines (add_to_lines interpreter.transcript text) transcript_width in
+        { interpreter with transcript = new_transcript };;
       
     let interpreter_print interpreter text = 
-        (* TODO: Set the text window width in the story file *)
-        (* TODO: Implement the ---MORE--- feature *)
-        let (new_transcript, lines_added) = wrap_lines (add_to_lines interpreter.transcript text) text_max_width in
-        { interpreter with transcript = new_transcript; has_new_output = true };;
+        let new_screen = Screen.print interpreter.screen text in
+        add_to_transcript { interpreter with screen = new_screen; has_new_output = true } text ;;
         
     let complete_sread interpreter instruction input =  
     
@@ -1643,7 +1881,7 @@ module Interpreter = struct
         the rightmost end of the text typed in so far.*)
         
        
-        let transcript_interpreter = interpreter_print string_copied_interpreter (text ^ "\n") in
+        let transcript_interpreter = add_to_transcript string_copied_interpreter (text ^ "\n") in
         
         (* 
         Next, lexical analysis is performed on the text (except that in Versions 5 and later, if parsebuffer
@@ -1974,9 +2212,6 @@ module Interpreter = struct
                 let first_instruction = first_instruction locals_interpreter.story routine_address in
                 set_program_counter (add_frame interpreter frame) first_instruction in
             
-            
-            
-                
         (* The big dispatch *)
         
         match instruction.opcode with
@@ -2094,96 +2329,74 @@ module Interpreter = struct
         match instruction.opcode with
         | VAR_228 -> complete_sread interpreter instruction input
         | _ -> failwith "not waiting for input";;
+end (* Interpreter *)
 
+module Interpreter_display = struct
 
-end
+    open Graphics;;
+    open Screen;;
+    open Interpreter;;
+    
+    open_graph "";;
+    let text_font_size = 12;;
+    set_font "Lucida Console";;
+    
+    let draw_screen screen = 
+        clear_graph();
+        let rec aux deque n = 
+            if Deque.is_empty deque then ()
+            else (
+                moveto 100 (100 + 12 * n);
+                draw_string (Deque.peek_front deque);
+                aux (Deque.dequeue_front deque) (n + 1) ) in
+        aux screen.lines 0;;
+    
+    let rec draw_screen_with_scrolling screen =
+        if screen.needs_scroll then (
+            if screen.scroll_count >= (screen.height - 2) then (
+                let _ = draw_screen (more screen) in
+                let _ = wait_next_event [Key_pressed] in
+                draw_screen_with_scrolling (scroll { screen with scroll_count = 0 }) )
+            else
+            (
+                let scrolled = scroll screen in
+                draw_screen scrolled;
+                draw_screen_with_scrolling scrolled
+            )
+        )
+        else ( draw_screen screen; screen );;
+    
+    let wait_for_string_screen screen max =
+        let scrolled = draw_screen_with_scrolling screen in
+        let rec input_loop buffer =
+            let screen_with_buffer = fully_scroll (print scrolled buffer) in
+            draw_screen screen_with_buffer;
+            let status = wait_next_event [Key_pressed] in
+            let key = string_of_char status.key in
+            let length = String.length buffer in
+            if key = "\r" then (buffer, (carriage_return screen_with_buffer))
+            else if key = "\b" then (
+                if length = 0 then input_loop buffer 
+                else input_loop (String.sub buffer 0 (length - 1)))
+            else if length > max then input_loop buffer
+            else input_loop (buffer ^ key) in
+        input_loop "";;
 
-
-
-
-
-
-
-
+    let rec run interpreter =
+        let printed_screen = if interpreter.has_new_output then 
+            draw_screen_with_scrolling interpreter.screen
+        else 
+            interpreter.screen in
+        match interpreter.state with
+        | Waiting_for_input max ->
+            let (user_input, input_screen) = wait_for_string_screen printed_screen max in
+            run (step_with_input { interpreter with screen = input_screen } user_input)
+        | Halted -> interpreter
+        | Running -> run (step { interpreter with screen = printed_screen });;
+end (* Interpreter_display *)
 
 let story = Story.load_story "ZORK1.DAT";;
-
-(*
-print_endline (Story.display_header story);;
-print_endline (Story.display_default_property_table story);;
-print_endline (Story.display_object_tree story);;
-print_endline (Story.display_object_table story);;
-print_endline (Story.display_properties story 0xb4);;
-print_endline (Story.display_bytes story (Story.object_property_address story 0xb4) 64);;
-print_endline (Story.display_zchar_bytes story (1 + (Story.object_property_address story 0xb4)) 64);;
-Story.display_all_routines story;; 
-print_endline (Story.display_reachable_instructions story (Story.initial_program_counter story));; 
-print_endline (display_abbreviation_table s);;
-print_endline (display_default_property_table s);; 
-print_endline (Story.display_dictionary story);;  
-*)
-
-open Graphics;;
-
-open_graph "";;
-
-let text_max_height = 20;;
-let text_font_size = 11;;
-
-set_font "Lucida Console";;
-
-(* Takes a list of strings, the (x, y) coordinates of the bottom left
-   corner of a window, the height of the window in lines, and the number of pixels
-   per line. Pops the list until the window is full or the list is empty. *)
-   
-let display_lines lines x y max_lines = 
-    let rec aux lines n = 
-        if n > max_lines then ()
-        else
-            match lines with
-            | [] -> ()
-            | line :: tail -> (
-                moveto x (y + (text_font_size + 1) * n);
-                draw_string line;
-                aux tail (n + 1) ) in
-    aux lines 0;;
-
-let draw transcript =
-    clear_graph();
-    display_lines transcript 100 100 text_max_height ;;
-    (* (display_interpreter interpreter);      *)
-
-open Interpreter;;
-let string_of_char x = String.make 1 x;;
-
-let wait_for_string interpreter max =
-    let rec input_loop user_input =
-        let transcript = interpreter.transcript in
-        let (to_display, _) = wrap_lines (add_to_lines transcript user_input) text_max_width in
-        draw to_display;
-         
-        let status = wait_next_event [Key_pressed] in
-        let key = string_of_char status.key in
-        let length = String.length user_input in
-        if key = "\r" then user_input
-        else if key = "\b" then (
-            if length = 0 then input_loop user_input 
-            else input_loop (String.sub user_input 0 (length - 1)))
-        else if length > max then input_loop user_input
-        else input_loop (user_input ^ key) in
-    input_loop "";;
-
-let interp = Interpreter.make story;;
-let rec run interpreter =
-    if interpreter.has_new_output then draw interpreter.transcript;
-    match interpreter.state with
-    | Waiting_for_input max ->
-        let command = wait_for_string interpreter max in
-        run (step_with_input interpreter command)
-    | Halted -> interpreter
-    | Running -> run (step interpreter);;
-
-let finished = run interp;;
-
-
+let screen = Screen.make 20 60;;
+let interp = Interpreter.make story screen;;
+let finished = Interpreter_display.run interp;;
 
