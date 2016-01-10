@@ -152,6 +152,7 @@ module Screen = struct
 
     type t =
     {
+        status : string option;
         lines : string Deque.t;
         height : int;
         width : int;
@@ -164,6 +165,7 @@ module Screen = struct
     
     let make height width = 
     {
+        status = None;
         lines = enqueue_duplicate (String.make width ' ') height;
         height = height;
         width = width;
@@ -494,8 +496,23 @@ module Story = struct
     let version_offset = 0;;
     let version story = 
         read_byte story version_offset;;
+        
+    let flags1 story = 
+        let flags1_offset = 1 in
+        read_byte story flags1_offset;;
+        
+    type status_line_kind_type = NoStatus | ScoreStatus | TimeStatus;;
+    
+    let status_line_kind story =
+        match (version story, fetch_bit 1 (flags1 story))  with
+        | (1, _)
+        | (2, _) 
+        | (3, false) -> ScoreStatus
+        | (3, true) -> TimeStatus
+        | _ -> NoStatus;;
 
-    (* TODO: Flags *)
+    (* TODO: More Flags 1 *)
+    (* TODO: Flags 2 *)
         
     let high_memory_base story =
         let high_memory_base_offset = 4 in
@@ -521,7 +538,6 @@ module Story = struct
     let static_memory_base story = 
         read_word story static_memory_base_offset ;;
 
-    (* TODO: Flags 2 *)
     
     let abbreviations_table_base story = 
         let abbreviations_table_base_offset = 24 in
@@ -1547,6 +1563,12 @@ module Story = struct
         List.iter (fun r -> Printf.printf "\n---\n%s" (display_routine story r)) (all_routines story);;
         
     let first_global = 16;;
+    let current_object_global = 16;;
+    let current_score_global = 17;;
+    let turn_count_global = 18;;
+    let current_hours_global = 17;;
+    let current_minute_global = 18;;
+    
     let last_global = 255;;
     
     (* Note that globals are indexed starting at 16 *)
@@ -1560,11 +1582,19 @@ module Story = struct
             failwith "global variable index out of range";
         write_word story ((global_variables_table_base story) + (global_number - first_global) * 2) value;;
         
+    let current_object_name story =
+        let current_object = read_global story current_object_global in
+        if current_object = invalid_object then ""
+        else object_name story current_object;;
+        
+    let status_globals story = 
+        (signed_word (read_global story current_score_global), read_global story turn_count_global);;
 end
 
 module Interpreter = struct
 
     open Story;;
+    open Screen;;
     
     type state = 
         | Running
@@ -1798,6 +1828,35 @@ module Interpreter = struct
         let new_screen = Screen.print interpreter.screen text in
         add_to_transcript { interpreter with screen = new_screen; has_new_output = true } text ;;
         
+    let set_status_line interpreter =
+        let object_name () = 
+            current_object_name interpreter.story in
+        let build_status_line right =
+            let right_length = String.length right in
+            let left = object_name() in
+            let left_length = String.length left in
+            let width = interpreter.screen.width in
+            let left_trimmed = 
+                if left_length + right_length < width then left 
+                else String.sub left 0 (width - right_length - 1) in (* TODO: Assumes that width >= right_length *)
+            left_trimmed ^ (String.make (width - right_length - (String.length left_trimmed)) ' ') ^ right in
+        let time_status () = 
+            let (hours, minutes) = status_globals interpreter.story in
+            let suffix = if hours >= 12 then "PM" else "AM" in
+            let adjusted_hours = (hours mod 12) + 12 in
+            build_status_line (Printf.sprintf "%d:%02d%s" adjusted_hours minutes suffix) in
+        let score_status () =
+            let (score, turns) = status_globals interpreter.story in
+            build_status_line (Printf.sprintf "%d/%d" score turns) in
+        match status_line_kind interpreter.story with
+        | NoStatus -> interpreter
+        | TimeStatus -> { interpreter with
+            has_new_output = true;
+            screen = { interpreter.screen with status = Some (time_status()) } }
+        | ScoreStatus -> { interpreter with
+            has_new_output = true;
+            screen = { interpreter.screen with status = Some (score_status()) } };;
+    
     let complete_sread interpreter instruction input =  
     
         (* TODO: Get word separator list from story *)
@@ -1965,7 +2024,13 @@ module Interpreter = struct
         
         It is legal for this to be called with the cursor at any position on any window.
         
-        TODO: In Versions 1 to 3, the status line is automatically redisplayed first.
+        In Versions 1 to 3, the status line is automatically redisplayed first.
+        
+        *)
+        
+        let status_interpreter = set_status_line interpreter in
+        
+        (* SPEC 
         
         A sequence of characters is read in from the current input stream until a carriage return (or, in
         Versions 5 and later, any terminating character) is found.
@@ -1981,7 +2046,7 @@ module Interpreter = struct
         
         (* TODO: Should restrict input to this many chars, not trim it later *)
         
-        let maximum_letters = read_byte interpreter.story text_address in
+        let maximum_letters = read_byte status_interpreter.story text_address in
         
         (* 
         Interpreters are asked to halt with a suitable error message if the text or parse buffers have
@@ -1994,7 +2059,7 @@ module Interpreter = struct
         (* TODO: At this point set the state to "needs input" and return that interpreter.
         The host will get the input and call back to complete the process. *)
         
-        { interpreter with state = Waiting_for_input maximum_letters } ;;
+        { status_interpreter with state = Waiting_for_input maximum_letters } ;;
         
     let step interpreter =
         let interpreter = if interpreter.has_new_output then {interpreter with has_new_output = false} else interpreter in
@@ -2090,10 +2155,11 @@ module Interpreter = struct
         let handle_storeb arr ind value interp = (0, { interp with story = write_byte interp.story (arr + ind) value }) in
         let handle_putprop obj prop value interp = (0, { interp with story = write_property interp.story obj prop value }) in
         let handle_print_char x interp = (0, interpreter_print interp (Printf.sprintf "%c" (char_of_int x))) in
-        let handle_print_num x interp = (0, interpreter_print interp (Printf.sprintf "%d" x)) in
+        let handle_print_num x interp = (0, interpreter_print interp (Printf.sprintf "%d" (signed_word x))) in
         let handle_push x interp = (0, push_stack interp x) in
         let handle_pop interp = (0, pop_stack interp) in
         let handle_new_line interp = (0, interpreter_print interp "\n") in
+        let handle_show_status interp = (0, set_status_line interp) in
         let handle_print interp =
             (0, (match instruction.text with
             | Some text -> interpreter_print interp text
@@ -2274,7 +2340,7 @@ module Interpreter = struct
         | OP0_185 -> handle_op0 handle_pop
         | OP0_186 -> handle_quit ()
         | OP0_187 -> handle_op0 handle_new_line 
-        | OP0_188 -> failwith "TODO: show_status"
+        | OP0_188 -> handle_op0 handle_show_status
         | OP0_189 -> failwith "TODO: verify"
         | OP0_190 -> failwith "TODO: instruction for version greater than 3"
         | OP0_191 -> failwith "TODO: instruction for version greater than 3"
@@ -2342,11 +2408,20 @@ module Interpreter_display = struct
     set_font "Lucida Console";;
     let (text_width, text_height) = text_size "X";;
     
+    
     let draw_screen screen = 
+        let status_color = blue in
         let x = 100 in
         let y = 100 in
         set_color background;
-        fill_rect x y (screen.width * text_width) (screen.height * text_height);
+        fill_rect x y (screen.width * text_width) ((screen.height + 1) * text_height);
+        match screen.status with
+        | None -> ()
+        | Some status -> (
+            set_color status_color;
+            moveto x (y + text_height * screen.height);
+            draw_string status);
+       
         set_color foreground;
         let rec aux deque n = 
             if Deque.is_empty deque then ()
