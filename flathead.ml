@@ -2408,13 +2408,15 @@ module Interpreter_display = struct
     set_font "Lucida Console";;
     let (text_width, text_height) = text_size "X";;
     
+    (* Extra line for status *)
+    let screen_extent screen = 
+        (10, 10, screen.width * text_width, (screen.height + 1) * text_height);;
     
     let draw_screen screen = 
+        let (x, y, w, h) = screen_extent screen in
         let status_color = blue in
-        let x = 100 in
-        let y = 100 in
         set_color background;
-        fill_rect x y (screen.width * text_width) ((screen.height + 1) * text_height);
+        fill_rect x y w h;
         match screen.status with
         | None -> ()
         | Some status -> (
@@ -2461,8 +2463,24 @@ module Interpreter_display = struct
             else if length > max then input_loop buffer
             else input_loop (buffer ^ key) in
         input_loop "";;
+        
+    let debugging = true;;
+
+
+    let display_instruction interpreter =
+        if debugging then (
+            let instr = Story.display_instructions interpreter.story interpreter.program_counter 1 in
+            let (screen_x, screen_y, screen_w, screen_h) = screen_extent interpreter.screen in
+            set_color background;
+            fill_rect (screen_x + screen_w + 10) screen_y (text_width * 80) (text_height);
+            set_color foreground;
+            moveto (screen_x + screen_w + 10) screen_y;
+            draw_string instr;
+            synchronize() );;
+             
 
     let rec run interpreter =
+        display_instruction interpreter;
         let printed_screen = if interpreter.has_new_output then 
             draw_screen_with_scrolling interpreter.screen
         else 
@@ -2476,7 +2494,7 @@ module Interpreter_display = struct
 end (* Interpreter_display *)
 
 let story = Story.load_story "ZORK1.DAT";;
-let screen = Screen.make 25 40;;
+let screen = Screen.make 50 80;;
 let interp = Interpreter.make story screen;;
 let finished = Interpreter_display.run interp;;
 
