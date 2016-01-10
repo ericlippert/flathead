@@ -2338,18 +2338,23 @@ module Interpreter_display = struct
     open Interpreter;;
     
     open_graph "";;
-    let text_font_size = 12;;
+    auto_synchronize false;;
     set_font "Lucida Console";;
+    let (text_width, text_height) = text_size "X";;
     
     let draw_screen screen = 
-        clear_graph();
+        let x = 100 in
+        let y = 100 in
+        set_color background;
+        fill_rect x y (screen.width * text_width) (screen.height * text_height);
+        set_color foreground;
         let rec aux deque n = 
             if Deque.is_empty deque then ()
             else (
-                moveto 100 (100 + 12 * n);
+                moveto x (y + text_height * n);
                 draw_string (Deque.peek_front deque);
                 aux (Deque.dequeue_front deque) (n + 1) ) in
-        aux screen.lines 0;;
+        aux screen.lines 0 ; synchronize() ;;
     
     let rec draw_screen_with_scrolling screen =
         if screen.needs_scroll then (
@@ -2396,7 +2401,7 @@ module Interpreter_display = struct
 end (* Interpreter_display *)
 
 let story = Story.load_story "ZORK1.DAT";;
-let screen = Screen.make 20 60;;
+let screen = Screen.make 25 40;;
 let interp = Interpreter.make story screen;;
 let finished = Interpreter_display.run interp;;
 
