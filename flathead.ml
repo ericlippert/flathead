@@ -1598,7 +1598,7 @@ module Interpreter = struct
     
     type state = 
         | Running
-        | Waiting_for_input of int
+        | Waiting_for_input
         | Halted;;
 
     type frame =
@@ -1620,7 +1620,9 @@ module Interpreter = struct
         state : state;
         transcript : string list;
         screen : Screen.t;
-        has_new_output : bool
+        has_new_output : bool;
+        input : string;
+        input_max : int
     };;
     
     let make story screen = 
@@ -1639,7 +1641,9 @@ module Interpreter = struct
         state = Running;
         transcript = [""];
         screen = screen;
-        has_new_output = false
+        has_new_output = false;
+        input = "";
+        input_max = 0
     };;
     
     let current_frame interpreter = 
@@ -1940,7 +1944,8 @@ module Interpreter = struct
         the rightmost end of the text typed in so far.*)
         
        
-        let transcript_interpreter = add_to_transcript string_copied_interpreter (text ^ "\n") in
+        let new_screen_interpreter = { string_copied_interpreter with screen = fully_scroll (print interpreter.screen (text ^ "\n"))} in
+        let transcript_interpreter = add_to_transcript new_screen_interpreter (text ^ "\n") in
         
         (* 
         Next, lexical analysis is performed on the text (except that in Versions 5 and later, if parsebuffer
@@ -2059,14 +2064,16 @@ module Interpreter = struct
         (* TODO: At this point set the state to "needs input" and return that interpreter.
         The host will get the input and call back to complete the process. *)
         
-        { status_interpreter with state = Waiting_for_input maximum_letters } ;;
+        { status_interpreter with 
+            state = Waiting_for_input ;
+            input_max = maximum_letters } ;;
         
     let step interpreter =
         let interpreter = if interpreter.has_new_output then {interpreter with has_new_output = false} else interpreter in
     
         match interpreter.state with
         | Halted -> failwith "interpreter is halted"
-        | Waiting_for_input _ -> failwith "interpreter is waiting for input"
+        | Waiting_for_input -> failwith "interpreter is waiting for input"
         | Running -> ();
     
         let instruction = decode_instruction interpreter.story interpreter.program_counter in
@@ -2390,10 +2397,19 @@ module Interpreter = struct
         let instr = display_instructions interpreter.story interpreter.program_counter 1 in
         locals ^ "\n" ^ stack ^ "\n" ^ instr;;
 
-    let step_with_input interpreter input = 
+    let handle_input interpreter instruction key =
+        let length = String.length interpreter.input in
+        if key = "\r" then complete_sread { interpreter with input = "" } instruction interpreter.input
+        else if key = "\b" then (
+            if length = 0 then interpreter 
+            else { interpreter with input = (String.sub interpreter.input 0 (length - 1))})
+        else if length >= interpreter.input_max then interpreter
+        else { interpreter with input = interpreter.input ^ key };;
+
+    let step_with_input interpreter key = 
         let instruction = decode_instruction interpreter.story interpreter.program_counter in
         match instruction.opcode with
-        | VAR_228 -> complete_sread interpreter instruction input
+        | VAR_228 -> handle_input interpreter instruction (string_of_char key)
         | _ -> failwith "not waiting for input";;
 end (* Interpreter *)
 
@@ -2447,25 +2463,12 @@ module Interpreter_display = struct
             )
         )
         else ( draw_screen screen; screen );;
-    
-    let wait_for_string_screen screen max =
-        let scrolled = draw_screen_with_scrolling screen in
-        let rec input_loop buffer =
-            let screen_with_buffer = fully_scroll (print scrolled buffer) in
-            draw_screen screen_with_buffer;
-            let status = wait_next_event [Key_pressed] in
-            let key = string_of_char status.key in
-            let length = String.length buffer in
-            if key = "\r" then (buffer, (carriage_return screen_with_buffer))
-            else if key = "\b" then (
-                if length = 0 then input_loop buffer 
-                else input_loop (String.sub buffer 0 (length - 1)))
-            else if length > max then input_loop buffer
-            else input_loop (buffer ^ key) in
-        input_loop "";;
-        
-    let debugging = true;;
-
+   
+    let wait_for_char () = 
+        let status = wait_next_event [Key_pressed] in
+        status.key;;
+   
+    let debugging = false;;
 
     let display_instruction interpreter =
         if debugging then (
@@ -2477,20 +2480,23 @@ module Interpreter_display = struct
             moveto (screen_x + screen_w + 10) screen_y;
             draw_string instr;
             synchronize() );;
-             
 
     let rec run interpreter =
         display_instruction interpreter;
-        let printed_screen = if interpreter.has_new_output then 
-            draw_screen_with_scrolling interpreter.screen
-        else 
-            interpreter.screen in
+        let printed_screen = 
+            if String.length interpreter.input != 0 then
+                (let new_screen = fully_scroll (print interpreter.screen interpreter.input) in
+                draw_screen new_screen; new_screen)
+            else if interpreter.has_new_output then 
+                draw_screen_with_scrolling interpreter.screen
+            else 
+                interpreter.screen in
         match interpreter.state with
-        | Waiting_for_input max ->
-            let (user_input, input_screen) = wait_for_string_screen printed_screen max in
-            run (step_with_input { interpreter with screen = input_screen } user_input)
-        | Halted -> interpreter
-        | Running -> run (step { interpreter with screen = printed_screen });;
+        | Waiting_for_input ->
+            let key = wait_for_char() in
+            run (step_with_input interpreter key) (* Do not update the screen *)
+        | Halted -> { interpreter with screen = printed_screen }
+        | Running -> run (step {interpreter with screen = printed_screen } );;
 end (* Interpreter_display *)
 
 let story = Story.load_story "ZORK1.DAT";;
