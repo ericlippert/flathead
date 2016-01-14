@@ -2428,11 +2428,23 @@ module Interpreter = struct
         | _ -> failwith "not waiting for input";;
 end (* Interpreter *)
 
-module Interpreter_display = struct
+module Debugger = struct
 
     open Graphics;;
     open Screen;;
     open Interpreter;;
+
+    type t =
+    {
+      undo_stack : Interpreter.t list;
+      redo_stack : Interpreter.t list
+    };;
+
+    let make interpreter =
+    {
+      undo_stack = [interpreter];
+      redo_stack = []
+    };;
 
     open_graph "";;
     auto_synchronize false;;
@@ -2458,16 +2470,11 @@ module Interpreter_display = struct
         moveto x (y + text_height * screen.height);
         draw_string status);;
 
+    let wait_for_char () =
+        let status = wait_next_event [Key_pressed] in
+        status.key;;
+
     let rec draw_screen screen =
-      if screen.needs_more then
-      (
-        let screen = { screen with needs_more = false } in
-        draw_screen (more screen);
-        let _ = wait_next_event [Key_pressed] in
-        draw_screen screen;
-      )
-      else
-      (
         clear_screen screen;
         draw_status screen;
         set_color foreground;
@@ -2481,45 +2488,113 @@ module Interpreter_display = struct
             aux (Deque.dequeue_front deque) (n + 1)
           ) in
         aux screen.lines 0 ;
-        synchronize()
-      ) ;;
+        synchronize();;
 
-    let wait_for_char () =
-        let status = wait_next_event [Key_pressed] in
-        status.key;;
+    let trim_to_length text length =
+      if (String.length text) <= length then text
+      else String.sub text 0 length;;
 
-    let debugging = false;;
-
-    let display_instruction interpreter =
-        if debugging then (
-            let instr = Story.display_instructions interpreter.story interpreter.program_counter 1 in
-            let (screen_x, screen_y, screen_w, screen_h) = screen_extent interpreter.screen in
-            set_color background;
-            fill_rect (screen_x + screen_w + 10) screen_y (text_width * 80) (text_height);
-            set_color foreground;
-            moveto (screen_x + screen_w + 10) screen_y;
-            draw_string instr;
-            synchronize() );;
+    let draw_undo_redo debugger =
+      let undo_color = blue in
+      let interpreter = List.hd debugger.undo_stack in
+      let (screen_x, screen_y, screen_w, screen_h) = screen_extent interpreter.screen in
+      let window_x = screen_x + screen_w + 10 in
+      let window_y = screen_y in
+      let instruction_width = 60 in
+      let window_w = text_width * instruction_width in
+      let window_h = text_height * interpreter.screen.height in
+      let draw_line h n =
+        moveto window_x (window_y + text_height * n);
+        let text = trim_to_length (Story.display_instructions h.story h.program_counter 1) instruction_width in
+        draw_string text in
+      let rec draw_undo undo n =
+        if n < interpreter.screen.height then
+          match undo with
+          | [] -> ()
+          | h :: t -> (
+            draw_line h n;
+            draw_undo t (n + 1)) in
+      let rec draw_redo redo n =
+        if n > 0 then
+          match redo with
+          | [] -> ()
+          | h :: t -> (
+            draw_line h n;
+            draw_redo t (n - 1)) in
+      set_color background;
+      fill_rect window_x window_y window_w window_h;
+      set_color foreground;
+      draw_undo debugger.undo_stack (interpreter.screen.height / 2);
+      set_color undo_color;
+      draw_redo debugger.redo_stack (interpreter.screen.height / 2 - 1);
+      set_color foreground;;
 
     let draw_interpreter interpreter =
       if String.length interpreter.input != 0 then
           draw_screen (fully_scroll (print interpreter.screen interpreter.input))
       else if interpreter.has_new_output then
-          draw_screen interpreter.screen (* TODO: Signal if it needs --MORE-- *)
-      else ();;
+      (
+        if interpreter.screen.needs_more then
+        (
+          let screen = { interpreter.screen with needs_more = false } in
+          draw_screen (more screen);
+          let _ = wait_for_char() in ()
+        );
+        draw_screen interpreter.screen
+      );;
 
-    let rec run interpreter =
-        display_instruction interpreter;
-        draw_interpreter interpreter;
-        match interpreter.state with
-        | Waiting_for_input ->
-            let key = wait_for_char() in
-            run (step_with_input interpreter key)
-        | Halted -> interpreter
-        | Running -> run (step interpreter);;
-end (* Interpreter_display *)
+    let debugger_push_undo debugger interpreter =
+      let tail =
+        match debugger.undo_stack with
+        | h :: t ->
+          if interpreter.program_counter = h.program_counter then t
+          else debugger.undo_stack
+          | _ -> failwith "undo stack cannot be empty" in
+      { (* debugger with *) undo_stack = interpreter :: tail; redo_stack = [] };;
+
+    let draw_debugger debugger =
+      let interpreter = List.hd debugger.undo_stack in
+      draw_interpreter interpreter;
+      draw_undo_redo debugger;;
+
+  let step_reverse debugger =
+    match debugger.undo_stack with
+    | [] -> failwith "undo stack cannot be empty"
+    | [_] -> debugger
+    | h :: t -> { (* debugger with *)
+      undo_stack = t;
+      redo_stack = h :: debugger.redo_stack };;
+
+  let step_forward debugger =
+    match debugger.redo_stack with
+    | h :: t -> { (* debugger with *)
+      undo_stack = h :: debugger.undo_stack;
+      redo_stack = t }
+    | [] ->
+      let interpreter = List.hd debugger.undo_stack in
+      match interpreter.state with
+      | Waiting_for_input ->
+        let key = wait_for_char() in
+        let new_interpreter = step_with_input interpreter key in
+        debugger_push_undo debugger new_interpreter
+      | Halted -> debugger (* TODO: Exception? *)
+      | Running ->
+        let new_interpreter = step interpreter in
+        debugger_push_undo debugger new_interpreter;;
+
+  let rec run debugger  =
+    draw_debugger debugger;
+    let interpreter = List.hd debugger.undo_stack in
+    match interpreter.state with
+    | Halted -> ()
+    | _ -> run (step_forward debugger);;
+
+end (* Debugger *)
+
+
 
 let story = Story.load_story "ZORK1.DAT";;
-let screen = Screen.make 10 40;;
-let interp = Interpreter.make story screen;;
-let finished = Interpreter_display.run interp;;
+let screen = Screen.make 50 80;;
+let interpreter = Interpreter.make story screen;;
+let debugger = Debugger.make interpreter;;
+Debugger.run debugger;;
