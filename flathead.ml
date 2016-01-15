@@ -2485,6 +2485,7 @@ module Debugger = struct
     {
       undo_stack : Interpreter.t list;
       redo_stack : Interpreter.t list;
+      interpreter : Interpreter.t;
       running : bool;
       keystrokes : string; (*TODO: could be a queue *)
       step_back_button : Button.t;
@@ -2502,8 +2503,9 @@ module Debugger = struct
       let step_back_button = Button.make x (y + h + gap) margin "<" in
       let step_forward_button = Button.make (step_back_button.Button.x + step_back_button.Button.width + gap) (y + h + gap) margin ">" in
       {
-        undo_stack = [interpreter];
+        undo_stack = [];
         redo_stack = [];
+        interpreter = interpreter;
         running = true;
         keystrokes = "";
         step_back_button = step_back_button;
@@ -2550,16 +2552,18 @@ module Debugger = struct
 
     let draw_undo_redo debugger =
       let undo_color = blue in
-      let interpreter = List.hd debugger.undo_stack in
+      let redo_color = blue in
+      let current_color = black in
+      let interpreter = debugger.interpreter in
       let (screen_x, screen_y, screen_w, screen_h) = screen_extent interpreter.screen in
       let window_x = screen_x + screen_w + 10 in
       let window_y = screen_y in
       let instruction_width = 60 in
       let window_w = text_width * instruction_width in
       let window_h = text_height * interpreter.screen.height in
-      let draw_line h n =
+      let draw_line interp n =
         moveto window_x (window_y + text_height * n);
-        let text = trim_to_length (Story.display_instructions h.story h.program_counter 1) instruction_width in
+        let text = trim_to_length (Story.display_instructions interp.story interp.program_counter 1) instruction_width in
         draw_string text in
       let rec draw_undo undo n =
         if n < interpreter.screen.height then
@@ -2577,30 +2581,31 @@ module Debugger = struct
             draw_redo t (n - 1)) in
       set_color background;
       fill_rect window_x window_y window_w window_h;
-      set_color foreground;
-      draw_undo debugger.undo_stack (interpreter.screen.height / 2);
       set_color undo_color;
+      draw_undo debugger.undo_stack (interpreter.screen.height / 2 + 1);
+      set_color current_color;
+      draw_line debugger.interpreter (interpreter.screen.height / 2);
+      set_color redo_color;
       draw_redo debugger.redo_stack (interpreter.screen.height / 2 - 1);
       set_color foreground;;
 
 
-    let debugger_push_undo debugger interpreter =
-      let tail =
-        match debugger.undo_stack with
-        | h :: t ->
-          if interpreter.program_counter = h.program_counter then t
-          else debugger.undo_stack
-          | _ -> failwith "undo stack cannot be empty" in
-      { debugger with undo_stack = interpreter :: tail; redo_stack = [] };;
+    let debugger_push_undo debugger new_interpreter =
+      if new_interpreter.program_counter = debugger.interpreter.program_counter then
+        { debugger with interpreter = new_interpreter; redo_stack = [] }
+      else
+        { debugger with interpreter = new_interpreter;
+          undo_stack = debugger.interpreter :: debugger.undo_stack;
+          redo_stack = [] };;
 
     let needs_more debugger =
-      (List.hd debugger.undo_stack).screen.needs_more;;
+      debugger.interpreter.screen.needs_more;;
 
     let has_keystrokes debugger =
       (String.length debugger.keystrokes) > 0;;
 
     let draw_interpreter debugger =
-      let interpreter = List.hd debugger.undo_stack in
+      let interpreter = debugger.interpreter in
       let screen = interpreter.screen in
       if String.length interpreter.input != 0 then
         draw_screen (fully_scroll (print screen interpreter.input))
@@ -2617,19 +2622,20 @@ module Debugger = struct
 
   let step_reverse debugger =
     match debugger.undo_stack with
-    | [] -> failwith "undo stack cannot be empty"
-    | [_] -> debugger
+    | [] -> debugger
     | h :: t -> { debugger with
       undo_stack = t;
-      redo_stack = h :: debugger.redo_stack };;
+      interpreter = h;
+      redo_stack = debugger.interpreter :: debugger.redo_stack };;
 
   let step_forward debugger =
     match debugger.redo_stack with
     | h :: t -> { debugger with
-      undo_stack = h :: debugger.undo_stack;
+      undo_stack = debugger.interpreter :: debugger.undo_stack;
+      interpreter = h;
       redo_stack = t }
     | [] ->
-      let interpreter = List.hd debugger.undo_stack in
+      let interpreter = debugger.interpreter in
       match interpreter.state with
       | Waiting_for_input ->
         (* If we have pending keystrokes then take the first one off the queue
@@ -2658,7 +2664,7 @@ module Debugger = struct
     | NoAction;;
 
   let waiting_for_input debugger =
-    match (List.hd debugger.undo_stack).state with
+    match debugger.interpreter.state with
     | Waiting_for_input -> true
     | _ -> false;;
 
