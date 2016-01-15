@@ -983,21 +983,30 @@ module Story = struct
     let dictionary_entry story dictionary_number =
         read_zstring story (dictionary_entry_address story dictionary_number);;
 
+    (* Binary search a range. Min is inclusive, max is exclusive. *)
+    let rec binary_search min max compare =
+      if min >= max then
+        None
+      else
+        let middle = (min + max) / 2 in
+        let comparison = compare middle in
+        if comparison < 0 then binary_search (middle + 1) max compare
+        else if comparison > 0 then binary_search min middle compare
+        else Some middle;;
+
     (* Takes a string and finds the address of the corresponding zstring in the dictionary *)
     (* Note this is the address of the dictionary string, not the dictionary entry number. *)
     let dictionary_lookup story text =
-        (* TODO: Could make this more efficient via binary search *)
-        let count = dictionary_entry_count story in
-        let truncated =
-            if (String.length text) > dictionary_max_word_length then
-                String.sub text 0 dictionary_max_word_length
-            else
-                text in
-        let rec aux i =
-            if i = count then 0
-            else if truncated = dictionary_entry story i then dictionary_entry_address story i
-            else aux (i + 1) in
-        aux 0;;
+      let count = dictionary_entry_count story in
+      let truncated =
+        if (String.length text) > dictionary_max_word_length then
+          String.sub text 0 dictionary_max_word_length
+        else
+          text in
+      let compare i = String.compare (dictionary_entry story i) truncated in
+      match binary_search 0 count compare with
+      | None -> 0
+      | Some entry_index -> dictionary_entry_address story entry_index;;
 
     let display_dictionary story =
         let entry_count = dictionary_entry_count story in
@@ -2582,7 +2591,6 @@ module Debugger = struct
       draw_redo debugger.redo_stack (interpreter.screen.height / 2 - 1);
       set_color foreground;;
 
-
     let debugger_push_undo debugger new_interpreter =
       if new_interpreter.program_counter = debugger.interpreter.program_counter then
         { debugger with interpreter = new_interpreter; redo_stack = [] }
@@ -2600,7 +2608,7 @@ module Debugger = struct
     let draw_interpreter debugger =
       let interpreter = debugger.interpreter in
       let screen = interpreter.screen in
-      if String.length interpreter.input != 0 then
+      if interpreter.state = Waiting_for_input then
         draw_screen (fully_scroll (print screen interpreter.input))
       else if interpreter.has_new_output || (not debugger.running) then
       (
@@ -2611,7 +2619,6 @@ module Debugger = struct
             screen in
         draw_screen screen_to_draw
       );;
-
 
   let step_reverse debugger =
     match debugger.undo_stack with
