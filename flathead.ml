@@ -2428,32 +2428,87 @@ module Interpreter = struct
         | _ -> failwith "not waiting for input";;
 end (* Interpreter *)
 
+module Button = struct
+  open Graphics;;
+
+  type t =
+  {
+    x : int;
+    y : int;
+    width : int;
+    height : int;
+    text : string
+  };;
+
+  let make x y margin text =
+    let (text_width, text_height) = text_size text in
+    {
+      x = x;
+      y = y;
+      width = text_width + 2 * margin;
+      height = text_height + 2 * margin;
+      text = text
+    };;
+
+  let draw button =
+    let (text_width, text_height) = text_size button.text in
+    set_color blue;
+    fill_rect button.x button.y button.width button.height;
+    moveto (button.x + (button.width - text_width) / 2) (button.y + (button.height - text_height) / 2);
+    set_color white;
+    draw_string button.text;
+    set_color foreground;;
+
+  let was_clicked button x y =
+    (button.x <= x) &&
+    (x <= (button.x + button.width)) &&
+    (button.y <= y) &&
+    (y <= button.y + button.height);;
+
+end
+
+
 module Debugger = struct
 
     open Graphics;;
     open Screen;;
     open Interpreter;;
 
-    type t =
-    {
-      undo_stack : Interpreter.t list;
-      redo_stack : Interpreter.t list
-    };;
-
-    let make interpreter =
-    {
-      undo_stack = [interpreter];
-      redo_stack = []
-    };;
 
     open_graph "";;
     auto_synchronize false;;
     set_font "Lucida Console";;
+
     let (text_width, text_height) = text_size "X";;
+
+    type t =
+    {
+      undo_stack : Interpreter.t list;
+      redo_stack : Interpreter.t list;
+      running : bool;
+      keystrokes : string; (*TODO: could be a queue *)
+      step_back_button : Button.t;
+      step_forward_button : Button.t
+    };;
 
     (* Extra line for status *)
     let screen_extent screen =
         (10, 10, screen.width * text_width, (screen.height + 1) * text_height);;
+
+    let make interpreter =
+      let (x, y, _, h) = screen_extent interpreter.screen in
+      let margin = 20 in
+      let gap = 10 in
+      let step_back_button = Button.make x (y + h + gap) margin "<" in
+      let step_forward_button = Button.make (step_back_button.x + step_back_button.width + gap) (y + h + gap) margin ">" in
+      {
+        undo_stack = [interpreter];
+        redo_stack = [];
+        running = true;
+        keystrokes = "";
+        step_back_button = step_back_button;
+        step_forward_button = step_forward_button
+      };;
 
     let clear_screen screen =
         let (x, y, w, h) = screen_extent screen in
@@ -2487,8 +2542,7 @@ module Debugger = struct
             draw_string (Deque.peek_front deque);
             aux (Deque.dequeue_front deque) (n + 1)
           ) in
-        aux screen.lines 0 ;
-        synchronize();;
+        aux screen.lines 0 ;;
 
     let trim_to_length text length =
       if (String.length text) <= length then text
@@ -2529,19 +2583,6 @@ module Debugger = struct
       draw_redo debugger.redo_stack (interpreter.screen.height / 2 - 1);
       set_color foreground;;
 
-    let draw_interpreter interpreter =
-      if String.length interpreter.input != 0 then
-          draw_screen (fully_scroll (print interpreter.screen interpreter.input))
-      else if interpreter.has_new_output then
-      (
-        if interpreter.screen.needs_more then
-        (
-          let screen = { interpreter.screen with needs_more = false } in
-          draw_screen (more screen);
-          let _ = wait_for_char() in ()
-        );
-        draw_screen interpreter.screen
-      );;
 
     let debugger_push_undo debugger interpreter =
       let tail =
@@ -2550,51 +2591,144 @@ module Debugger = struct
           if interpreter.program_counter = h.program_counter then t
           else debugger.undo_stack
           | _ -> failwith "undo stack cannot be empty" in
-      { (* debugger with *) undo_stack = interpreter :: tail; redo_stack = [] };;
+      { debugger with undo_stack = interpreter :: tail; redo_stack = [] };;
 
-    let draw_debugger debugger =
+    let needs_more debugger =
+      (List.hd debugger.undo_stack).screen.needs_more;;
+
+    let has_keystrokes debugger =
+      (String.length debugger.keystrokes) > 0;;
+
+    let draw_interpreter debugger =
       let interpreter = List.hd debugger.undo_stack in
-      draw_interpreter interpreter;
-      draw_undo_redo debugger;;
+      let screen = interpreter.screen in
+      if String.length interpreter.input != 0 then
+        draw_screen (fully_scroll (print screen interpreter.input))
+      else if interpreter.has_new_output || (not debugger.running) then
+      (
+        let screen_to_draw =
+          if needs_more debugger then
+            more screen
+          else
+            screen in
+        draw_screen screen_to_draw
+      );;
+
 
   let step_reverse debugger =
     match debugger.undo_stack with
     | [] -> failwith "undo stack cannot be empty"
     | [_] -> debugger
-    | h :: t -> { (* debugger with *)
+    | h :: t -> { debugger with
       undo_stack = t;
       redo_stack = h :: debugger.redo_stack };;
 
   let step_forward debugger =
     match debugger.redo_stack with
-    | h :: t -> { (* debugger with *)
+    | h :: t -> { debugger with
       undo_stack = h :: debugger.undo_stack;
       redo_stack = t }
     | [] ->
       let interpreter = List.hd debugger.undo_stack in
       match interpreter.state with
       | Waiting_for_input ->
-        let key = wait_for_char() in
-        let new_interpreter = step_with_input interpreter key in
-        debugger_push_undo debugger new_interpreter
+        (* If we have pending keystrokes then take the first one off the queue
+        and give it to the interpreter. Otherwise just put this on the undo
+        stack and return to the caller otherwise unchanged. We can't progress
+        until someone gives us a key. *)
+        let (new_interpreter, new_keys) =
+          if debugger.keystrokes = "" then
+            (interpreter, debugger.keystrokes)
+          else
+            (step_with_input interpreter debugger.keystrokes.[0],
+            String.sub debugger.keystrokes 1 ((String.length debugger.keystrokes) - 1)) in
+        { (debugger_push_undo debugger new_interpreter) with keystrokes = new_keys }
       | Halted -> debugger (* TODO: Exception? *)
       | Running ->
         let new_interpreter = step interpreter in
         debugger_push_undo debugger new_interpreter;;
 
-  let rec run debugger  =
-    draw_debugger debugger;
-    let interpreter = List.hd debugger.undo_stack in
-    match interpreter.state with
-    | Halted -> ()
-    | _ -> run (step_forward debugger);;
+  type action =
+    | Pause
+    | StepBackwards
+    | StepForwards
+    | Run
+    | Quit
+    | Keystroke of char
+    | NoAction;;
 
+  let waiting_for_input debugger =
+    match (List.hd debugger.undo_stack).state with
+    | Waiting_for_input -> true
+    | _ -> false;;
+
+
+
+  let rec obtain_action debugger should_block =
+    let events =
+      if should_block then [Key_pressed; Button_down]
+      else [Poll] in
+    let status = wait_next_event events in
+    (* TODO: button clicks *)
+    if status.keypressed then
+      Keystroke status.key
+    else if status.button && Button.was_clicked debugger.step_back_button status.mouse_x status.mouse_y then
+      StepBackwards
+    else if status.button && Button.was_clicked debugger.step_forward_button status.mouse_x status.mouse_y then
+      StepForwards
+
+    else if should_block then
+      obtain_action debugger should_block
+    else
+      NoAction;;
+
+  let run debugger =
+
+    let rec main_loop debugger =
+
+      (* Under what circumstances do we need to block?
+         1 if the debugger is not running then block
+         2 if the debugger is running, has no queued input, and is waiting for input, then block
+         3 if the debugger is running, has no queued input, and is waiting for --MORE--, then block
+      *)
+
+      let running = debugger.running in
+      let needs_more = needs_more debugger in
+      let waiting_for_input = waiting_for_input debugger in
+      let has_keystrokes = has_keystrokes debugger in
+      let should_block = (not running) || ((not has_keystrokes) && (waiting_for_input || needs_more)) in
+      draw_interpreter debugger;
+      if should_block then draw_undo_redo debugger;
+      synchronize();
+      let action = obtain_action debugger should_block in
+      match action with
+      | Pause -> main_loop { debugger with running = false }
+      | StepBackwards -> main_loop { (step_reverse debugger) with running = false }
+      | StepForwards -> main_loop { (step_forward debugger) with running = false }
+      | Run -> main_loop {(step_forward { debugger with redo_stack = []; }) with running = true }
+      | Quit -> ()
+      | Keystroke key -> main_loop { debugger with keystrokes = debugger.keystrokes ^ (string_of_char key)}
+      | NoAction ->
+        (* Suppose we blocked because we had --MORE-- but no queued keystrokes.
+        If we then got here we must have queued up a keystroke, which is still
+        in the queue. The step will clear out the needs_more, but we need to
+        lose that keystroke *)
+        let new_keys =
+          if needs_more && has_keystrokes then
+            String.sub debugger.keystrokes 1 ((String.length debugger.keystrokes) - 1)
+          else
+            debugger.keystrokes in
+        let new_debugger = { debugger with keystrokes = new_keys } in
+        main_loop (if new_debugger.running then step_forward new_debugger else new_debugger) in
+      Button.draw debugger.step_back_button;
+      Button.draw debugger.step_forward_button;
+      main_loop debugger;;
 end (* Debugger *)
 
-
-
+open Debugger;;
 let story = Story.load_story "ZORK1.DAT";;
 let screen = Screen.make 50 80;;
 let interpreter = Interpreter.make story screen;;
 let debugger = Debugger.make interpreter;;
+
 Debugger.run debugger;;
