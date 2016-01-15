@@ -2500,7 +2500,7 @@ module Debugger = struct
       let margin = 20 in
       let gap = 10 in
       let step_back_button = Button.make x (y + h + gap) margin "<" in
-      let step_forward_button = Button.make (step_back_button.x + step_back_button.width + gap) (y + h + gap) margin ">" in
+      let step_forward_button = Button.make (step_back_button.Button.x + step_back_button.Button.width + gap) (y + h + gap) margin ">" in
       {
         undo_stack = [interpreter];
         redo_stack = [];
