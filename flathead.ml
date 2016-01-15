@@ -1621,7 +1621,6 @@ module Interpreter = struct
         random_y : Int32.t;
         random_z : Int32.t;
         state : state;
-        transcript : string list;
         screen : Screen.t;
         has_new_output : bool;
         input : string;
@@ -1642,7 +1641,6 @@ module Interpreter = struct
         random_y = Int32.of_int 123;
         random_z = Int32.of_int 123;
         state = Running;
-        transcript = [""];
         screen = screen;
         has_new_output = false;
         input = "";
@@ -1826,14 +1824,9 @@ module Interpreter = struct
             handle_branch store_interpreter instruction 0
         | _ -> failwith "pull requires a variable ";;
 
-    let add_to_transcript interpreter text =
-        let transcript_width = 80 in
-        let (new_transcript, _) = wrap_lines (add_to_lines interpreter.transcript text) transcript_width in
-        { interpreter with transcript = new_transcript };;
-
     let interpreter_print interpreter text =
         let new_screen = Screen.print interpreter.screen text in
-        add_to_transcript { interpreter with screen = new_screen; has_new_output = true } text ;;
+        { interpreter with screen = new_screen; has_new_output = true };;
 
     let set_status_line interpreter =
         let object_name () =
@@ -1946,9 +1939,8 @@ module Interpreter = struct
         return is printed (so the cursor moves to the next line). If it was interrupted, the cursor is left at
         the rightmost end of the text typed in so far.*)
 
-
-        let new_screen_interpreter = { string_copied_interpreter with screen = fully_scroll (print interpreter.screen (text ^ "\n"))} in
-        let transcript_interpreter = add_to_transcript new_screen_interpreter (text ^ "\n") in
+        let new_screen_interpreter = { string_copied_interpreter with
+          screen = fully_scroll (print interpreter.screen (text ^ "\n"))} in
 
         (*
         Next, lexical analysis is performed on the text (except that in Versions 5 and later, if parsebuffer
@@ -1957,7 +1949,7 @@ module Interpreter = struct
         4*n bytes long to hold the results of the analysis.)
         *)
 
-        let maximum_parse = read_byte transcript_interpreter.story parse_address in
+        let maximum_parse = read_byte new_screen_interpreter.story parse_address in
 
         if maximum_parse < 1 then failwith "bad parse buffer in sread";
 
@@ -1987,7 +1979,7 @@ module Interpreter = struct
 
         *)
 
-        let tokens = tokenise trimmed transcript_interpreter in
+        let tokens = tokenise trimmed new_screen_interpreter in
 
         let rec write_tokens items address count writing_tokens_interpreter =
             match items with
@@ -2002,7 +1994,7 @@ module Interpreter = struct
                     let offset_story = write_byte len_story (address + 3) (text_offset + 1) in
                     write_tokens tail (address + 4) (count + 1) { writing_tokens_interpreter with story = offset_story } ) in
 
-        let (count, tokens_written_interpreter) =  write_tokens tokens (parse_address + 2) 0 transcript_interpreter in
+        let (count, tokens_written_interpreter) =  write_tokens tokens (parse_address + 2) 0 new_screen_interpreter in
 
         (* TODO: Make a write byte that takes interpreters *)
 
