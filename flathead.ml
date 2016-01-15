@@ -54,6 +54,7 @@ module Deque = struct
     (* Invariants: back_length <= c * front_length + 1 *)
 
     exception Empty;;
+    exception InvalidIndex;;
 
     let empty = { front = []; front_length = 0; back = []; back_length = 0 };;
 
@@ -116,13 +117,17 @@ module Deque = struct
         | { back = _ :: t } -> balance { deque with back = t; back_length = deque.back_length - 1 }
         | _ -> failwith "dequeue_back: Back is empty, front has more than one item";;
 
-    let rec peek_front_at deque n =
-        if n = 0 then peek_front deque
-        else peek_front_at (dequeue_front deque) (n - 1);;
+    let peek_front_at deque n =
+      let length = deque.front_length + deque.back_length in
+      if (n < 0) || (n >= length) then raise InvalidIndex
+      else if n < deque.front_length then List.nth deque.front n
+      else List.nth deque.back (length - 1 - n);;
 
-    let rec peek_back_at deque n =
-        if n = 0 then peek_back deque
-        else peek_back_at (dequeue_back deque) (n - 1);;
+      let peek_back_at deque n =
+        let length = deque.front_length + deque.back_length in
+        if (n < 0) || (n >= length) then raise InvalidIndex
+        else if n < deque.back_length then List.nth deque.back n
+        else List.nth deque.front (length - 1 - n);;
 
     let rec set_front_at deque item n =
         if n = 0 then enqueue_front (dequeue_front deque) item
@@ -2519,24 +2524,20 @@ module Debugger = struct
         moveto x (y + text_height * screen.height);
         draw_string status);;
 
-    let wait_for_char () =
-        let status = wait_next_event [Key_pressed] in
-        status.key;;
+    let draw_string_at text x y =
+      moveto x y;
+      draw_string text;;
 
     let rec draw_screen screen =
         clear_screen screen;
         draw_status screen;
         set_color foreground;
         let (x, y, _, _) = screen_extent screen in
-        let rec aux deque n =
-          if Deque.is_empty deque then ()
-          else
-          (
-            moveto x (y + text_height * n);
-            draw_string (Deque.peek_front deque);
-            aux (Deque.dequeue_front deque) (n + 1)
-          ) in
-        aux screen.lines 0 ;;
+        let rec aux n =
+          if n < screen.height then
+            (draw_string_at (Deque.peek_front_at screen.lines n) x (y + text_height * n);
+            aux (n + 1)) in
+        aux 0 ;;
 
     let trim_to_length text length =
       if (String.length text) <= length then text
@@ -2683,7 +2684,9 @@ module Debugger = struct
   let run debugger =
 
     let rec main_loop debugger =
-
+      (* For now, if we have halted the debuggee, quit the debugger. *)
+      if debugger.interpreter.state = Halted then () else
+      (
       (* Under what circumstances do we need to block?
          1 if the debugger is not running then block
          2 if the debugger is running, has no queued input, and is waiting for input, then block
@@ -2717,7 +2720,8 @@ module Debugger = struct
           else
             debugger.keystrokes in
         let new_debugger = { debugger with keystrokes = new_keys } in
-        main_loop (if new_debugger.running then step_forward new_debugger else new_debugger) in
+        main_loop (if new_debugger.running then step_forward new_debugger else new_debugger)
+      ) in
       Button.draw debugger.step_back_button;
       Button.draw debugger.step_forward_button;
       main_loop debugger;;
