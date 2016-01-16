@@ -2639,7 +2639,7 @@ module Debugger = struct
     | [] ->
       let interpreter = debugger.interpreter in
       match interpreter.state with
-      | Waiting_for_input ->
+      | Interpreter.Waiting_for_input ->
         (* If we have pending keystrokes then take the first one off the queue
         and give it to the interpreter. Otherwise just put this on the undo
         stack and return to the caller otherwise unchanged. We can't progress
@@ -2651,8 +2651,8 @@ module Debugger = struct
             (step_with_input interpreter debugger.keystrokes.[0],
             String.sub debugger.keystrokes 1 ((String.length debugger.keystrokes) - 1)) in
         { (debugger_push_undo debugger new_interpreter) with keystrokes = new_keys }
-      | Halted -> debugger (* TODO: Exception? *)
-      | Running ->
+      | Interpreter.Halted -> debugger (* TODO: Exception? *)
+      | Interpreter.Running ->
         let new_interpreter = step interpreter in
         debugger_push_undo debugger new_interpreter;;
 
@@ -2670,28 +2670,27 @@ module Debugger = struct
     | Waiting_for_input -> true
     | _ -> false;;
 
-
-
   let rec obtain_action debugger should_block =
+    (* A keystroke observed with Poll is not removed from the queue
+    of keystrokes! It will keep coming back every time we poll. We
+    therefore only consider keystroke events as having happened
+    when we are blocking while waiting for input. *)
     let events =
       if should_block then [Key_pressed; Button_down]
       else [Poll] in
     let status = wait_next_event events in
-    (* TODO: button clicks *)
-    if status.keypressed then
+    if should_block && status.keypressed then
       Keystroke status.key
     else if status.button && Button.was_clicked debugger.step_back_button status.mouse_x status.mouse_y then
       StepBackwards
     else if status.button && Button.was_clicked debugger.step_forward_button status.mouse_x status.mouse_y then
       StepForwards
-
-    else if should_block then
+    else if should_block then (* If we're blocking until something happens, do not report NoAction. *)
       obtain_action debugger should_block
     else
       NoAction;;
 
   let run debugger =
-
     let rec main_loop debugger =
       (* For now, if we have halted the debuggee, quit the debugger. *)
       if debugger.interpreter.state = Halted then () else
@@ -2701,7 +2700,6 @@ module Debugger = struct
          2 if the debugger is running, has no queued input, and is waiting for input, then block
          3 if the debugger is running, has no queued input, and is waiting for --MORE--, then block
       *)
-
       let running = debugger.running in
       let needs_more = needs_more debugger in
       let waiting_for_input = waiting_for_input debugger in
@@ -2740,5 +2738,4 @@ let story = Story.load_story "ZORK1.DAT";;
 let screen = Screen.make 50 80;;
 let interpreter = Interpreter.make story screen;;
 let debugger = Debugger.make interpreter;;
-
 Debugger.run debugger;;
