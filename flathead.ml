@@ -2480,20 +2480,25 @@ module Debugger = struct
     open Screen;;
     open Interpreter;;
 
-
     open_graph "";;
     auto_synchronize false;;
     set_font "Lucida Console";;
 
     let (text_width, text_height) = text_size "X";;
 
+    type state =
+      | Paused
+      | Running
+      | Halted
+      | Stepping of int;;
+
     type t =
     {
       undo_stack : Interpreter.t list;
       redo_stack : Interpreter.t list;
       interpreter : Interpreter.t;
-      running : bool;
-      keystrokes : string; (*TODO: could be a queue *)
+      state : state;
+      keystrokes : string;
       step_back_button : Button.t;
       step_forward_button : Button.t
     };;
@@ -2512,7 +2517,7 @@ module Debugger = struct
         undo_stack = [];
         redo_stack = [];
         interpreter = interpreter;
-        running = true;
+        state = Running;
         keystrokes = "";
         step_back_button = step_back_button;
         step_forward_button = step_forward_button
@@ -2612,7 +2617,7 @@ module Debugger = struct
       let screen = interpreter.screen in
       if interpreter.state = Waiting_for_input then
         draw_screen (fully_scroll (print screen interpreter.input))
-      else if interpreter.has_new_output || (not debugger.running) then
+      else if interpreter.has_new_output || (debugger.state = Paused) || (debugger.state = Halted) then
       (
         let screen_to_draw =
           if needs_more debugger then
@@ -2690,11 +2695,11 @@ module Debugger = struct
     else
       NoAction;;
 
-  let stop_running debugger =
-    { debugger with running = false };;
+  let pause debugger =
+    { debugger with state = Paused };;
 
   let start_running debugger =
-    { debugger with running = true };;
+    { debugger with state = Running };;
 
   let clear_redo debugger =
     { debugger with redo_stack = [] };;
@@ -2706,21 +2711,40 @@ module Debugger = struct
     let k = debugger.keystrokes in
     { debugger with keystrokes = String.sub k 1 ((String.length k) - 1) };;
 
+  let set_step_instruction debugger instruction =
+    { debugger with state = Stepping instruction };;
+
   let maybe_step debugger =
-    if debugger.running then step_forward debugger
+    let should_step =
+      match debugger.state with
+      | Running -> true
+      | Stepping instruction -> debugger.interpreter.program_counter = instruction
+      | _ -> false in
+    if should_step then step_forward debugger
     else debugger;;
+
+  let halt debugger =
+    { debugger with state = Halted };;
 
   let run debugger =
     let rec main_loop debugger =
-      (* For now, if we have halted the debuggee, quit the debugger. *)
-      if debugger.interpreter.state = Halted then () else
-      (
+       (* Put the debugger into the right state, depending on the interpreter *)
+       let debugger = match (debugger.state, debugger.interpreter.state) with
+       | (_, Interpreter.Halted) -> halt debugger
+       | (Stepping instruction, _) -> if debugger.interpreter.program_counter = instruction then debugger else pause debugger
+       | _ -> debugger in
+
       (* Under what circumstances do we need to block?
          1 if the debugger is not running then block
          2 if the debugger is running, has no queued input, and is waiting for input, then block
          3 if the debugger is running, has no queued input, and is waiting for --MORE--, then block
       *)
-      let running = debugger.running in
+      let running =
+        match debugger.state with
+        | Halted
+        | Paused -> false
+        | _ -> true in
+
       let needs_more = needs_more debugger in
       let waiting_for_input = waiting_for_input debugger in
       let has_keystrokes = has_keystrokes debugger in
@@ -2729,10 +2753,10 @@ module Debugger = struct
       if should_block then draw_undo_redo debugger;
       let action = obtain_action debugger should_block in
       match action with
-      | Pause -> main_loop (stop_running debugger)
-      | StepBackwards -> main_loop (stop_running (step_reverse debugger))
-      | StepForwards -> main_loop (stop_running (step_forward debugger))
-      | Run -> main_loop (start_running (step_forward (clear_redo debugger)))
+      | Pause -> main_loop (pause debugger)
+      | StepBackwards -> main_loop (pause (step_reverse debugger))
+      | StepForwards -> main_loop (set_step_instruction debugger debugger.interpreter.program_counter)
+      | Run -> main_loop (start_running (clear_redo debugger))
       | Quit -> ()
       | Keystroke key -> main_loop (add_keystroke debugger key)
       | NoAction ->
@@ -2743,8 +2767,7 @@ module Debugger = struct
         let new_debugger =
           if needs_more && has_keystrokes then remove_keystroke debugger
           else debugger in
-        main_loop (maybe_step new_debugger)
-      ) in
+        main_loop (maybe_step new_debugger) in
       Button.draw debugger.step_back_button;
       Button.draw debugger.step_forward_button;
       main_loop debugger;;
