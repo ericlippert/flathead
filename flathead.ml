@@ -2470,9 +2470,7 @@ module Button = struct
     (x <= (button.x + button.width)) &&
     (button.y <= y) &&
     (y <= button.y + button.height);;
-
 end
-
 
 module Debugger = struct
 
@@ -2492,6 +2490,15 @@ module Debugger = struct
       | Halted
       | Stepping of int;;
 
+    type action =
+      | Pause
+      | StepBackwards
+      | StepForwards
+      | Run
+      | Quit
+      | Keystroke of char
+      | NoAction;;
+
     type t =
     {
       undo_stack : Interpreter.t list;
@@ -2499,8 +2506,7 @@ module Debugger = struct
       interpreter : Interpreter.t;
       state : state;
       keystrokes : string;
-      step_back_button : Button.t;
-      step_forward_button : Button.t
+      buttons :  (Button.t * action) list;
     };;
 
     (* Extra line for status *)
@@ -2511,16 +2517,31 @@ module Debugger = struct
       let (x, y, _, h) = screen_extent interpreter.screen in
       let margin = 20 in
       let gap = 10 in
-      let step_back_button = Button.make x (y + h + gap) margin "<" in
-      let step_forward_button = Button.make (step_back_button.Button.x + step_back_button.Button.width + gap) (y + h + gap) margin ">" in
+      let button_y = y + h + gap in
+      let button_list =
+        [
+          ("X", Quit);
+          ("<|", StepBackwards);
+          ("||", Pause);
+          (">", Run);
+          ("|>", StepForwards)
+        ] in
+        let button_map =
+          let rec aux map buttons button_x =
+            match buttons with
+            | [] -> map
+            | (caption, action) :: tail ->
+              let new_button = Button.make button_x button_y margin caption in
+              let new_x = button_x + new_button.Button.width + gap in
+              aux ((new_button, action) :: map) tail new_x in
+          aux [] button_list x in
       {
         undo_stack = [];
         redo_stack = [];
         interpreter = interpreter;
         state = Running;
         keystrokes = "";
-        step_back_button = step_back_button;
-        step_forward_button = step_forward_button
+        buttons = button_map
       };;
 
     let clear_screen screen =
@@ -2661,15 +2682,6 @@ module Debugger = struct
         let new_interpreter = step interpreter in
         debugger_push_undo debugger new_interpreter;;
 
-  type action =
-    | Pause
-    | StepBackwards
-    | StepForwards
-    | Run
-    | Quit
-    | Keystroke of char
-    | NoAction;;
-
   let waiting_for_input debugger =
     match debugger.interpreter.state with
     | Waiting_for_input -> true
@@ -2686,14 +2698,21 @@ module Debugger = struct
     let status = wait_next_event events in
     if should_block && status.keypressed then
       Keystroke status.key
-    else if status.button && Button.was_clicked debugger.step_back_button status.mouse_x status.mouse_y then
-      StepBackwards
-    else if status.button && Button.was_clicked debugger.step_forward_button status.mouse_x status.mouse_y then
-      StepForwards
-    else if should_block then (* If we're blocking until something happens, do not report NoAction. *)
-      obtain_action debugger should_block
     else
-      NoAction;;
+      let action =
+        let is_hit (button, _) =
+          Button.was_clicked button status.mouse_x status.mouse_y in
+        if status.button then
+          match List.filter is_hit debugger.buttons with
+          | [] -> NoAction
+          | (_, action) :: _ -> action
+        else
+          NoAction in
+      if action = NoAction && should_block then
+        (* If we're blocking until something happens, do not report NoAction. *)
+        obtain_action debugger should_block
+      else
+        action;;
 
   let pause debugger =
     { debugger with state = Paused };;
@@ -2768,8 +2787,7 @@ module Debugger = struct
           if needs_more && has_keystrokes then remove_keystroke debugger
           else debugger in
         main_loop (maybe_step new_debugger) in
-      Button.draw debugger.step_back_button;
-      Button.draw debugger.step_forward_button;
+      List.iter (fun (b, _) -> Button.draw b) debugger.buttons;
       main_loop debugger;;
 end (* Debugger *)
 
