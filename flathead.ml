@@ -2690,6 +2690,26 @@ module Debugger = struct
     else
       NoAction;;
 
+  let stop_running debugger =
+    { debugger with running = false };;
+
+  let start_running debugger =
+    { debugger with running = true };;
+
+  let clear_redo debugger =
+    { debugger with redo_stack = [] };;
+
+  let add_keystroke debugger key =
+   { debugger with keystrokes = debugger.keystrokes ^ (string_of_char key) };;
+
+  let remove_keystroke debugger =
+    let k = debugger.keystrokes in
+    { debugger with keystrokes = String.sub k 1 ((String.length k) - 1) };;
+
+  let maybe_step debugger =
+    if debugger.running then step_forward debugger
+    else debugger;;
+
   let run debugger =
     let rec main_loop debugger =
       (* For now, if we have halted the debuggee, quit the debugger. *)
@@ -2709,24 +2729,21 @@ module Debugger = struct
       if should_block then draw_undo_redo debugger;
       let action = obtain_action debugger should_block in
       match action with
-      | Pause -> main_loop { debugger with running = false }
-      | StepBackwards -> main_loop { (step_reverse debugger) with running = false }
-      | StepForwards -> main_loop { (step_forward debugger) with running = false }
-      | Run -> main_loop {(step_forward { debugger with redo_stack = []; }) with running = true }
+      | Pause -> main_loop (stop_running debugger)
+      | StepBackwards -> main_loop (stop_running (step_reverse debugger))
+      | StepForwards -> main_loop (stop_running (step_forward debugger))
+      | Run -> main_loop (start_running (step_forward (clear_redo debugger)))
       | Quit -> ()
-      | Keystroke key -> main_loop { debugger with keystrokes = debugger.keystrokes ^ (string_of_char key)}
+      | Keystroke key -> main_loop (add_keystroke debugger key)
       | NoAction ->
         (* Suppose we blocked because we had --MORE-- but no queued keystrokes.
         If we then got here we must have queued up a keystroke, which is still
         in the queue. The step will clear out the needs_more, but we need to
         lose that keystroke *)
-        let new_keys =
-          if needs_more && has_keystrokes then
-            String.sub debugger.keystrokes 1 ((String.length debugger.keystrokes) - 1)
-          else
-            debugger.keystrokes in
-        let new_debugger = { debugger with keystrokes = new_keys } in
-        main_loop (if new_debugger.running then step_forward new_debugger else new_debugger)
+        let new_debugger =
+          if needs_more && has_keystrokes then remove_keystroke debugger
+          else debugger in
+        main_loop (maybe_step new_debugger)
       ) in
       Button.draw debugger.step_back_button;
       Button.draw debugger.step_forward_button;
