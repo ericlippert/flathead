@@ -2546,7 +2546,8 @@ module Debugger = struct
           if n < screen.height then
             (draw_string_at (Deque.peek_front_at screen.lines n) x (y + text_height * n);
             aux (n + 1)) in
-        aux 0 ;;
+        aux 0 ;
+        synchronize();;
 
     let trim_to_length text length =
       if (String.length text) <= length then text
@@ -2589,7 +2590,8 @@ module Debugger = struct
       draw_line debugger.interpreter (interpreter.screen.height / 2);
       set_color redo_color;
       draw_redo debugger.redo_stack (interpreter.screen.height / 2 - 1);
-      set_color foreground;;
+      set_color foreground;
+      synchronize();;
 
     let debugger_push_undo debugger new_interpreter =
       if new_interpreter.program_counter = debugger.interpreter.program_counter then
@@ -2707,7 +2709,6 @@ module Debugger = struct
       let should_block = (not running) || ((not has_keystrokes) && (waiting_for_input || needs_more)) in
       draw_interpreter debugger;
       if should_block then draw_undo_redo debugger;
-      synchronize();
       let action = obtain_action debugger should_block in
       match action with
       | Pause -> main_loop { debugger with running = false }
