@@ -643,8 +643,7 @@ module Story = struct
             | (Leading, _) -> ("", (Trailing zchar))
             | (Trailing high, _) -> (String.make 1 (Char.chr (high * 32 + zchar)), Alphabet 0) in
 
-        (* TODO: This could be made tail recursive *)
-        let rec aux mode1 current_address =
+        let rec aux acc mode1 current_address =
             let zchar_bit_size = 5 in
             let word = read_word story current_address in
             let is_end = fetch_bit 15 word in
@@ -654,12 +653,10 @@ module Story = struct
             let (text1, mode2) = process_zchar zchar1 mode1 in
             let (text2, mode3) = process_zchar zchar2 mode2 in
             let (text3, mode_next) = process_zchar zchar3 mode3 in
-            let text_next =
-                if is_end then ""
-                else aux mode_next (current_address + 2) in
-            text1 ^ text2 ^ text3 ^ text_next in
-
-        aux (Alphabet 0) address;;
+            let new_acc = acc ^ text1 ^ text2 ^ text3 in
+            if is_end then new_acc
+            else aux new_acc mode_next (current_address + 2) in
+        aux "" (Alphabet 0) address;;
 
     (* A debugging method for looking at memory broken up into the
     1 / 5 / 5 / 5 bit chunks used by zstrings. *)
