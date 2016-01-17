@@ -2156,6 +2156,15 @@ module Interpreter = struct
             let (result, result_interpreter) = compute_result interpreter in
             handle_store_and_branch result_interpreter instruction result in
 
+        let handle_op0_effect compute_effect =
+          handle_op0 (fun i -> (0, compute_effect i)) in
+
+        (* TODO: No zero-operand instructions are useful for their values.
+        Consider simplifying this code.
+        let handle_op0_value compute_value =
+          handle_op0 (fun i -> (compute_value i, i)) in
+*)
+
         let handle_op1 compute_result =
             match instruction.operands with
             | [x_operand] ->
@@ -2163,6 +2172,12 @@ module Interpreter = struct
                 let (result, result_interpreter) = compute_result x operand_interpreter in
                 handle_store_and_branch result_interpreter instruction result
            | _ -> failwith "instruction must have one operand" in
+
+        let handle_op1_effect compute_effect =
+          handle_op1 (fun x i -> (0, compute_effect x i)) in
+
+        let handle_op1_value compute_value =
+          handle_op1 (fun x i -> (compute_value x i, i)) in
 
         let handle_op2 compute_result =
             match instruction.operands with
@@ -2173,62 +2188,113 @@ module Interpreter = struct
                 handle_store_and_branch result_interpreter instruction result
            | _ -> failwith (Printf.sprintf "instruction at %04x must have two operands" instruction.address ) in
 
+        let handle_op2_effect compute_effect =
+          handle_op2 (fun x y i -> (0, compute_effect x y i)) in
+
+        let handle_op2_value compute_value =
+          handle_op2 (fun x y i -> (compute_value x y i, i)) in
+
         let handle_op3 compute_result =
-            match instruction.operands with
-            | [x_operand; y_operand; z_operand] ->
-                let (x, x_interpreter) = read_operand interpreter x_operand in
-                let (y, y_interpreter) = read_operand x_interpreter y_operand in
-                let (z, z_interpreter) = read_operand y_interpreter z_operand in
-                let (result, result_interpreter) = compute_result x y z z_interpreter in
-                handle_store_and_branch result_interpreter instruction result
-           | _ -> failwith (Printf.sprintf "instruction at %04x must have three operands" instruction.address ) in
+          match instruction.operands with
+          | [x_operand; y_operand; z_operand] ->
+            let (x, x_interpreter) = read_operand interpreter x_operand in
+            let (y, y_interpreter) = read_operand x_interpreter y_operand in
+            let (z, z_interpreter) = read_operand y_interpreter z_operand in
+            let (result, result_interpreter) = compute_result x y z z_interpreter in
+            handle_store_and_branch result_interpreter instruction result
+          | _ -> failwith (Printf.sprintf "instruction at %04x must have three operands" instruction.address ) in
+
+        let handle_op3_effect compute_effect =
+          handle_op3 (fun x y z i -> (0, compute_effect x y z i)) in
+
+        let handle_op3_value compute_value =
+          handle_op3 (fun x y z i -> (compute_value x y z i, i)) in
 
         let handle_op4 compute_result =
-            match instruction.operands with
-            | [w_operand; x_operand; y_operand; z_operand] ->
-                let (w, w_interpreter) = read_operand interpreter w_operand in
-                let (x, x_interpreter) = read_operand w_interpreter x_operand in
-                let (y, y_interpreter) = read_operand x_interpreter y_operand in
-                let (z, z_interpreter) = read_operand y_interpreter z_operand in
-                let (result, result_interpreter) = compute_result w x y z z_interpreter in
-                handle_store_and_branch result_interpreter instruction result
+          match instruction.operands with
+          | [w_operand; x_operand; y_operand; z_operand] ->
+            let (w, w_interpreter) = read_operand interpreter w_operand in
+            let (x, x_interpreter) = read_operand w_interpreter x_operand in
+            let (y, y_interpreter) = read_operand x_interpreter y_operand in
+            let (z, z_interpreter) = read_operand y_interpreter z_operand in
+            let (result, result_interpreter) = compute_result w x y z z_interpreter in
+            handle_store_and_branch result_interpreter instruction result
            | _ -> failwith (Printf.sprintf "instruction at %04x must have four operands" instruction.address ) in
 
-        (* All of these helpers take the arguments and produce a result and an interpreter. *)
-        (* TODO: Some of them produce a side effect, like printing. Eventually move the screen state into the interpreter *)
+(*         let handle_op4_effect compute_effect =
+           handle_op4 (fun w x y z i -> (0, compute_effect w x y z i)) in *)
 
-        let handle_jl x y interp = ((if (signed_word x) < (signed_word y) then 1 else 0), interp) in
-        let handle_jg x y interp = ((if (signed_word x) > (signed_word y) then 1 else 0), interp) in
-        let handle_jin x y interp = ((if (object_parent interp.story x) = y then 1 else 0), interp) in
-        let handle_test x y interp = ((if ((unsigned_word x) land (unsigned_word y)) = (unsigned_word y) then 1 else 0), interp) in
-        let handle_or x y interp = (((unsigned_word x) lor (unsigned_word y)), interp) in
-        let handle_and x y interp = (((unsigned_word x) land (unsigned_word y)), interp) in
-        let handle_test_attr obj attr interp = ((if (object_attribute interp.story obj attr) then 1 else 0), interp) in
-        let handle_set_attr obj attr interp = (0, { interp with story = set_object_attribute interp.story obj attr } ) in
-        let handle_clear_attr obj attr interp = (0, { interp with story = clear_object_attribute interp.story obj attr } ) in
-        let handle_insert_obj child parent interp = (0, { interp with story = insert_object interp.story child parent } ) in
-        let handle_loadw arr ind interp = (read_word interp.story (arr + ind * 2), interp) in
-        let handle_loadb arr ind interp = (read_byte interp.story (arr + ind), interp) in
-        let handle_get_prop obj prop interp = (object_property interp.story obj prop, interp) in
-        let handle_get_prop_addr obj prop interp = (property_address interp.story obj prop, interp) in
-        let handle_get_next_prop obj prop interp = (get_next_property interp.story obj prop, interp) in
-        let handle_add x y interp = ((signed_word (x + y)), interp) in
-        let handle_sub x y interp = ((signed_word (x - y)), interp) in
-        let handle_mul x y interp = ((signed_word (x * y)), interp) in
-        let handle_div x y interp = ((signed_word (x / y)), interp) in
-        let handle_mod x y interp = ((signed_word (x mod y)), interp) in
-        let handle_jz x interp = ((if x = 0 then 1 else 0), interp) in
-        let handle_get_sibling x interp = (object_sibling interp.story x, interp) in
-        let handle_get_child x interp = (object_child interp.story x, interp) in
-        let handle_get_parent x interp = (object_parent interp.story x, interp) in
-        let handle_get_prop_len x interp = (property_length_from_address interp.story x, interp) in
-        let handle_print_addr x interp = (0, interpreter_print interp (read_zstring interp.story x)) in
-        let handle_remove_obj x interp = (0, { interp with story = remove_object interp.story x}) in
-        let handle_print_obj x interp = (0, interpreter_print interp (object_name interp.story x)) in
-        let handle_print_paddr x interp = (0, interpreter_print interp (read_zstring interp.story (decode_packed_address interp.story x))) in
-        let handle_load x interp = (x, interp) in
-        let handle_not x interp = (unsigned_word (lnot x), interp) in
-        let handle_nop interp = (0, interp) in
+        let handle_op4_value compute_value =
+          handle_op4 (fun w x y z i -> (compute_value w x y z i, i)) in
+
+        let handle_jl x y interp =
+          if (signed_word x) < (signed_word y) then 1 else 0 in
+        let handle_jg x y interp =
+          if (signed_word x) > (signed_word y) then 1 else 0 in
+        let handle_jin x y interp =
+          if (object_parent interp.story x) = y then 1 else 0 in
+        let handle_test x y interp =
+          let x = unsigned_word x in
+          let y = unsigned_word y in
+          if (x land y) = y then 1 else 0 in
+        let handle_or x y interp =
+          (unsigned_word x) lor (unsigned_word y) in
+        let handle_and x y interp =
+          (unsigned_word x) land (unsigned_word y) in
+        let handle_test_attr obj attr interp =
+          if object_attribute interp.story obj attr then 1 else 0 in
+        let handle_set_attr obj attr interp =
+          { interp with story = set_object_attribute interp.story obj attr } in
+        let handle_clear_attr obj attr interp =
+          { interp with story = clear_object_attribute interp.story obj attr } in
+        let handle_insert_obj child parent interp =
+          { interp with story = insert_object interp.story child parent } in
+        let handle_loadw arr ind interp =
+          read_word interp.story (arr + ind * 2) in
+        let handle_loadb arr ind interp =
+          read_byte interp.story (arr + ind) in
+        let handle_get_prop obj prop interp =
+          object_property interp.story obj prop in
+        let handle_get_prop_addr obj prop interp =
+          property_address interp.story obj prop in
+        let handle_get_next_prop obj prop interp =
+          get_next_property interp.story obj prop in
+        let handle_add x y interp =
+          signed_word (x + y)  in
+        let handle_sub x y interp =
+          signed_word (x - y) in
+        let handle_mul x y interp =
+          signed_word (x * y) in
+        let handle_div x y interp =
+          signed_word (x / y) in
+        let handle_mod x y interp =
+          signed_word (x mod y) in
+        let handle_jz x interp =
+          if x = 0 then 1 else 0 in
+        let handle_get_sibling obj interp =
+          object_sibling interp.story obj in
+        let handle_get_child obj interp =
+          object_child interp.story obj in
+        let handle_get_parent obj interp =
+          object_parent interp.story obj in
+        let handle_get_prop_len x interp =
+          property_length_from_address interp.story x in
+        let handle_print_addr x interp =
+          interpreter_print interp (read_zstring interp.story x) in
+        let handle_remove_obj x interp =
+          { interp with story = remove_object interp.story x} in
+        let handle_print_obj x interp =
+          interpreter_print interp (object_name interp.story x) in
+        let handle_print_paddr paddr interp =
+          let addr = decode_packed_address interp.story paddr in
+          let text = read_zstring interp.story addr in
+          interpreter_print interp text in
+        let handle_load x interp =
+          x in
+        let handle_not x interp =
+          unsigned_word (lnot x) in
+        let handle_nop interp =
+          interp in
         let handle_restart () =
           (* If transcripting is active, this has to stay on in
           the restarted interpreter *)
@@ -2240,14 +2306,21 @@ module Interpreter = struct
           let original = make story interpreter.screen in
           let restarted_interpreter = select_output_stream original TranscriptStream transcript_on in
           { restarted_interpreter with transcript = transcript; commands = commands } in
-        let handle_storew arr ind value interp = (0, { interp with story = write_word interp.story (arr + ind * 2) value }) in
-        let handle_storeb arr ind value interp = (0, { interp with story = write_byte interp.story (arr + ind) value }) in
-        let handle_putprop obj prop value interp = (0, { interp with story = write_property interp.story obj prop value }) in
-        let handle_print_char x interp = (0, interpreter_print interp (Printf.sprintf "%c" (char_of_int x))) in
-        let handle_print_num x interp = (0, interpreter_print interp (Printf.sprintf "%d" (signed_word x))) in
-        let handle_push x interp = (0, push_stack interp x) in
-        let handle_output_stream x interp =
-          let new_interpreter = match x with
+        let handle_storew arr ind value interp =
+          { interp with story = write_word interp.story (arr + ind * 2) value } in
+        let handle_storeb arr ind value interp =
+          { interp with story = write_byte interp.story (arr + ind) value } in
+        let handle_putprop obj prop value interp =
+          { interp with story = write_property interp.story obj prop value } in
+        let handle_print_char x interp =
+          interpreter_print interp (Printf.sprintf "%c" (char_of_int x)) in
+        let handle_print_num x interp =
+          interpreter_print interp (Printf.sprintf "%d" (signed_word x)) in
+        let handle_push x interp =
+          push_stack interp x in
+        let handle_output_stream stream interp =
+          (* TODO: This is a variadic instruction *)
+          let new_interpreter = match stream with
           | 0 -> interp
           | 1 -> select_output_stream interp ScreenStream true
           | -1 -> select_output_stream interp ScreenStream false
@@ -2258,14 +2331,17 @@ module Interpreter = struct
           | 4 -> select_output_stream interp CommandStream true
           | -4 -> select_output_stream interp CommandStream true
           | _ -> failwith "Invalid stream in output_stream" in
-          (0, new_interpreter) in
-        let handle_pop interp = (0, pop_stack interp) in
-        let handle_new_line interp = (0, interpreter_print interp "\n") in
-        let handle_show_status interp = (0, set_status_line interp) in
+          new_interpreter in
+        let handle_pop interp =
+          pop_stack interp in
+        let handle_new_line interp =
+          interpreter_print interp "\n" in
+        let handle_show_status interp =
+          set_status_line interp in
         let handle_print interp =
-            (0, (match instruction.text with
-            | Some text -> interpreter_print interp text
-            | _ -> failwith "no text in print instruction") ) in
+          match instruction.text with
+          | Some text -> interpreter_print interp text
+          | _ -> failwith "no text in print instruction" in
         let handle_random n interp =
             let random_next () =
                 (* See wikipedia article on xorshift *)
@@ -2296,13 +2372,23 @@ module Interpreter = struct
 
         (* je is interesting in that it is a 2OP that can take 2 to 4 operands. *)
         let handle_je () =
-            let handle_je2 test x interp = ((if (signed_word test) = (signed_word x) then 1 else 0), interp) in
-            let handle_je3 test x y interp = ((let test = (signed_word test) in if test = (signed_word x) || test == (signed_word y) then 1 else 0), interp) in
-            let handle_je4 test x y z interp = ((let test = (signed_word test) in if test = (signed_word x) || test = (signed_word y) || test == (signed_word z) then 1 else 0), interp) in
+            let handle_je2 test x interp =
+              if (signed_word test) = (signed_word x) then 1 else 0 in
+            let handle_je3 test x y interp =
+              let test = signed_word test in
+              let x = signed_word x in
+              let y = signed_word y in
+              if test = x || test = y then 1 else 0 in
+            let handle_je4 test x y z interp =
+              let test = signed_word test in
+              let x = signed_word x in
+              let y = signed_word y in
+              let z = signed_word z in
+              if test = x || test = y || test = z then 1 else 0 in
             match instruction.operands with
-            | [_; _] -> handle_op2 handle_je2
-            | [_; _; _] -> handle_op3 handle_je3
-            | [_; _; _; _] -> handle_op4 handle_je4
+            | [_; _] -> handle_op2_value handle_je2
+            | [_; _; _] -> handle_op3_value handle_je3
+            | [_; _; _; _] -> handle_op4_value handle_je4
             | _ -> failwith "je instruction requires 2 to 4 operands" in
 
         (* Do not advance to the next instruction *)
@@ -2385,77 +2471,77 @@ module Interpreter = struct
         match instruction.opcode with
         | ILLEGAL -> failwith "illegal operand"
         | OP2_1   -> handle_je ()
-        | OP2_2   -> handle_op2 handle_jl
-        | OP2_3   -> handle_op2 handle_jg
+        | OP2_2   -> handle_op2_value handle_jl
+        | OP2_3   -> handle_op2_value handle_jg
         | OP2_4   -> handle_dec_chk interpreter instruction
         | OP2_5   -> handle_inc_chk interpreter instruction
-        | OP2_6   -> handle_op2 handle_jin
-        | OP2_7   -> handle_op2 handle_test
-        | OP2_8   -> handle_op2 handle_or
-        | OP2_9   -> handle_op2 handle_and
-        | OP2_10  -> handle_op2 handle_test_attr
-        | OP2_11  -> handle_op2 handle_set_attr
-        | OP2_12  -> handle_op2 handle_clear_attr
+        | OP2_6   -> handle_op2_value handle_jin
+        | OP2_7   -> handle_op2_value handle_test
+        | OP2_8   -> handle_op2_value handle_or
+        | OP2_9   -> handle_op2_value handle_and
+        | OP2_10  -> handle_op2_value handle_test_attr
+        | OP2_11  -> handle_op2_effect handle_set_attr
+        | OP2_12  -> handle_op2_effect handle_clear_attr
         | OP2_13  -> handle_store interpreter instruction
-        | OP2_14  -> handle_op2 handle_insert_obj
-        | OP2_15  -> handle_op2 handle_loadw
-        | OP2_16  -> handle_op2 handle_loadb
-        | OP2_17  -> handle_op2 handle_get_prop
-        | OP2_18  -> handle_op2 handle_get_prop_addr
-        | OP2_19  -> handle_op2 handle_get_next_prop
-        | OP2_20  -> handle_op2 handle_add
-        | OP2_21  -> handle_op2 handle_sub
-        | OP2_22  -> handle_op2 handle_mul
-        | OP2_23  -> handle_op2 handle_div
-        | OP2_24  -> handle_op2 handle_mod
+        | OP2_14  -> handle_op2_effect handle_insert_obj
+        | OP2_15  -> handle_op2_value handle_loadw
+        | OP2_16  -> handle_op2_value handle_loadb
+        | OP2_17  -> handle_op2_value handle_get_prop
+        | OP2_18  -> handle_op2_value handle_get_prop_addr
+        | OP2_19  -> handle_op2_value handle_get_next_prop
+        | OP2_20  -> handle_op2_value handle_add
+        | OP2_21  -> handle_op2_value handle_sub
+        | OP2_22  -> handle_op2_value handle_mul
+        | OP2_23  -> handle_op2_value handle_div
+        | OP2_24  -> handle_op2_value handle_mod
         | OP2_25
         | OP2_26
         | OP2_27
         | OP2_28 -> failwith "TODO: instruction for version greater than 3"
 
-        | OP1_128 -> handle_op1 handle_jz
-        | OP1_129 -> handle_op1 handle_get_sibling
-        | OP1_130 -> handle_op1 handle_get_child
-        | OP1_131 -> handle_op1 handle_get_parent
-        | OP1_132 -> handle_op1 handle_get_prop_len
+        | OP1_128 -> handle_op1_value handle_jz
+        | OP1_129 -> handle_op1_value handle_get_sibling
+        | OP1_130 -> handle_op1_value handle_get_child
+        | OP1_131 -> handle_op1_value handle_get_parent
+        | OP1_132 -> handle_op1_value handle_get_prop_len
         | OP1_133 -> handle_inc interpreter instruction
         | OP1_134 -> handle_dec interpreter instruction
-        | OP1_135 -> handle_op1 handle_print_addr
+        | OP1_135 -> handle_op1_effect handle_print_addr
         | OP1_136 -> failwith "TODO: instruction for version greater than 3"
-        | OP1_137 -> handle_op1 handle_remove_obj
-        | OP1_138 -> handle_op1 handle_print_obj
+        | OP1_137 -> handle_op1_effect handle_remove_obj
+        | OP1_138 -> handle_op1_effect handle_print_obj
         | OP1_139 -> handle_ret ()
         | OP1_140 -> handle_jump ()
-        | OP1_141 -> handle_op1 handle_print_paddr
-        | OP1_142 -> handle_op1 handle_load
-        | OP1_143 -> handle_op1 handle_not
+        | OP1_141 -> handle_op1_effect handle_print_paddr
+        | OP1_142 -> handle_op1_value handle_load
+        | OP1_143 -> handle_op1_value handle_not
 
         | OP0_176 -> handle_rtrue ()
         | OP0_177 -> handle_rfalse ()
-        | OP0_178 -> handle_op0 handle_print
+        | OP0_178 -> handle_op0_effect handle_print
         | OP0_179 -> handle_print_ret ()
-        | OP0_180 -> handle_op0 handle_nop
+        | OP0_180 -> handle_op0_effect handle_nop
         | OP0_181 -> failwith "TODO: save"
         | OP0_182 -> failwith "TODO: restore"
         | OP0_183 -> handle_restart ()
         | OP0_184 -> handle_ret_popped ()
-        | OP0_185 -> handle_op0 handle_pop
+        | OP0_185 -> handle_op0_effect handle_pop
         | OP0_186 -> handle_quit ()
-        | OP0_187 -> handle_op0 handle_new_line
-        | OP0_188 -> handle_op0 handle_show_status
+        | OP0_187 -> handle_op0_effect handle_new_line
+        | OP0_188 -> handle_op0_effect handle_show_status
         | OP0_189 -> failwith "TODO: verify"
         | OP0_190 -> failwith "TODO: instruction for version greater than 3"
         | OP0_191 -> failwith "TODO: instruction for version greater than 3"
 
         | VAR_224 -> handle_call ()
-        | VAR_225 -> handle_op3 handle_storew
-        | VAR_226 -> handle_op3 handle_storeb
-        | VAR_227 -> handle_op3 handle_putprop
+        | VAR_225 -> handle_op3_effect handle_storew
+        | VAR_226 -> handle_op3_effect handle_storeb
+        | VAR_227 -> handle_op3_effect handle_putprop
         | VAR_228 -> handle_sread interpreter instruction
-        | VAR_229 -> handle_op1 handle_print_char
-        | VAR_230 -> handle_op1 handle_print_num
+        | VAR_229 -> handle_op1_effect handle_print_char
+        | VAR_230 -> handle_op1_effect handle_print_num
         | VAR_231 -> handle_op1 handle_random
-        | VAR_232 -> handle_op1 handle_push
+        | VAR_232 -> handle_op1_effect handle_push
         | VAR_233 -> handle_pull interpreter instruction
         | VAR_234 -> failwith "TODO: split_window"
         | VAR_235 -> failwith "TODO: set_window"
@@ -2466,7 +2552,7 @@ module Interpreter = struct
         | VAR_240
         | VAR_241
         | VAR_242 -> failwith "TODO: instruction for version greater than 3"
-        | VAR_243 -> handle_op1 handle_output_stream
+        | VAR_243 -> handle_op1_effect handle_output_stream
         | VAR_244 -> failwith "TODO: input_stream"
         | VAR_245
         | VAR_246
