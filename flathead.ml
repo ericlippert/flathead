@@ -371,6 +371,9 @@ module ImmutableBytes = struct
             ((value mod 256) + 256 ) mod 256 in
         let b = char_of_int (byte_of_int value) in
         { bytes with edits = IntMap.add address b bytes.edits };;
+
+    let original bytes =
+      { bytes with edits = IntMap.empty };;
 end
 
 module Memory = struct
@@ -400,10 +403,12 @@ module Memory = struct
         256 * high + low;;
 
     let write_byte memory address value =
-        if address >= memory.static_offset then
-            failwith "attempt to write static memory"
-        else
-            { memory with dynamic_memory = ImmutableBytes.write_byte memory.dynamic_memory address value };;
+      if address >= memory.static_offset then
+        failwith "attempt to write static memory"
+      else
+        let new_memory =
+          ImmutableBytes.write_byte memory.dynamic_memory address value in
+        { memory with dynamic_memory = new_memory };;
 
     let write_word memory address value =
         let w = unsigned_word value in
@@ -412,6 +417,9 @@ module Memory = struct
         let first = write_byte memory address high in
         write_byte first (address + 1) low;;
 
+    let original memory =
+      let original_bytes = ImmutableBytes.original memory.dynamic_memory in
+      { memory with dynamic_memory = original_bytes };;
 end
 
 module Story = struct
@@ -423,6 +431,9 @@ module Story = struct
     (* *)
     (* Dealing with memory *)
     (* *)
+
+    let original story =
+      { memory = Memory.original story.memory };;
 
     let fetch_bit n word =
         (word land (1 lsl n)) lsr n = 1;;
@@ -2218,6 +2229,17 @@ module Interpreter = struct
         let handle_load x interp = (x, interp) in
         let handle_not x interp = (unsigned_word (lnot x), interp) in
         let handle_nop interp = (0, interp) in
+        let handle_restart () =
+          (* If transcripting is active, this has to stay on in
+          the restarted interpreter *)
+          (* TODO: windowed screens might need work here *)
+          let transcript_on = interpreter.transcript_selected in
+          let transcript = interpreter.transcript in
+          let commands = interpreter.commands in
+          let story = original interpreter.story in
+          let original = make story interpreter.screen in
+          let restarted_interpreter = select_output_stream original TranscriptStream transcript_on in
+          { restarted_interpreter with transcript = transcript; commands = commands } in
         let handle_storew arr ind value interp = (0, { interp with story = write_word interp.story (arr + ind * 2) value }) in
         let handle_storeb arr ind value interp = (0, { interp with story = write_byte interp.story (arr + ind) value }) in
         let handle_putprop obj prop value interp = (0, { interp with story = write_property interp.story obj prop value }) in
@@ -2415,7 +2437,7 @@ module Interpreter = struct
         | OP0_180 -> handle_op0 handle_nop
         | OP0_181 -> failwith "TODO: save"
         | OP0_182 -> failwith "TODO: restore"
-        | OP0_183 -> failwith "TODO: restart"
+        | OP0_183 -> handle_restart ()
         | OP0_184 -> handle_ret_popped ()
         | OP0_185 -> handle_op0 handle_pop
         | OP0_186 -> handle_quit ()
