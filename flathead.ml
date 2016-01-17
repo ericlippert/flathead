@@ -139,7 +139,6 @@ module Deque = struct
 
 end
 
-
 (* Helper method that produces a deque with a given item in it some number of times *)
 
 let enqueue_duplicate item times =
@@ -248,19 +247,16 @@ module Screen = struct
 
     let more screen =
         { screen with lines = set_front_at screen.lines ("[MORE]" ^ (String.make (screen.width - 6) ' ')) 0 };;
-
 end
-
-(* TODO: This logic is duplicated in the screen type. Eliminate this. *)
 
 (* Word-wraps the last line in a list of lines. Assumes that
 the tail of the list is already word-wrapped. Returns the
-new list and the number of lines added to the given list. *)
+new list. *)
 
 let rec wrap_lines lines line_length =
-    let rec aux lines count =
+    let rec aux lines =
         match lines with
-        | [] -> ([], 0)
+        | [] -> []
         | h :: t ->
             let len = String.length h in
             if String.contains h '\n' then
@@ -270,9 +266,8 @@ let rec wrap_lines lines line_length =
                 let b = String.index h '\n' in
                 let f = String.sub h 0 b in
                 let r = String.sub h (b + 1) (len - b - 1) in
-                let (w1, c1) = wrap_lines (f :: t) line_length in
-                let (w2, c2) = wrap_lines (r :: w1) line_length in
-                (w2, c1 + c2 + 1) (* Note that count should be zero *)
+                let w1 = wrap_lines (f :: t) line_length in
+                wrap_lines (r :: w1) line_length
             else if len > line_length then
                 (* Recursive case 2: there are no breaks but the line is too long.
                    Find a space to break on, break it, and recurse. *)
@@ -280,11 +275,11 @@ let rec wrap_lines lines line_length =
                 let break_point = match space_location with
                     | None -> line_length
                     | Some location -> location in
-                aux ((String.sub h (break_point + 1) (len - break_point - 1)) :: (String.sub h 0 break_point) :: t) (count + 1)
+                aux ((String.sub h (break_point + 1) (len - break_point - 1)) :: (String.sub h 0 break_point) :: t)
             else
                 (* Base case: the line has no breaks and is short enough. Do nothing. *)
-                (lines, count) in
-    aux lines 0;;
+                lines in
+    aux lines;;
 
 (* Takes a list of strings, concatenates a string onto the head, or, if there
 is no head, then it becomes the head. *)
@@ -520,7 +515,6 @@ module Story = struct
         | _ -> NoStatus;;
 
     (* TODO: More Flags 1 *)
-    (* TODO: Flags 2 *)
 
     let high_memory_base story =
         let high_memory_base_offset = 4 in
@@ -545,6 +539,20 @@ module Story = struct
     let static_memory_base_offset = 14;;
     let static_memory_base story =
         read_word story static_memory_base_offset ;;
+
+    let flags2 story =
+      let flags2_offset = 16 in
+      read_byte story flags2_offset;;
+
+    let get_transcript_flag story =
+      let transcript_bit = 0 in
+      fetch_bit transcript_bit (flags2 story);;
+
+    let set_transcript_flag story value =
+      let flags2_offset = 16 in
+      let transcript_bit = 0 in
+      let new_flags2 = (set_bit_to transcript_bit (flags2 story) value) in
+      write_byte story flags2_offset new_flags2;;
 
     let abbreviations_table_base story =
         let abbreviations_table_base_offset = 24 in
@@ -1600,7 +1608,7 @@ module Story = struct
 
     let status_globals story =
         (signed_word (read_global story current_score_global), read_global story turn_count_global);;
-end
+end (* Story *)
 
 module Interpreter = struct
 
@@ -1630,10 +1638,25 @@ module Interpreter = struct
         random_y : Int32.t;
         random_z : Int32.t;
         state : state;
+
+        (* output stream 1 *)
         screen : Screen.t;
         has_new_output : bool;
+        screen_selected : bool;
+
+        (* output stream 2 *)
+        transcript : string list;
+        transcript_selected : bool;
+
+        (* TODO: output stream 3 NYI *)
+
+        (* output stream 4 *)
+        commands : string list;
+        commands_selected : bool;
+
+        (* TODO: Other input streams *)
         input : string;
-        input_max : int
+        input_max : int;
     };;
 
     let make story screen =
@@ -1652,6 +1675,11 @@ module Interpreter = struct
         state = Running;
         screen = screen;
         has_new_output = false;
+        screen_selected = true;
+        transcript = [""];
+        transcript_selected = get_transcript_flag story;
+        commands = [];
+        commands_selected = false;
         input = "";
         input_max = 0
     };;
@@ -1833,9 +1861,37 @@ module Interpreter = struct
             handle_branch store_interpreter instruction 0
         | _ -> failwith "pull requires a variable ";;
 
+    type output_stream_kind =
+    | ScreenStream
+    | TranscriptStream
+    | MemoryStream
+    | CommandStream;;
+
+    let select_output_stream interpreter stream value =
+      match stream with
+      | ScreenStream -> { interpreter with screen_selected = value }
+      | TranscriptStream -> { interpreter with
+        transcript_selected = value;
+        story = set_transcript_flag interpreter.story value }
+      | MemoryStream -> failwith "TODO: output stream 3 NYI"
+      | CommandStream -> { interpreter with commands_selected = value };;
+
+    let add_to_transcript transcript text =
+      let transcript_width = 80 in
+      wrap_lines (add_to_lines transcript text) transcript_width;;
+
     let interpreter_print interpreter text =
-        let new_screen = Screen.print interpreter.screen text in
-        { interpreter with screen = new_screen; has_new_output = true };;
+      let new_transcript =
+        if interpreter.transcript_selected then
+          add_to_transcript interpreter.transcript text
+        else interpreter.transcript in
+      let new_screen =
+        if interpreter.screen_selected then Screen.print interpreter.screen text
+        else interpreter.screen in
+      { interpreter with
+        transcript = new_transcript;
+        screen = new_screen;
+        has_new_output = interpreter.screen_selected };;
 
     let set_status_line interpreter =
         let object_name () =
@@ -1948,8 +2004,15 @@ module Interpreter = struct
         return is printed (so the cursor moves to the next line). If it was interrupted, the cursor is left at
         the rightmost end of the text typed in so far.*)
 
-        let new_screen_interpreter = { string_copied_interpreter with
-          screen = fully_scroll (print interpreter.screen (text ^ "\n"))} in
+        let commands_interpreter =
+          if string_copied_interpreter.commands_selected then
+            {string_copied_interpreter with
+              commands = input :: string_copied_interpreter.commands }
+          else string_copied_interpreter in
+        let printed_interpreter =
+          interpreter_print commands_interpreter (input ^ "\n") in
+        let new_screen_interpreter = { printed_interpreter with
+          screen = fully_scroll printed_interpreter.screen } in
 
         (*
         Next, lexical analysis is performed on the text (except that in Versions 5 and later, if parsebuffer
@@ -2161,6 +2224,19 @@ module Interpreter = struct
         let handle_print_char x interp = (0, interpreter_print interp (Printf.sprintf "%c" (char_of_int x))) in
         let handle_print_num x interp = (0, interpreter_print interp (Printf.sprintf "%d" (signed_word x))) in
         let handle_push x interp = (0, push_stack interp x) in
+        let handle_output_stream x interp =
+          let new_interpreter = match x with
+          | 0 -> interp
+          | 1 -> select_output_stream interp ScreenStream true
+          | -1 -> select_output_stream interp ScreenStream false
+          | 2 -> select_output_stream interp TranscriptStream true
+          | -2 -> select_output_stream interp TranscriptStream true
+          | 3
+          | -3 -> failwith "TODO: selecting/deselecting stream 3 is NYI "
+          | 4 -> select_output_stream interp CommandStream true
+          | -4 -> select_output_stream interp CommandStream true
+          | _ -> failwith "Invalid stream in output_stream" in
+          (0, new_interpreter) in
         let handle_pop interp = (0, pop_stack interp) in
         let handle_new_line interp = (0, interpreter_print interp "\n") in
         let handle_show_status interp = (0, set_status_line interp) in
@@ -2368,7 +2444,7 @@ module Interpreter = struct
         | VAR_240
         | VAR_241
         | VAR_242 -> failwith "TODO: instruction for version greater than 3"
-        | VAR_243 -> failwith "TODO: output_stream"
+        | VAR_243 -> handle_op1 handle_output_stream
         | VAR_244 -> failwith "TODO: input_stream"
         | VAR_245
         | VAR_246
