@@ -546,7 +546,6 @@ module Story = struct
     let static_memory_base story =
         read_word story static_memory_base_offset ;;
 
-
     let abbreviations_table_base story =
         let abbreviations_table_base_offset = 24 in
         read_word story abbreviations_table_base_offset ;;
@@ -1211,9 +1210,7 @@ module Story = struct
             | VAR_236 (* call_vs2 *) -> true
             | _ -> false;;
 
-
     (* Takes the address of an instruction and produces the instruction *)
-
     let decode_instruction story address =
 
         (* Helper methods for decoding *)
@@ -1619,7 +1616,8 @@ module Interpreter = struct
     {
         stack : int list;
         locals : int IntMap.t;
-        called_from : int
+        called_from : int;
+        called : int
     };;
 
     type t =
@@ -1641,11 +1639,11 @@ module Interpreter = struct
     let make story screen =
 
     (* TODO: Need to set appropriate words for screen size *)
-
+    let pc = initial_program_counter story in
     {
         story = story;
-        program_counter = initial_program_counter story;
-        frames = [ { stack = []; locals = IntMap.empty; called_from = 0 } ];
+        program_counter = pc;
+        frames = [ { stack = []; locals = IntMap.empty; called_from = 0; called = pc } ];
         (* TODO: Seed these randomly *)
         random_w = Int32.of_int 123;
         random_x = Int32.of_int 123;
@@ -2280,8 +2278,8 @@ module Interpreter = struct
             if routine_address = 0 then
                 handle_store_and_branch locals_interpreter instruction 0
             else
-                let frame = { stack = []; locals = locals; called_from = instruction.address } in
                 let first_instruction = first_instruction locals_interpreter.story routine_address in
+                let frame = { stack = []; locals = locals; called_from = instruction.address; called = first_instruction } in
                 set_program_counter (add_frame interpreter frame) first_instruction in
 
         (* The big dispatch *)
@@ -2576,6 +2574,36 @@ module Debugger = struct
       if (String.length text) <= length then text
       else String.sub text 0 length;;
 
+      (* x and y in screen coordinates; width and height in characters *)
+      let draw_before_current_after before current after x y width height =
+        let before_color = blue in
+        let current_color = black in
+        let after_color = blue in
+        let rec draw_before items n =
+          if n < height then
+            match items with
+            | [] -> ()
+            | text :: tail -> (
+              draw_string_at text x (y + n * text_height);
+              draw_before tail (n + 1)) in
+        let rec draw_after items n =
+          if n > 0 then
+            match items with
+            | [] -> ()
+            | text :: tail -> (
+              draw_string_at text x (y + n * text_height);
+              draw_after tail (n - 1)) in
+        set_color background;
+        fill_rect x y (width * text_width) (height * text_height);
+        set_color before_color;
+        draw_before before (height / 2 + 1);
+        set_color current_color;
+        draw_string_at current x (y + text_height * (height / 2));
+        set_color after_color;
+        draw_after after (height / 2 - 1);
+        set_color foreground;
+        synchronize();;
+
     let draw_undo_redo debugger =
       let undo_color = blue in
       let redo_color = blue in
@@ -2588,9 +2616,8 @@ module Debugger = struct
       let window_w = text_width * instruction_width in
       let window_h = text_height * interpreter.screen.height in
       let draw_line interp n =
-        moveto window_x (window_y + text_height * n);
         let text = trim_to_length (Story.display_instructions interp.story interp.program_counter 1) instruction_width in
-        draw_string text in
+        draw_string_at text window_x (window_y + text_height * n) in
       let rec draw_undo undo n =
         if n < interpreter.screen.height then
           match undo with
@@ -2742,7 +2769,33 @@ module Debugger = struct
   let halt debugger =
     { debugger with state = Halted };;
 
+  let draw_routine_listing debugger =
+    let current_instruction = debugger.interpreter.program_counter in
+    let first_instruction = (current_frame debugger.interpreter).called in
+    let story = debugger.interpreter.story in
+    let current = Story.display_instruction (Story.decode_instruction story current_instruction) in
+    let reachable = Story.all_reachable_addresses_in_routine story first_instruction in
+    let sorted = List.sort compare reachable in
+    let decode instr =
+      (instr, Story.display_instruction (Story.decode_instruction story instr)) in
+    let map = List.map decode sorted in
+    let rec aux before after map =
+      match map with
+      | [] -> (before, after)
+      | (addr, text) :: tail ->
+        if addr < current_instruction then aux (text :: before) after tail
+        else if addr > current_instruction then aux before (text :: after) tail
+        else aux before after tail in
+    let (before, after) = aux [] [] map in
+    let screen = debugger.interpreter.screen in
+    let (screen_x, screen_y, screen_w, screen_h) = screen_extent screen in
+    draw_before_current_after before current (List.rev after) (screen_x + screen_w + 10) screen_y 60 screen.height;;
+
+
+  (* TODO: Most of the methods in this module can be local to run *)
+
   let run debugger =
+
     let rec main_loop debugger =
        (* Put the debugger into the right state, depending on the interpreter *)
        let debugger = match (debugger.state, debugger.interpreter.state) with
@@ -2766,7 +2819,7 @@ module Debugger = struct
       let has_keystrokes = has_keystrokes debugger in
       let should_block = (not running) || ((not has_keystrokes) && (waiting_for_input || needs_more)) in
       draw_interpreter debugger;
-      if should_block then draw_undo_redo debugger;
+      if should_block then draw_routine_listing debugger;
       let action = obtain_action debugger should_block in
       match action with
       | Pause -> main_loop (pause debugger)
