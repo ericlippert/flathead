@@ -2638,6 +2638,10 @@ module Interpreter = struct
         | _ -> failwith "not waiting for input";;
 end (* Interpreter *)
 
+let draw_string_at text x y =
+  Graphics.moveto x y;
+  Graphics.draw_string text;;
+
 module Button = struct
   open Graphics;;
 
@@ -2659,10 +2663,6 @@ module Button = struct
       height = text_height + 2 * margin;
       text = text
     };;
-
-  let draw_string_at text x y =
-    moveto x y;
-    draw_string text;;
 
   let draw button =
     let (text_width, text_height) = text_size button.text in
@@ -2765,7 +2765,7 @@ module Debugger = struct
       | None -> ()
       | Some status -> (
         set_color status_color;
-        draw_string_at x (y + text_height * screen.height) status);;
+        draw_string_at status x (y + text_height * screen.height) );;
 
     let rec draw_screen screen =
       clear_screen screen;
