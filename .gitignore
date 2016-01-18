@@ -8,6 +8,7 @@
 *.cmxs
 *.cmxa
 *.DAT
+*.sav
 
 # ocamlbuild working directory
 _build/
