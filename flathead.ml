@@ -585,7 +585,7 @@ module Story = struct
       let rec aux acc addr =
         if addr >= size then acc
         else
-          let byte = Memory.read_byte original addr in        
+          let byte = Memory.read_byte original addr in
           aux (unsigned_word (acc + byte)) (addr + 1) in
       aux 0 header_size;;
 
@@ -2660,13 +2660,18 @@ module Button = struct
       text = text
     };;
 
+  let draw_string_at text x y =
+    moveto x y;
+    draw_string text;;
+
   let draw button =
     let (text_width, text_height) = text_size button.text in
     set_color blue;
     fill_rect button.x button.y button.width button.height;
-    moveto (button.x + (button.width - text_width) / 2) (button.y + (button.height - text_height) / 2);
+    let text_x = button.x + (button.width - text_width) / 2 in
+    let text_y = button.y + (button.height - text_height) / 2 in
     set_color white;
-    draw_string button.text;
+    draw_string_at button.text text_x text_y;
     set_color foreground;;
 
   let was_clicked button x y =
@@ -2760,24 +2765,21 @@ module Debugger = struct
       | None -> ()
       | Some status -> (
         set_color status_color;
-        moveto x (y + text_height * screen.height);
-        draw_string status);;
-
-    let draw_string_at text x y =
-      moveto x y;
-      draw_string text;;
+        draw_string_at x (y + text_height * screen.height) status);;
 
     let rec draw_screen screen =
-        clear_screen screen;
-        draw_status screen;
-        set_color foreground;
-        let (x, y, _, _) = screen_extent screen in
-        let rec aux n =
-          if n < screen.height then
-            (draw_string_at (Deque.peek_front_at screen.lines n) x (y + text_height * n);
-            aux (n + 1)) in
-        aux 0 ;
-        synchronize();;
+      clear_screen screen;
+      draw_status screen;
+      set_color foreground;
+      let (x, y, _, _) = screen_extent screen in
+      let rec aux n =
+        if n < screen.height then (
+          let text = Deque.peek_front_at screen.lines n in
+          let text_y = y + text_height * n in
+          draw_string_at text x text_y;
+          aux (n + 1)) in
+      aux 0 ;
+      synchronize();;
 
     let trim_to_length text length =
       if (String.length text) <= length then text
@@ -2825,7 +2827,8 @@ module Debugger = struct
       let window_w = text_width * instruction_width in
       let window_h = text_height * interpreter.screen.height in
       let draw_line interp n =
-        let text = trim_to_length (Story.display_instructions interp.story interp.program_counter 1) instruction_width in
+        let instr = (Story.display_instructions interp.story interp.program_counter 1) in
+        let text = trim_to_length instr instruction_width in
         draw_string_at text window_x (window_y + text_height * n) in
       let rec draw_undo undo n =
         if n < interpreter.screen.height then
@@ -2999,7 +3002,6 @@ module Debugger = struct
     let screen = debugger.interpreter.screen in
     let (screen_x, screen_y, screen_w, screen_h) = screen_extent screen in
     draw_before_current_after before current (List.rev after) (screen_x + screen_w + 10) screen_y 60 screen.height;;
-
 
   (* TODO: Most of the methods in this module can be local to run *)
 
