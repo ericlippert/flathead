@@ -569,6 +569,32 @@ module Story = struct
         let abbreviations_table_base_offset = 24 in
         read_word story abbreviations_table_base_offset ;;
 
+    let file_size story =
+      let file_size_offset = 26 in
+      (* TODO: Multiplier depends on version *)
+      2 * (read_word story file_size_offset);;
+
+    let header_checksum story =
+      let checksum_offset = 28 in
+      read_word story checksum_offset;;
+
+    let compute_checksum story =
+      let original = Memory.original story.memory in
+      let size = file_size story in
+      Printf.printf "%d\n" size ; flush stdout;
+      let rec aux acc addr =
+        if addr >= size then acc
+        else
+          let byte = Memory.read_byte original addr in        
+          aux (unsigned_word (acc + byte)) (addr + 1) in
+      aux 0 header_size;;
+
+    let verify_checksum story =
+      let h = header_checksum story in
+      let c = compute_checksum story in
+      Printf.printf "%04x %04x\n" h c; flush stdout ;
+      h = c;;
+
     let display_header story =
         Printf.sprintf "Version                     : %d\n" (version story) ^
         Printf.sprintf "Abbreviations table base    : %04x\n" (abbreviations_table_base story) ^
@@ -2159,11 +2185,8 @@ module Interpreter = struct
         let handle_op0_effect compute_effect =
           handle_op0 (fun i -> (0, compute_effect i)) in
 
-        (* TODO: No zero-operand instructions are useful for their values.
-        Consider simplifying this code.
         let handle_op0_value compute_value =
           handle_op0 (fun i -> (compute_value i, i)) in
-*)
 
         let handle_op1 compute_result =
             match instruction.operands with
@@ -2338,6 +2361,8 @@ module Interpreter = struct
           interpreter_print interp "\n" in
         let handle_show_status interp =
           set_status_line interp in
+        let handle_verify interp =
+          if verify_checksum interp.story then 1 else 0 in
         let handle_print interp =
           match instruction.text with
           | Some text -> interpreter_print interp text
@@ -2529,7 +2554,7 @@ module Interpreter = struct
         | OP0_186 -> handle_quit ()
         | OP0_187 -> handle_op0_effect handle_new_line
         | OP0_188 -> handle_op0_effect handle_show_status
-        | OP0_189 -> failwith "TODO: verify"
+        | OP0_189 -> handle_op0_value handle_verify
         | OP0_190 -> failwith "TODO: instruction for version greater than 3"
         | OP0_191 -> failwith "TODO: instruction for version greater than 3"
 
