@@ -15,10 +15,6 @@ let rec reverse_index_from text target index =
     else if text.[index] = target then Some index
     else reverse_index_from text target (index - 1);;
 
-
-
-
-
 (* Word-wraps the last line in a list of lines. Assumes that
 the tail of the list is already word-wrapped. Returns the
 new list. *)
@@ -109,88 +105,6 @@ let signed_word word =
     if canonical > 32767 then canonical - 65536 else canonical;;
 
 module IntMap = Map.Make(struct type t = int let compare = compare end)
-
-module ImmutableBytes = struct
-
-    (* TODO: Track number of edits; when size of tree exceeds *)
-    (* TODO: size of a new string, consider making a new string. *)
-
-    (* TODO: Consider: is it worthwhile to make a tree of int32s or int64s
-             instead of chars? The total memory consumed by all the nodes
-             would be smaller. *)
-
-    type t =
-    {
-        original_bytes : string;
-        edits : char IntMap.t
-    };;
-
-    let make bytes = {
-        original_bytes = bytes;
-        edits = IntMap.empty
-    };;
-
-    let read_byte bytes address =
-        let c =
-            if IntMap.mem address bytes.edits then IntMap.find address bytes.edits
-            else  bytes.original_bytes.[address] in
-        int_of_char c;;
-
-    let write_byte bytes address value =
-        let byte_of_int value =
-            ((value mod 256) + 256 ) mod 256 in
-        let b = char_of_int (byte_of_int value) in
-        { bytes with edits = IntMap.add address b bytes.edits };;
-
-    let original bytes =
-      { bytes with edits = IntMap.empty };;
-end
-
-module Memory = struct
-
-    type t =
-    {
-        dynamic_memory : ImmutableBytes.t;
-        static_memory : string;
-        static_offset : int
-    };;
-
-    let make dynamic static = {
-        dynamic_memory = ImmutableBytes.make dynamic;
-        static_memory = static;
-        static_offset = String.length dynamic
-    };;
-
-    let read_byte memory address =
-        if address < memory.static_offset then
-            ImmutableBytes.read_byte memory.dynamic_memory address
-        else
-            int_of_char (memory.static_memory.[address - memory.static_offset]);;
-
-    let read_word memory address =
-        let high = read_byte memory address in
-        let low = read_byte memory (address + 1) in
-        256 * high + low;;
-
-    let write_byte memory address value =
-      if address >= memory.static_offset then
-        failwith "attempt to write static memory"
-      else
-        let new_memory =
-          ImmutableBytes.write_byte memory.dynamic_memory address value in
-        { memory with dynamic_memory = new_memory };;
-
-    let write_word memory address value =
-        let w = unsigned_word value in
-        let high = w lsr 8 in
-        let low = w land 0xFF in
-        let first = write_byte memory address high in
-        write_byte first (address + 1) low;;
-
-    let original memory =
-      let original_bytes = ImmutableBytes.original memory.dynamic_memory in
-      { memory with dynamic_memory = original_bytes };;
-end
 
 module Story = struct
     type t =
