@@ -10,4 +10,10 @@ ocamlc -c immutable_bytes.ml
 del memory.cmi
 del memory.cmo
 ocamlc -c memory.ml
-ocaml deque.cmo screen.cmo immutable_bytes.cmo memory.cmo graphics.cma flathead.ml
+del story.cmi
+del story.cmo
+ocamlc -c story.ml
+del interpreter.cmi
+del interpreter.cmo
+ocamlc -c interpreter.ml
+ocaml deque.cmo screen.cmo immutable_bytes.cmo memory.cmo story.cmo interpreter.cmo graphics.cma flathead.ml
