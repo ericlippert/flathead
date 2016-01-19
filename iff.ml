@@ -21,6 +21,8 @@ type iff_contents =
 exception BadFileFormat;;
 (* TODO: Better error handling *)
 
+let string_of_char x = String.make 1 x;;
+
 let really_input_string channel length =
   let bytes = String.create length in
   really_input channel bytes 0 length;
@@ -31,7 +33,7 @@ let rec first_match items predicate =
   | h :: t -> if predicate h then Some h else first_match t predicate
   | [] -> None;;
 
-let read_iff_file filename form =
+let read_iff_file filename root_form =
   let get_file () =
     let channel = open_in_bin filename in
     let length = in_channel_length channel in
@@ -230,8 +232,81 @@ let read_iff_file filename form =
     | SizedList (size, forms) -> read_sized_list size forms
     | UnorderedList forms -> read_unordered_list forms in
     (* end of read_form *)
+  read_form 0 root_form (String.length file) [] ;; (* end of read_iff_file *)
 
-  read_form 0 form (String.length file) [] ;; (* end of read_iff_file *)
+let write_iff_file filename root_form =
+  let rec write_form form =
+    let write_int32_to_file n =
+      let b0 = string_of_char (char_of_int (n land 0xff)) in
+      let b1 = string_of_char (char_of_int ((n asr 8 ) land 0xff)) in
+      let b2 = string_of_char (char_of_int ((n asr 16) land 0xff)) in
+      let b3 = string_of_char (char_of_int ((n asr 24) land 0xff)) in
+      b3 ^ b2 ^ b1 ^ b0 in
+
+    let write_int24_to_file n =
+      let b0 = string_of_char (char_of_int (n land 0xff)) in
+      let b1 = string_of_char (char_of_int ((n asr 8 ) land 0xff)) in
+      let b2 = string_of_char (char_of_int ((n asr 16) land 0xff)) in
+      b2 ^ b1 ^ b0 in
+
+    let write_int16_to_file n =
+      let b0 = string_of_char (char_of_int (n land 0xff)) in
+      let b1 = string_of_char (char_of_int ((n asr 8 ) land 0xff)) in
+      b1 ^ b0 in
+
+    let write_int8_to_file n =
+      string_of_char (char_of_int (n land 0xff)) in
+
+    let write_bitfield fields =
+      let rec process_field field =
+        match field with
+        | Integer4 (Some n) -> n land 0xf
+        | Bit (n, (Some flag)) -> if flag then 1 lsl n else 0
+        | Assign (_, named_field) -> process_field named_field
+        | _ -> failwith "unexpected form in bitfield" in
+      let folder b field =
+        b lor (process_field field) in
+      let v = List.fold_left folder 0 fields in
+      string_of_char (char_of_int v) in
+
+    let write_many s form =
+      s ^ (write_form form) in
+
+    let write_record forms =
+      match forms with
+      | (Header header) :: (Length _) :: tail ->
+        let body = List.fold_left write_many "" tail in
+        let length = String.length body in
+        let chunk = header ^ (write_int32_to_file length) ^ body in
+        let adjusted = if length mod 2 = 0 then chunk else chunk ^ "\000" in
+        adjusted
+      | _ -> List.fold_left write_many "" forms in
+
+    match form with
+    | Header header -> header
+    | SubHeader subheader -> subheader
+    | Length (Some length) -> write_int32_to_file length
+    | RemainingBytes (Some bytes) -> bytes
+    | ByteString ((Some bytes), _) -> bytes
+    | Integer32 (Some n) -> write_int32_to_file n
+    | Integer24 (Some n) -> write_int24_to_file n
+    | Integer16 (Some n) -> write_int16_to_file n
+    | Integer8 (Some n) -> write_int8_to_file n
+    | Integer4 _ -> failwith "expected Integer4 inside bitfield"
+    | Bit _ -> failwith "expected Bit inside bitfield"
+    | BitField fields -> write_bitfield fields
+    | Assign (_, named_form) -> write_form named_form
+    | SizedList (_, forms) -> List.fold_left write_many "" forms
+    | UnsizedList forms -> List.fold_left write_many "" forms
+    | UnorderedList forms -> List.fold_left write_many "" forms
+    | Record forms -> write_record forms
+    | _ -> failwith "unexpected form in write_form" in
+  (* end of write_form *)
+  let text = write_form root_form in
+  let channel = open_out_bin filename in
+  output_string channel text;
+  close_out channel;;
+
 
 
 
@@ -331,13 +406,14 @@ let display_bytes text =
 
 
 
+let print_file filename =
+  let channel = open_in_bin filename in
+  let length = in_channel_length channel in
+  let text = really_input_string channel length in
+  Printf.printf "%s\n" (display_bytes text);
+  close_in channel;;
 
-
-let filename = "ZORK1.sav";;
-let channel = open_in_bin filename in
-let length = in_channel_length channel in
-let text = really_input_string channel length in
-Printf.printf "%s\n" (display_bytes text);
-close_in channel;;
-
-let r = read_iff_file "ZORK1.sav" ifzd_form;;
+print_file "ZORK1.sav";;
+let (r, offset) = read_iff_file "ZORK1.sav" ifzd_form;;
+write_iff_file "ZORK1_2.sav" r;;
+print_file "ZORK1_2.sav";;
