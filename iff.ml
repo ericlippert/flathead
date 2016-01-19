@@ -16,22 +16,23 @@ type iff_contents =
 | Lookup of string
 | SizedList of iff_contents * (iff_contents list)
 | UnsizedList of iff_contents list
-| UnorderedList of iff_contents list ;;
+| UnorderedList of iff_contents list
 
-exception BadFileFormat;;
+exception BadFileFormat
 (* TODO: Better error handling *)
 
-let string_of_char x = String.make 1 x;;
+let string_of_char x =
+  String.make 1 x
 
 let really_input_string channel length =
   let bytes = String.create length in
   really_input channel bytes 0 length;
-  bytes;;
+  bytes
 
 let rec first_match items predicate =
   match items with
   | h :: t -> if predicate h then Some h else first_match t predicate
-  | [] -> None;;
+  | [] -> None
 
 let read_iff_file filename root_form =
   let get_file () =
@@ -232,7 +233,8 @@ let read_iff_file filename root_form =
     | SizedList (size, forms) -> read_sized_list size forms
     | UnorderedList forms -> read_unordered_list forms in
     (* end of read_form *)
-  read_form 0 root_form (String.length file) [] ;; (* end of read_iff_file *)
+  read_form 0 root_form (String.length file) []
+  (* end of read_iff_file *)
 
 let write_iff_file filename root_form =
   let rec write_form form =
@@ -305,115 +307,5 @@ let write_iff_file filename root_form =
   let text = write_form root_form in
   let channel = open_out_bin filename in
   output_string channel text;
-  close_out channel;;
-
-
-
-
-
-
-(*
-let ifzs_intd =
-  Record [
-    Header "IntD";
-    Length None;
-    Integer32 None; (* operating system id *)
-    Bit None; (* should copy *)
-    Bit None; (* is OS dependent *)
-    Integer8 None; (* contents id *)
-    Integer16 None; (* reserved *)
-    Integer32 None; (* interpreter id *)
-    RemainingBytes None (* data *)];;
-*)
-
-let ifzs_ifhd =
-  Record [
-    Header "IFhd";
-    Length None;
-    Integer16 None; (* release number *)
-    ByteString (None, 6); (* serial number *)
-    Integer16 None; (* checksum *)
-    Integer24 None];; (* program counter *)
-
-let ifzs_frame =
-  Record [
-    Integer24 None; (* return address *)
-    BitField [
-      Assign ("v", Integer4 None);  (* count of local variables *)
-      Bit (4, None)]; (* caller discards result *)
-    Integer8 None; (* variable caller will store result in *)
-    BitField [
-      Bit (0, None); (* argument 0 was supplied *)
-      Bit (1, None); (* argument 1 was supplied *)
-      Bit (2, None); (* argument 2 was supplied *)
-      Bit (3, None); (* argument 3 was supplied *)
-      Bit (4, None); (* argument 4 was supplied *)
-      Bit (5, None); (* argument 5 was supplied *)
-      Bit (6, None)]; (* argument 6 was supplied *)
-    Assign ("n", Integer16 None); (* size of evaluation stack in words *)
-    SizedList (Lookup "v", [Integer16 None]); (* local variables *)
-    SizedList (Lookup "n", [Integer16 None])];; (* evaluation stack *)
-
-let ifzs_stacks =
-  Record [
-    Header "Stks";
-    Length None;
-    UnsizedList [ifzs_frame]];;
-
-let ifzs_cmem =
-  Record [
-    Header "CMem";
-    Length None;
-    RemainingBytes None];;
-
-let ifzs_umem =
-  Record [
-    Header "UMem";
-    Length None;
-    RemainingBytes None];;
-
-let ifzd_form =
-  Record [
-    Header "FORM";
-    Length None;
-    SubHeader "IFZS";
-    UnorderedList [
-      ifzs_ifhd;
-      ifzs_stacks;
-      ifzs_umem;
-      ifzs_cmem]];;
-
-
-
-let display_bytes text =
-    let blocksize = 16 in
-    let length = String.length text in
-    let rec print_loop i acc =
-        if i = length then
-            acc
-        else (
-            let s =
-                if i mod blocksize = 0 then
-                    Printf.sprintf "\n%06x: " i
-                else
-                    "" in
-            let c = text.[i] in
-            let ci = int_of_char c in
-            let cd = if 32 <= ci && ci <= 126 then c else ' ' in
-            let s2 = Printf.sprintf "%02x|%c " ci cd in
-        print_loop (i + 1) (acc ^ s ^ s2)) in
-    (print_loop 0 "") ^ "\n";;
-
-
-
-let print_file filename =
-  let channel = open_in_bin filename in
-  let length = in_channel_length channel in
-  let text = really_input_string channel length in
-  Printf.printf "%s\n" (display_bytes text);
-  close_in channel;;
-
-print_file "ZORK1.sav";;
-let (r, offset) = read_iff_file "ZORK1.sav" ifzd_form;;
-write_iff_file "ZORK1_2.sav" r;;
-print_file "ZORK1_2.sav";;
+  close_out channel
+  (* end of write_iff_file *)
