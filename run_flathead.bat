@@ -16,4 +16,10 @@ ocamlc -c story.ml
 del interpreter.cmi
 del interpreter.cmo
 ocamlc -c interpreter.ml
-ocaml deque.cmo screen.cmo immutable_bytes.cmo memory.cmo story.cmo interpreter.cmo graphics.cma flathead.ml
+del button.cmi
+del button.cmo
+ocamlc -c button.ml
+del debugger.cmi
+del debugger.cmo
+ocamlc -c debugger.ml
+ocaml deque.cmo screen.cmo immutable_bytes.cmo memory.cmo story.cmo interpreter.cmo graphics.cma button.cmo debugger.cmo flathead.ml
