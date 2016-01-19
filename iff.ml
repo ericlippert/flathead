@@ -19,6 +19,7 @@ type iff_contents =
 | UnorderedList of iff_contents list ;;
 
 exception BadFileFormat;;
+(* TODO: Better error handling *)
 
 let really_input_string channel length =
   let bytes = String.create length in
@@ -31,9 +32,15 @@ let rec first_match items predicate =
   | [] -> None;;
 
 let read_iff_file filename form =
-  let channel = open_in_bin filename in
-  let rec read_form form end_position context =
+  let get_file () =
+    let channel = open_in_bin filename in
+    let length = in_channel_length channel in
+    let file = really_input_string channel length in
+    close_in channel;
+    file in
+  let file = get_file() in
 
+  let rec read_form offset form end_position context =
     let rec resolve_lookup name forms =
       (* Does not recurse into records. It could. *)
       match forms with
@@ -47,12 +54,26 @@ let read_iff_file filename form =
         | result -> result)
       | _ :: tail -> resolve_lookup name tail in
 
-    let peek_chunk () =
-      let position = pos_in channel in
-      let header = really_input_string channel 4 in
-      let length = input_binary_int channel in
-      seek_in channel position;
-      (header, length) in
+    let read_string_from_file offset length =
+      if offset + length > end_position then raise BadFileFormat
+      else String.sub file offset length in
+
+    let read_int8_from_file offset =
+      if offset >= end_position then raise BadFileFormat
+      else int_of_char file.[offset] in
+
+    let read_int32_from_file offset =
+      if offset + 4 > end_position then
+        raise BadFileFormat
+      else
+        let b3 = read_int8_from_file offset in
+        let b2 = read_int8_from_file (offset + 1) in
+        let b1 = read_int8_from_file (offset + 2) in
+        let b0 = read_int8_from_file (offset + 3) in
+        b0 + 256 * b1 + 256 * 256 * b2 + 256 * 256 * 256 * b3 in
+
+    let peek_chunk offset =
+      (read_string_from_file offset 4, read_int32_from_file (offset + 4)) in
 
     let rec form_to_integer form =
       match form with
@@ -67,67 +88,65 @@ let read_iff_file filename form =
       | _ -> failwith "form does not have value" in
 
     let read_header id =
-      let header = really_input_string channel 4 in
-      if header = id then Header id
+      let header = read_string_from_file offset 4 in
+      if header = id then (Header id, offset + 4)
       else raise BadFileFormat in
 
     let read_subheader id =
-      let header = really_input_string channel 4 in
-      if header = id then SubHeader id
+      let header = read_string_from_file offset 4 in
+      if header = id then (SubHeader id, offset + 4)
       else raise BadFileFormat in
 
     let read_length () =
-      Length (Some (input_binary_int channel)) in
+      let length = read_int32_from_file offset in
+      (Length (Some length), offset + 4) in
 
     let read_remaining_bytes () =
-      let position = pos_in channel in
-      let bytes = really_input_string channel (end_position - position) in
-      RemainingBytes (Some bytes) in
+      let bytes = read_string_from_file offset (end_position - offset) in
+      (RemainingBytes (Some bytes), end_position) in
 
     let read_byte_string length =
-      let bytes = really_input_string channel length in
-      ByteString ((Some bytes), length) in
+      let bytes = read_string_from_file offset length in
+      (ByteString ((Some bytes), length), offset + length) in
 
     let read_int32 () =
-      Integer32 (Some (input_binary_int channel)) in
+      let n = read_int32_from_file offset in
+      (Integer32 (Some n), offset + 4) in
 
     let read_int24 () =
-      let b2 = input_byte channel in
-      let b1 = input_byte channel in
-      let b0 = input_byte channel in
-      Integer24 (Some (b0 + (256 * b1) + (256 * 256 * b2))) in
+      let b2 = read_int8_from_file offset in
+      let b1 = read_int8_from_file (offset + 1) in
+      let b0 = read_int8_from_file (offset + 2) in
+      (Integer24 (Some (b0 + (256 * b1) + (256 * 256 * b2))), offset + 3) in
 
     let read_int16 () =
-      let b1 = input_byte channel in
-      let b0 = input_byte channel in
-      Integer16 (Some (b0 + (256 * b1))) in
+      let b1 = read_int8_from_file offset in
+      let b0 = read_int8_from_file (offset + 1) in
+      (Integer16 (Some (b0 + (256 * b1))), offset + 2) in
 
     let read_int8 () =
-      let b0 = input_byte channel in
-      Integer8 (Some b0) in
+      let b0 = read_int8_from_file offset in
+      (Integer8 (Some b0), offset + 1) in
 
     let read_record forms =
       let (new_end_position, skip_byte) =
         match forms with
         | (Header _) :: (Length _) :: tail ->
-          let (_, length) = peek_chunk () in
-          let position = pos_in channel in
-          (position + 8 + length, length mod 2 != 0)
+          let (_, length) = peek_chunk offset in
+          (offset + 8 + length, length mod 2 != 0)
         | _ -> (end_position, false) in
       let process acc form =
-        let (acc_context, acc_results) = acc in
-        let new_result = read_form form new_end_position acc_context in
-        (new_result :: acc_context, new_result :: acc_results) in
-      let (_, results) = List.fold_left process (context, []) forms in
+        let (acc_context, current_offset, acc_results) = acc in
+        let (new_result, new_offset) = read_form current_offset form new_end_position acc_context in
+        (new_result :: acc_context, new_offset, new_result :: acc_results) in
+      let (_, new_offset, results) = List.fold_left process (context, offset, []) forms in
         (* If a record has an odd length then there will always be
         an extra 0 byte unaccounted for at the end. Skip it. *)
-      Printf.printf "current position: %04x end position %04x skipping: %b \n" (pos_in channel) new_end_position skip_byte; flush stdout;
-      if skip_byte then
-        seek_in channel (new_end_position + 1);
-      Record (List.rev results) in
+      let adjusted = if skip_byte then new_offset + 1 else new_offset in
+      (Record (List.rev results), adjusted) in
 
     let read_bitfield fields =
-      let byte = input_byte channel in
+      let byte = read_int8_from_file offset in
       let fetch_bit n =
         (byte land (1 lsl n)) lsr n = 1 in
       let rec process_field field =
@@ -136,51 +155,55 @@ let read_iff_file filename form =
         | Integer4 _ -> Integer4 (Some (byte land 0xF) )
         | Assign (name, f) -> Assign (name, process_field f)
         | _ -> failwith "pattern unexpected in bit field" in
-      BitField (List.map process_field fields) in
+      (BitField (List.map process_field fields), offset + 1) in
 
     let read_unsized_list forms =
       match forms with
       | [ form ] ->
-        let rec aux acc =
-          let position = pos_in channel in
-          if position >= end_position then acc
-          else aux ((read_form form end_position context) :: acc) in
-        UnsizedList (List.rev (aux []))
+        let rec aux acc current_offset =
+          if current_offset >= end_position then (acc, current_offset)
+          else
+            let (new_form, new_offset) = read_form current_offset form end_position context in
+            aux (new_form :: acc) new_offset in
+        let (new_forms, new_offset) = aux [] offset in
+        (UnsizedList (List.rev new_forms), new_offset)
       | _ -> failwith "unexpected pattern in unsized list" in
 
     let read_sized_list size forms =
-      let s = read_form size end_position context in
+      let (s, size_offset) = read_form offset size end_position context in
       let n = form_to_integer s in
       match forms with
       | [form] ->
-        let rec aux acc i =
-          if i = 0 then acc
-          else aux ((read_form form end_position context) :: acc) (i - 1) in
-        SizedList (s, List.rev (aux [] n))
+        let rec aux acc i current_offset =
+          if i = 0 then (acc, current_offset)
+          else
+            let (new_form, new_offset) = read_form current_offset form end_position context in
+            aux (new_form :: acc) (i - 1) new_offset in
+      let (new_forms, new_offset) = aux [] n offset in
+      (SizedList (s, List.rev new_forms), new_offset)
       | _ -> failwith "unexpected pattern in sized list" in
 
     let read_unordered_list forms =
       (* We have a collection of expected chunks; we need to skip
       unexpected chunks. *)
-      let rec aux acc =
-        let position = pos_in channel in
-        if position >= end_position then acc
+      let rec aux acc current_offset =
+        if current_offset >= end_position then (acc, current_offset)
         else
-          let (header, length) = peek_chunk () in
+          let (header, length) = peek_chunk current_offset in
           let predicate form =
             match form with
             | Record ((Header id) :: tail) -> header = id
             | _ -> false in
           match first_match forms predicate with
           | None ->
-            (let skip = 8 + length + (if length mod 2 = 0 then 0 else 1) in
-            seek_in channel (position + skip);
+            let new_offset = current_offset + 8 + length + (if length mod 2 = 0 then 0 else 1) in
             let new_form = Record [ Header header; Length (Some length); RemainingBytes None] in
-            aux  (new_form :: acc))
+            aux (new_form :: acc) new_offset
           | Some form ->
-            let new_form = read_form form end_position context in
-            aux (new_form :: acc) in
-      UnorderedList (List.rev (aux [])) in
+            let (new_form, new_offset) = read_form current_offset form end_position context in
+            aux (new_form :: acc) new_offset in
+      let (new_forms, new_offset) = aux [] offset in
+      (UnorderedList (List.rev new_forms), new_offset) in
 
     match form with
     | Header id -> read_header id
@@ -197,19 +220,18 @@ let read_iff_file filename form =
     | BitField fields -> read_bitfield fields
     | Record forms -> read_record forms
     | UnsizedList forms -> read_unsized_list forms
-    | Assign (name, f) -> Assign (name, read_form f end_position context)
+    | Assign (name, f) ->
+      let (new_form, new_offset) = read_form offset f end_position context in
+      (Assign (name, new_form), new_offset)
     | Lookup name ->
       (match resolve_lookup name context with
-      | Some f -> f
+      | Some f -> (f, offset)
       | None -> failwith "Could not resolve lookup")
     | SizedList (size, forms) -> read_sized_list size forms
     | UnorderedList forms -> read_unordered_list forms in
     (* end of read_form *)
 
-  let length = in_channel_length channel in
-  let result = read_form form length [] in
-  close_in channel;
-  result;;
+  read_form 0 form (String.length file) [] ;; (* end of read_iff_file *)
 
 
 
