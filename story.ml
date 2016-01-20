@@ -158,6 +158,10 @@ let status_line_kind story =
 
 (* TODO: More Flags 1 *)
 
+let release_number story =
+  let release_number_offset = 2 in
+  read_word story release_number_offset
+
 let high_memory_base story =
   let high_memory_base_offset = 4 in
   read_word story high_memory_base_offset
@@ -196,6 +200,14 @@ let set_transcript_flag story value =
   let new_flags2 = (set_bit_to transcript_bit (flags2 story) value) in
   write_byte story flags2_offset new_flags2
 
+let serial_number story =
+  let start_offset = 18 in
+  let end_offset = 24 in
+  let string_of_byte addr =
+    let b = read_byte story addr in
+  string_of_char (char_of_int b) in
+  accumulate_strings_loop string_of_byte start_offset end_offset
+
 let abbreviations_table_base story =
   let abbreviations_table_base_offset = 24 in
   read_word story abbreviations_table_base_offset
@@ -228,13 +240,17 @@ let verify_checksum story =
 
 let display_header story =
   Printf.sprintf "Version                     : %d\n" (version story) ^
+  Printf.sprintf "Release number              : %d\n" (release_number story) ^
+  Printf.sprintf "Serial number               : %s\n" (serial_number story) ^
+  Printf.sprintf "Checksum                    : %04x\n" (header_checksum story) ^
+  Printf.sprintf "File size                   : %d\n" (file_size story) ^
   Printf.sprintf "Abbreviations table base    : %04x\n" (abbreviations_table_base story) ^
   Printf.sprintf "Object table base           : %04x\n" (object_table_base story) ^
   Printf.sprintf "Global variables table base : %04x\n" (global_variables_table_base story) ^
   Printf.sprintf "Static memory base          : %04x\n" (static_memory_base story) ^
   Printf.sprintf "Dictionary base             : %04x\n" (dictionary_base story) ^
   Printf.sprintf "High memory base            : %04x\n" (high_memory_base story) ^
-  Printf.sprintf "Initial program counter     : %04x\n" (initial_program_counter story);;
+  Printf.sprintf "Initial program counter     : %04x\n" (initial_program_counter story)
 
 let load_story filename =
   (* TODO: Could read in just the header first, then the dynamic block as a string,

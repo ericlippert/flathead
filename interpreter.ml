@@ -59,6 +59,7 @@ type frame =
 {
   stack : int list;
   locals : int IntMap.t;
+  locals_count : int;
   called : int;
   resume_at : int;
   arguments_supplied : int;
@@ -105,8 +106,8 @@ let make story screen =
   {
     stack = [];
     locals = IntMap.empty;
+    locals_count = 0;
     called = pc;
-
     resume_at = 0;
     arguments_supplied = 0;
     discard_value = false;
@@ -848,9 +849,94 @@ let step_instruction interpreter =
 
   let filename = "FLATHEAD.SAV" in
 
-  let handle_save () =
-    failwith "save NYI"
-     in
+  let handle_save interp =
+    let current_story = interp.story in
+    let original_story = original current_story in
+    let memory_length = static_memory_base current_story in
+    let rec compress_memory acc i c =
+      let string_of_byte b =
+        string_of_char (char_of_int b) in
+      if i = memory_length then
+        acc
+      else if c = 256 then
+        let encoded = "\000" ^ (string_of_byte (c - 1)) in
+        compress_memory (acc ^ encoded) i 0
+      else
+        let original_byte = read_byte original_story i in
+        let current_byte = read_byte current_story i in
+        let combined = original_byte lxor current_byte in
+        if combined = 0 then
+          compress_memory acc (i + 1) (c + 1)
+        else if c > 0 then
+          let encoded = "\000" ^ (string_of_byte (c - 1)) ^ (string_of_byte combined) in
+          compress_memory (acc ^ encoded) (i + 1) 0
+        else
+          let encoded = string_of_byte combined in
+          compress_memory (acc ^ encoded) (i + 1) 0 in
+    let compressed = compress_memory "" 0 0 in
+
+    let make_frame_record frame =
+      let rec make_locals acc n =
+        if n = 0 then
+          acc
+        else
+          make_locals ((Integer16 (Some (IntMap.find n frame.locals))) :: acc) (n - 1) in
+      let locals = make_locals [] frame.locals_count in
+      let rec make_stack acc st =
+        match st with
+        | [] -> acc
+        | h :: t ->
+          make_stack ((Integer16 (Some (h))) :: acc) t in
+      let stack = List.rev (make_stack [] frame.stack) in
+      let arguments_byte = (1 lsl frame.arguments_supplied) - 1 in
+      Record [
+        Integer24 (Some frame.resume_at);
+        BitField [
+          Integer4 (Some frame.locals_count);
+          Bit (4, Some frame.discard_value)];
+        Integer8 (Some frame.target_variable);
+        BitField [
+          Bit (0, Some (fetch_bit 0 arguments_byte));
+          Bit (1, Some (fetch_bit 1 arguments_byte));
+          Bit (2, Some (fetch_bit 2 arguments_byte));
+          Bit (3, Some (fetch_bit 3 arguments_byte));
+          Bit (4, Some (fetch_bit 4 arguments_byte));
+          Bit (5, Some (fetch_bit 5 arguments_byte));
+          Bit (6, Some (fetch_bit 6 arguments_byte))];
+        Integer16 (Some (List.length frame.stack));
+        SizedList (Integer8 (Some frame.locals_count), locals );
+        SizedList (Integer8 (Some (List.length frame.stack)) , stack)] in
+    let frames = List.rev (List.map make_frame_record interp.frames) in
+
+    (* TODO: I still don't know why the PC is off by one. This puts
+    it in the middle of the save instruction, not after it. But both
+    Frotz and Nitfol follow this convention *)
+
+    let root_form =
+      Record [
+        Header "FORM";
+        Length None; (* The writer will figure it out *)
+        SubHeader "IFZS";
+        UnorderedList [
+          Record [
+            Header "IFhd";
+            Length None;
+            Integer16 (Some (release_number current_story));
+            ByteString (Some (serial_number current_story), 6);
+            Integer16 (Some (header_checksum current_story));
+            Integer24 (Some (interp.program_counter + 1)) ];
+          Record [
+            Header "CMem";
+            Length None;
+            RemainingBytes (Some compressed)];
+          Record [
+            Header "Stks";
+            Length None;
+            UnsizedList frames] ] ] in
+
+    write_iff_file filename root_form;
+    (* TODO: handle failure *)
+    1 in
 
   let handle_restore () =
 
@@ -872,8 +958,12 @@ let step_instruction interpreter =
 
     let ifzd = read_iff_file filename ifzd_form in
     let chunks = match ifzd with
-    | Record [ Header "FORM"; Length _; SubHeader "IFZS"; UnorderedList items] ->
-      items
+    | Record [
+        Header "FORM";
+        Length _;
+        SubHeader "IFZS";
+        UnorderedList items] ->
+        items
     | _ -> failwith "TODO: Handle failure reading ifzs" in
 
     let ifhd_chunk = find_record chunks "IFhd" in
@@ -906,12 +996,13 @@ let step_instruction interpreter =
       | _ -> failwith "TODO handle failure reading stacks" in
 
     let make_frame frame_record =
-      let (ret_addr, locals_list, eval_stack, target_variable, discard_value, arg_count) =
+      let (ret_addr, locals_list, eval_stack,
+          target_variable, discard_value, arg_count, locals_count) =
         match frame_record with
         | Record [
           Integer24 (Some ret_addr);
           BitField [
-            Integer4 (Some _);  (* count of local variables *)
+            Integer4 (Some locals_count);
             Bit (4, Some discard_value)];
           Integer8 (Some target_variable);
           BitField [
@@ -932,7 +1023,8 @@ let step_instruction interpreter =
             | [] -> failwith "impossible" in
           let arg_count =
             find_false 0 [a0; a1; a2; a3; a4; a5; a6; false] in
-          (ret_addr, locals_list, eval_stack, target_variable, discard_value, arg_count)
+          (ret_addr, locals_list, eval_stack,
+            target_variable, discard_value, arg_count, locals_count)
         | _ -> failwith "TODO handle failure reading frame" in
       let decode_int16 form =
         match form with
@@ -949,6 +1041,7 @@ let step_instruction interpreter =
       let locals = make_locals IntMap.empty 1 locals_list in
       { stack;
         locals;
+        locals_count;
         called = 0;
         resume_at = ret_addr ;
         arguments_supplied = arg_count;
@@ -1226,6 +1319,7 @@ let step_instruction interpreter =
       {
         stack = [];
         locals;
+        locals_count = count;
         called = first_instruction;
         resume_at = instruction.address + instruction.length ;
         arguments_supplied = List.length routine_operands;
@@ -1290,7 +1384,7 @@ let step_instruction interpreter =
   | OP0_178 -> handle_op0_effect handle_print
   | OP0_179 -> handle_print_ret ()
   | OP0_180 -> handle_op0_effect handle_nop
-  | OP0_181 -> handle_save()
+  | OP0_181 -> handle_op0_value handle_save
   | OP0_182 -> handle_restore ()
   | OP0_183 -> handle_restart ()
   | OP0_184 -> handle_ret_popped ()
