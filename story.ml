@@ -156,6 +156,16 @@ let status_line_kind story =
   | (3, true) -> TimeStatus
   | _ -> NoStatus
 
+let supports_multiple_windows story =
+  let windows_supported_bit = 5 in
+  fetch_bit windows_supported_bit (flags1 story)
+
+let set_supports_multiple_windows story value =
+  let flags1_offset = 1 in
+  let windows_supported_bit = 5 in
+  let new_flags1 = (set_bit_to windows_supported_bit (flags1 story) value) in
+  write_byte story flags1_offset new_flags1
+
 (* TODO: More Flags 1 *)
 
 let release_number story =
