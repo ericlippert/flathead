@@ -936,10 +936,9 @@ let step_instruction interpreter =
 
     write_iff_file filename root_form;
     (* TODO: handle failure *)
-    1 in
+    1 in (* end of handle_save *)
 
   let handle_restore () =
-
     (* TODO: This helper method can go into the IFF library *)
     let rec find_record chunks target =
       match chunks with
@@ -1058,8 +1057,8 @@ let step_instruction interpreter =
 
     (* TODO: Deal with memory size mismatch. *)
     let frames = make_frames frame_records [] in
-    let original_memory = Memory.original interpreter.story.memory in
-    let new_memory =
+    let original_story = original interpreter.story in
+    let new_story =
       match (umem_chunk, cmem_chunk) with
       | (Some (
           Record [
@@ -1071,46 +1070,45 @@ let step_instruction interpreter =
           these bytes" because then the *next* time we load a save game,
           that dynamic memory will be the "original" memory, which is wrong.
           We need to maintain the truly original loaded-off-disk memory. *)
-          let rec apply_changes index mem =
+          let rec apply_changes index story =
             if index >= length then
-              mem
+              story
             else
               let new_byte = int_of_char bytes.[index] in
-              let orig_byte = Memory.read_byte original_memory index in
-              let new_mem =
-                if new_byte = orig_byte then mem
-                else Memory.write_byte mem index new_byte in
-              apply_changes (index + 1) new_mem in
-          apply_changes 0 original_memory
+              let orig_byte = read_byte original_story index in
+              let new_story =
+                if new_byte = orig_byte then story
+                else write_byte story index new_byte in
+              apply_changes (index + 1) new_story in
+          apply_changes 0 original_story
       | (_,
         Some (
           Record [
             Header "CMem";
             Length Some length;
             RemainingBytes Some bytes])) ->
-          let rec apply_changes index_change index_mem mem =
-            if index_change >= length then
-              mem
+        let rec apply_changes index_change index_mem story =
+          if index_change >= length then
+            story
+          else
+            let b = int_of_char bytes.[index_change] in
+            if b = 0 then
+              (* TODO: If length - 1 this is a problem *)
+              let c = 1 + int_of_char bytes.[index_change + 1] in
+              apply_changes (index_change + 2) (index_mem + c) story
             else
-              let b = int_of_char bytes.[index_change] in
-              if b = 0 then
-                (* TODO: If length - 1 this is a problem *)
-                let c = 1 + int_of_char bytes.[index_change + 1] in
-                apply_changes (index_change + 2) (index_mem + c) mem
-              else
-                let orig_byte = Memory.read_byte original_memory index_mem in
-                let new_byte = b  lxor orig_byte   in
-                let new_mem = Memory.write_byte mem index_mem new_byte in
-                apply_changes (index_change + 1) (index_mem + 1) new_mem in
-        apply_changes 0 0 original_memory
+              let orig_byte = read_byte original_story index_mem in
+              let new_byte = b lxor orig_byte in
+              let new_story = write_byte story index_mem new_byte in
+              apply_changes (index_change + 1) (index_mem + 1) new_story in
+        apply_changes 0 0 original_story
       | _ -> failwith "TODO handle failure reading memory" in
 
-    (* TODO: All the bits that have to be preserved *)
-    let story = { (* interpreter.story with *) memory = new_memory } in
     let new_interpreter = { interpreter with
-      story;
+      story = new_story;
       program_counter = program_counter + 1; (* TODO: Why is this off by one? *)
       frames } in
+    (* TODO: All the bits that have to be preserved *)
     new_interpreter in
   (* end of handle_restore *)
 
