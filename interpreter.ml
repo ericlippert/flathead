@@ -1158,6 +1158,14 @@ let step_instruction interpreter =
     (* TODO: set_window not yet implemented; treat as a no-op for now. *)
     interp in
 
+  let handle_erase_window window interp =
+    (* TODO: erase_window not yet implemented; treat as a no-op for now. *)
+    interp in
+
+  let handle_buffer_mode flag interp =
+    (* TODO: buffer_mode not yet implemented; treat as a no-op for now. *)
+    interp in
+
   let handle_pop interp =
     pop_stack interp in
 
@@ -1420,12 +1428,12 @@ let step_instruction interpreter =
   | VAR_234 -> handle_op1_effect handle_split_window
   | VAR_235 -> handle_op1_effect handle_set_window
   | VAR_236 -> failwith (Printf.sprintf "%04x TODO: VAR_236" instruction.address)
-  | VAR_237 -> failwith (Printf.sprintf "%04x TODO: VAR_237" instruction.address)
+  | VAR_237 -> handle_op1_effect handle_erase_window
   | VAR_238 -> failwith (Printf.sprintf "%04x TODO: VAR_238" instruction.address)
   | VAR_239 -> failwith (Printf.sprintf "%04x TODO: VAR_239" instruction.address)
   | VAR_240 -> failwith (Printf.sprintf "%04x TODO: VAR_240" instruction.address)
   | VAR_241 -> failwith (Printf.sprintf "%04x TODO: VAR_241" instruction.address)
-  | VAR_242 -> failwith (Printf.sprintf "%04x TODO: VAR_242" instruction.address)
+  | VAR_242 -> handle_op1_effect handle_buffer_mode
   | VAR_243 -> handle_op1_effect handle_output_stream
   | VAR_244 -> handle_op1_effect handle_input_stream
   | VAR_245 -> failwith (Printf.sprintf "%04x TODO: VAR_245" instruction.address)
