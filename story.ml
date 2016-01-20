@@ -895,11 +895,11 @@ let display_dictionary story =
 (* Bytecode *)
 (* *)
 
-(* TODO: Extended *)
 type opcode_form =
   | Long_form
   | Short_form
   | Variable_form
+  | Extended_form
 
 type operand_count =
   | OP0
@@ -936,6 +936,10 @@ type bytecode =
   | VAR_232 | VAR_233 | VAR_234 | VAR_235 | VAR_236 | VAR_237 | VAR_238 | VAR_239
   | VAR_240 | VAR_241 | VAR_242 | VAR_243 | VAR_244 | VAR_245 | VAR_246 | VAR_247
   | VAR_248 | VAR_249 | VAR_250 | VAR_251 | VAR_252 | VAR_253 | VAR_254 | VAR_255
+  | EXT_0   | EXT_1   | EXT_2   | EXT_3   | EXT_4   | EXT_5   | EXT_6   | EXT_7
+  | EXT_8   | EXT_9   | EXT_10  | EXT_11  | EXT_12  | EXT_16  | EXT_17  | EXT_18
+  | EXT_19  | EXT_20  | EXT_21  | EXT_22  | EXT_23  | EXT_24  | EXT_25  | EXT_26
+  | EXT_27  | EXT_28
   | ILLEGAL
 
 (* The tables which follow are maps from the opcode identification number
@@ -960,6 +964,12 @@ let var_operand_bytecodes = [|
   VAR_232; VAR_233; VAR_234; VAR_235; VAR_236; VAR_237; VAR_238; VAR_239;
   VAR_240; VAR_241; VAR_242; VAR_243; VAR_244; VAR_245; VAR_246; VAR_247;
   VAR_248; VAR_249; VAR_250; VAR_251; VAR_252; VAR_253; VAR_254; VAR_255 |]
+
+let ext_bytecodes = [|
+  EXT_0;   EXT_1;   EXT_2;   EXT_3;   EXT_4;   EXT_5;   EXT_6;   EXT_7;
+  EXT_8;   EXT_9;   EXT_10;  EXT_11;  EXT_12;  ILLEGAL; ILLEGAL; ILLEGAL;
+  EXT_16;  EXT_17;  EXT_18;  EXT_19;  EXT_20;  EXT_21;  EXT_22;  EXT_23;
+  EXT_24;  EXT_25;  EXT_26;  EXT_27;  EXT_28;  ILLEGAL; ILLEGAL; ILLEGAL |]
 
 type branch_address =
   | Return_true
@@ -1001,7 +1011,8 @@ let decode_instruction story address =
     match opcode with
     | OP2_1   | OP2_2   | OP2_3   | OP2_4   | OP2_5   | OP2_6   | OP2_7   | OP2_10
     | OP1_128 | OP1_129 | OP1_130 | OP0_181 | OP0_182 | OP0_189 | OP0_191
-    | VAR_247 | VAR_255 -> true
+    | VAR_247 | VAR_255
+    | EXT_6   | EXT_24  | EXT_27 -> true
     | _ -> false in
 
   let has_store opcode =
@@ -1009,7 +1020,9 @@ let decode_instruction story address =
     | OP2_8   | OP2_9   | OP2_15  | OP2_16  | OP2_17  | OP2_18  | OP2_19
     | OP2_20  | OP2_21  | OP2_22  | OP2_23  | OP2_24  | OP2_25
     | OP1_129 | OP1_130 | OP1_131 | OP1_132 | OP1_136 | OP1_142 | OP1_143
-    | VAR_224 | VAR_231 | VAR_236 | VAR_246 | VAR_247 | VAR_248 -> true
+    | VAR_224 | VAR_231 | VAR_236 | VAR_246 | VAR_247 | VAR_248
+    | EXT_0   | EXT_1   | EXT_2   | EXT_3   | EXT_4   | EXT_9
+    | EXT_10  | EXT_19 -> true
     | _ -> false in
 
   (* These opcodes store to a variable identified as a "small" rather
@@ -1047,8 +1060,6 @@ let decode_instruction story address =
         | Omitted -> aux (i + 1) acc
         | x -> aux (i + 1) (x :: acc) in
       aux 0 [] in
-
-
 
   let rec decode_operands operand_address operand_types =
     match operand_types with
@@ -1147,7 +1158,7 @@ let decode_instruction story address =
     In variable form, if bit 5 is 0 then the count is 2OP; if it is 1,
     then the count is VAR. The opcode number is given in the bottom 5 bits.
 
-    4.3.4 (TODO)
+    4.3.4
 
     In extended form, the operand count is VAR. The opcode number is
     given in a second opcode byte.
@@ -1158,21 +1169,24 @@ let decode_instruction story address =
 
     let form = match fetch_bits 7 2 b with
     | 3 -> Variable_form
-    | 2 -> Short_form
+    | 2 -> if b = 190 then Extended_form else Short_form
     | _ -> Long_form in
 
     let op_count = match form with
+    | Extended_form -> VAR
     | Variable_form -> if fetch_bit 5 b then VAR else OP2
     | Long_form -> OP2
     | Short_form -> if fetch_bits 5 2 b = 3 then OP0 else OP1 in
 
-    let opcode = match op_count with
-    | OP0 -> zero_operand_bytecodes.(fetch_bits 3 4 b)
-    | OP1 -> one_operand_bytecodes.(fetch_bits 3 4 b)
-    | OP2 -> two_operand_bytecodes.(fetch_bits 4 5 b)
-    | VAR -> var_operand_bytecodes.(fetch_bits 4 5 b) in
-
-    let opcode_length = 1 in
+    let (opcode, opcode_length) =
+      match (form, op_count) with
+      | (_, OP0) -> (zero_operand_bytecodes.(fetch_bits 3 4 b), 1)
+      | (_, OP1) -> (one_operand_bytecodes.(fetch_bits 3 4 b), 1)
+      | (_, OP2) -> (two_operand_bytecodes.(fetch_bits 4 5 b), 1)
+      | (Variable_form, VAR) -> (var_operand_bytecodes.(fetch_bits 4 5 b), 1)
+      | _ ->
+        let ext = read_byte story (address + 1) in
+        ((if ext > 28 then ILLEGAL else ext_bytecodes.(ext)), 2) in
 
     (* SPEC
 
@@ -1202,22 +1216,30 @@ let decode_instruction story address =
 
     *)
 
-    let operand_types = match form with
-    | Short_form ->
-      (match op_count with
-      | OP0 -> []
-      | _ -> [decode_types (fetch_bits 5 2 b)])
-    | Long_form ->
+    let operand_types = match (form, op_count, opcode) with
+    | (Short_form, OP0, _) -> []
+    | (Short_form, _, _) -> [decode_types (fetch_bits 5 2 b)]
+    | (Long_form, _, _) ->
       (match fetch_bits 6 2 b with
       | 0 -> [ Small_operand; Small_operand ]
       | 1 -> [ Small_operand; Variable_operand ]
       | 2 -> [ Variable_operand; Small_operand ]
       | _ -> [ Variable_operand; Variable_operand ])
-    | Variable_form ->
+    | (Variable_form, _, VAR_236)
+    | (Variable_form, _, VAR_250) ->
+      let type_byte_0 = read_byte story (address + opcode_length) in
+      let type_byte_1 = read_byte story (address + opcode_length + 1) in
+      (decode_variable_types type_byte_0) @ (decode_variable_types type_byte_1)
+    | _ ->
       let type_byte = read_byte story (address + opcode_length) in
       decode_variable_types type_byte in
 
-    let type_length = if form = Variable_form then 1 else 0 in
+    let type_length =
+      match (form, opcode) with
+      | (Variable_form, VAR_236)
+      | (Variable_form, VAR_250) -> 2
+      | (Variable_form, _) -> 1
+      | _ -> 0 in
     let operand_address = address + opcode_length + type_length in
     let operands = decode_operands operand_address operand_types in
     let operand_length = operand_size operand_types in
@@ -1386,7 +1408,33 @@ let display_instruction instr =
     | VAR_252 -> "encode_text"
     | VAR_253 -> "copy_table"
     | VAR_254 -> "print_table"
-    | VAR_255 -> "check_arg_count" in
+    | VAR_255 -> "check_arg_count"
+    | EXT_0   -> "save"
+    | EXT_1   -> "restore"
+    | EXT_2   -> "log_shift"
+    | EXT_3   -> "art_shift"
+    | EXT_4   -> "set_font"
+    | EXT_5   -> "draw_picture"
+    | EXT_6   -> "picture_data"
+    | EXT_7   -> "erase_picture"
+    | EXT_8   -> "set_margins"
+    | EXT_9   -> "save_undo"
+    | EXT_10  -> "restore_undo"
+    | EXT_11  -> "print_unicode"
+    | EXT_12  -> "check_unicode"
+    | EXT_16  -> "move_window"
+    | EXT_17  -> "window_size"
+    | EXT_18  -> "window_style"
+    | EXT_19  -> "get_wind_prop"
+    | EXT_20  -> "scroll_window"
+    | EXT_21  -> "pop_stack"
+    | EXT_22  -> "read_mouse"
+    | EXT_23  -> "mouse_window"
+    | EXT_24  -> "push_stack"
+    | EXT_25  -> "put_wind_prop"
+    | EXT_26  -> "print_form"
+    | EXT_27  -> "make_menu"
+    | EXT_28  -> "picture_table" in
 
   let start_addr = instr.address in
   let name = opcode_name instr.opcode in
