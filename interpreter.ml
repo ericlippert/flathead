@@ -911,7 +911,7 @@ let step_instruction interpreter =
         | Record [
           Integer24 (Some ret_addr);
           BitField [
-            Assign (_, Integer4 (Some _));  (* count of local variables *)
+            Integer4 (Some _);  (* count of local variables *)
             Bit (4, Some discard_value)];
           Integer8 (Some target_variable);
           BitField [
@@ -922,7 +922,7 @@ let step_instruction interpreter =
             Bit (4, Some a4);
             Bit (5, Some a5);
             Bit (6, Some a6)];
-          Assign (_, Integer16 (Some _)); (* size of evaluation stack in words *)
+          Integer16 (Some _); (* size of evaluation stack in words *)
           SizedList (_, locals_list);
           SizedList (_, eval_stack)] ->
           let rec find_false n items =

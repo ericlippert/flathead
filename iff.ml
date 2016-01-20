@@ -35,6 +35,17 @@ let rec first_match items predicate =
   | [] -> None
 
 let read_iff_file filename root_form =
+
+  let rec remove_assign form =
+    match form with
+    | Assign (_, f) -> remove_assign f
+    | BitField contents -> BitField (List.map remove_assign contents)
+    | Record contents -> Record (List.map remove_assign contents)
+    | SizedList (n, contents) -> SizedList (n, List.map remove_assign contents)
+    | UnsizedList contents -> UnsizedList (List.map remove_assign contents)
+    | UnorderedList contents -> UnorderedList (List.map remove_assign contents)
+    | _ -> form in
+
   let get_file () =
     let channel = open_in_bin filename in
     let length = in_channel_length channel in
@@ -234,7 +245,7 @@ let read_iff_file filename root_form =
     | UnorderedList forms -> read_unordered_list forms in
     (* end of read_form *)
   let (form, _) = read_form 0 root_form (String.length file) [] in
-  form
+  remove_assign form
   (* end of read_iff_file *)
 
 let write_iff_file filename root_form =
