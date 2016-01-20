@@ -1,5 +1,8 @@
 open Story
 open Screen
+open Iff
+open Quetzal
+
 module IntMap = Map.Make(struct type t = int let compare = compare end)
 
 let string_of_char x = String.make 1 x
@@ -56,8 +59,11 @@ type frame =
 {
   stack : int list;
   locals : int IntMap.t;
-  called_from : int;
-  called : int
+  called : int;
+  resume_at : int;
+  arguments_supplied : int;
+  discard_value : bool;
+  target_variable : int
 }
 
 (* The state of the interpreter *)
@@ -99,8 +105,12 @@ let make story screen =
   {
     stack = [];
     locals = IntMap.empty;
-    called_from = 0;
-    called = pc
+    called = pc;
+
+    resume_at = 0;
+    arguments_supplied = 0;
+    discard_value = false;
+    target_variable = 0
   } in
   {
     story = story;
@@ -191,6 +201,8 @@ let do_store interpreter variable value =
   | Global global -> write_global interpreter global value
   | Stack -> push_stack interpreter value
 
+
+(* TODO Can we now eliminate this mutual recursion? *)
 (* Note that we have a rare case of mutually recursive functions here; OCaml tends
    to encourage directly recursive functions but not so much mutually recursive functions.
 
@@ -233,11 +245,18 @@ and handle_store_and_branch interpreter instruction result =
   handle_branch store_interpreter instruction result
 
 and handle_return interpreter instruction value =
-  let next_pc = (current_frame interpreter).called_from in
+  let frame = current_frame interpreter in
+  let next_pc = frame.resume_at in
+  let discard = frame.discard_value in
+  let variable = decode_variable frame.target_variable in
   let pop_frame_interpreter = remove_frame interpreter in
   let result_interpreter = set_program_counter pop_frame_interpreter next_pc in
-  let call_instr = decode_instruction result_interpreter.story next_pc in
-    handle_store_and_branch result_interpreter call_instr value
+  let store_interpreter =
+    if discard then result_interpreter
+    else do_store result_interpreter variable value in
+  (* A call never has a branch and we already know the next pc *)
+  store_interpreter
+
 
 (*
 Always evaluate the operand -- we might be popping the stack
@@ -254,7 +273,7 @@ let do_store_in_place interpreter variable value =
   match variable with
   | Local local -> write_local interpreter local value
   | Global global -> write_global interpreter global value
-  | Stack -> push_stack (pop_stack interpreter) value;;
+  | Stack -> push_stack (pop_stack interpreter) value
 
 let handle_store interpreter instruction =
   match instruction.operands with
@@ -605,6 +624,36 @@ let handle_sread interpreter instruction =
       input_max = maximum_letters }
   (* end handle_sread *)
 
+let display_locals frame =
+  let to_string local value =
+    Printf.sprintf "local%01x=%04x " (local - 1) value in
+  let folder local value acc =
+    acc ^ (to_string local value) in
+  let locals = frame.locals in
+  IntMap.fold folder locals ""
+
+let display_stack frame =
+  let to_string stack_value =
+    Printf.sprintf " %04x" stack_value in
+  let folder acc stack_value =
+    acc ^ (to_string stack_value) in
+  let stack =  frame.stack in
+  List.fold_left folder "" stack
+
+let display_frame frame =
+  Printf.sprintf "Locals %s\nStack %s\nResume at:%04x\nCurrent Routine: %04x\n"
+    (display_locals frame) (display_stack frame) frame.resume_at frame.called
+
+let display_frames frames =
+  let folder acc f =acc ^ (display_frame f) in
+  List.fold_left folder "" frames
+
+let display_interpreter interpreter =
+  let pc = interpreter.program_counter in
+  let frames = display_frames interpreter.frames in
+  let instr = display_instructions interpreter.story interpreter.program_counter 1 in
+  Printf.sprintf "\nPC:%04x\n%s\n%s\n" pc frames instr
+
 (* Move the interpreter on to the next instruction *)
 let step_instruction interpreter =
   let instruction =
@@ -796,6 +845,165 @@ let step_instruction interpreter =
     let original = make story interpreter.screen in
     let restarted_interpreter = select_output_stream original TranscriptStream transcript_on in
     { restarted_interpreter with transcript = transcript; commands = commands } in
+
+  let filename = "FLATHEAD.SAV" in
+
+  let handle_save () =
+    failwith "save NYI"
+     in
+
+  let handle_restore () =
+
+    (* TODO: This helper method can go into the IFF library *)
+    let rec find_record chunks target =
+      match chunks with
+      | [] -> None
+      | (Record (Header header :: _) as record) :: tail ->
+        if header = target then Some record
+        else find_record tail target
+      | _ -> failwith "TODO: Handle failure in find_record" in
+
+    (* In versions 1, 2 and 3 the restore branches on failure. In version 4 the
+    restore stores a value on failure. Of course if the restore succeeds then
+    the interpreter continues with the restored instruction pointer. *)
+
+    (* TODO: Handle exceptions *)
+    (* TODO: prompt for a filename *)
+
+    let ifzd = read_iff_file filename ifzd_form in
+    let chunks = match ifzd with
+    | Record [ Header "FORM"; Length _; SubHeader "IFZS"; UnorderedList items] ->
+      items
+    | _ -> failwith "TODO: Handle failure reading ifzs" in
+
+    let ifhd_chunk = find_record chunks "IFhd" in
+    let stacks_chunk = find_record chunks "Stks" in
+    let umem_chunk = find_record chunks "UMem" in
+    let cmem_chunk = find_record chunks "CMem" in
+
+    let (release_number, serial_number, checksum, program_counter) =
+      match ifhd_chunk with
+      | Some (
+          Record [
+            Header "IFhd";
+            Length _;
+            Integer16 (Some release_number);
+            ByteString (Some serial_number, 6);
+            Integer16 (Some checksum);
+            Integer24 (Some pc) ] ) ->
+        (release_number, serial_number, checksum, pc)
+      | _ -> failwith "TODO handle failure reading ifhd" in
+
+    (* TODO: Check the release, serial number, checksum *)
+
+    let frame_records =
+      match stacks_chunk with
+      | Some (
+        Record [
+          Header "Stks";
+          Length _;
+          UnsizedList items ] ) -> items
+      | _ -> failwith "TODO handle failure reading stacks" in
+
+    let make_frame frame_record =
+      let (ret_addr, locals_list, eval_stack, target_variable) =
+        match frame_record with
+        | Record [
+          Integer24 (Some ret_addr);
+          _; (* TODO *)
+          Integer8 (Some target_variable);  (* TODO *)
+          _; (* TODO *)
+          _; (* size of evaluation stack in words *)
+          SizedList (_, locals_list);
+          SizedList (_, eval_stack)] ->
+          (ret_addr, locals_list, eval_stack, target_variable)
+        | _ -> failwith "TODO handle failure reading frame" in
+      let decode_int16 form =
+        match form with
+        | (Integer16 (Some v)) -> v
+        | _ -> failwith "TODO handle failure reading evaluation stack / locals" in
+      let stack = List.rev (List.map decode_int16 eval_stack) in
+      let rec make_locals map i locs =
+        match locs with
+        | [] -> map
+        | h :: t ->
+          let v = decode_int16 h in
+          let new_map = IntMap.add i v map in
+          make_locals new_map (i + 1) t in
+      let locals = make_locals IntMap.empty 1 locals_list in
+      { stack;
+        locals;
+        called = 0;
+        resume_at = ret_addr ;
+        arguments_supplied = 0; (* TODO *)
+        discard_value = false ; (* TODO *)
+        target_variable
+        } in
+
+    let rec make_frames records frames =
+      match records with
+      | [] -> frames
+      | h :: t ->
+        let frame = make_frame h in
+        make_frames t (frame :: frames) in
+
+    (* TODO: Deal with memory size mismatch. *)
+    let frames = make_frames frame_records [] in
+    let original_memory = Memory.original interpreter.story.memory in
+    let new_memory =
+      match (umem_chunk, cmem_chunk) with
+      | (Some (
+          Record [
+            Header "UMem";
+            Length (Some length);
+            RemainingBytes Some bytes]),
+        _) ->
+          (* We cannot simply say "make a new dynamic memory chunk out of
+          these bytes" because then the *next* time we load a save game,
+          that dynamic memory will be the "original" memory, which is wrong.
+          We need to maintain the truly original loaded-off-disk memory. *)
+          let rec apply_changes index mem =
+            if index >= length then
+              mem
+            else
+              let new_byte = int_of_char bytes.[index] in
+              let orig_byte = Memory.read_byte original_memory index in
+              let new_mem =
+                if new_byte = orig_byte then mem
+                else Memory.write_byte mem index new_byte in
+              apply_changes (index + 1) new_mem in
+          apply_changes 0 original_memory
+      | (_,
+        Some (
+          Record [
+            Header "CMem";
+            Length Some length;
+            RemainingBytes Some bytes])) ->
+          let rec apply_changes index_change index_mem mem =
+            if index_change >= length then
+              mem
+            else
+              let b = int_of_char bytes.[index_change] in
+              if b = 0 then
+                (* TODO: If length - 1 this is a problem *)
+                let c = 1 + int_of_char bytes.[index_change + 1] in
+                apply_changes (index_change + 2) (index_mem + c) mem
+              else
+                let orig_byte = Memory.read_byte original_memory index_mem in
+                let new_byte = b  lxor orig_byte   in
+                let new_mem = Memory.write_byte mem index_mem new_byte in
+                apply_changes (index_change + 1) (index_mem + 1) new_mem in
+        apply_changes 0 0 original_memory
+      | _ -> failwith "TODO handle failure reading memory" in
+
+    (* TODO: All the bits that have to be preserved *)
+    let story = { (* interpreter.story with *) memory = new_memory } in
+    let new_interpreter = { interpreter with
+      story;
+      program_counter = program_counter + 1; (* TODO: Why is this off by one? *)
+      frames } in
+    new_interpreter in
+  (* end of handle_restore *)
 
   let handle_storew arr ind value interp =
     { interp with story = write_word interp.story (arr + ind * 2) value } in
@@ -991,14 +1199,24 @@ let step_instruction interpreter =
     else
       let first_instruction =
         first_instruction locals_interpreter.story routine_address in
+      let (discard_value, target_variable) =
+        match instruction.store with
+        | None -> (true, 0)
+        | Some Stack -> (false, 0)
+        | Some Local n -> (false, n)
+        | Some Global n -> (false, n) in
+
       let frame =
       {
         stack = [];
         locals;
-        called_from = instruction.address;
-        called = first_instruction
+        called = first_instruction;
+        resume_at = instruction.address + instruction.length ;
+        arguments_supplied = List.length routine_operands;
+        discard_value;
+        target_variable
       } in
-      set_program_counter (add_frame interpreter frame) first_instruction in
+      set_program_counter (add_frame locals_interpreter frame) first_instruction in
     (* End handle_call *)
 
       (* That's it for the helper methods. Now we have a big dispatch! *)
@@ -1029,10 +1247,10 @@ let step_instruction interpreter =
   | OP2_22  -> handle_op2_value handle_mul
   | OP2_23  -> handle_op2_value handle_div
   | OP2_24  -> handle_op2_value handle_mod
-  | OP2_25
-  | OP2_26
-  | OP2_27
-  | OP2_28 -> failwith "TODO: instruction for version greater than 3"
+  | OP2_25  -> failwith (Printf.sprintf "%04x TODO: OP2_25" instruction.address)
+  | OP2_26  -> failwith (Printf.sprintf "%04x TODO: OP2_26" instruction.address)
+  | OP2_27  -> failwith (Printf.sprintf "%04x TODO: OP2_27" instruction.address)
+  | OP2_28  -> failwith (Printf.sprintf "%04x TODO: OP2_28" instruction.address)
 
   | OP1_128 -> handle_op1_value handle_jz
   | OP1_129 -> handle_op1_value handle_get_sibling
@@ -1042,7 +1260,7 @@ let step_instruction interpreter =
   | OP1_133 -> handle_inc interpreter instruction
   | OP1_134 -> handle_dec interpreter instruction
   | OP1_135 -> handle_op1_effect handle_print_addr
-  | OP1_136 -> failwith "TODO: instruction for version greater than 3"
+  | OP1_136 -> failwith (Printf.sprintf "%04x TODO: OP1_136" instruction.address)
   | OP1_137 -> handle_op1_effect handle_remove_obj
   | OP1_138 -> handle_op1_effect handle_print_obj
   | OP1_139 -> handle_ret ()
@@ -1056,8 +1274,8 @@ let step_instruction interpreter =
   | OP0_178 -> handle_op0_effect handle_print
   | OP0_179 -> handle_print_ret ()
   | OP0_180 -> handle_op0_effect handle_nop
-  | OP0_181 -> failwith "TODO: save"
-  | OP0_182 -> failwith "TODO: restore"
+  | OP0_181 -> handle_save()
+  | OP0_182 -> handle_restore ()
   | OP0_183 -> handle_restart ()
   | OP0_184 -> handle_ret_popped ()
   | OP0_185 -> handle_op0_effect handle_pop
@@ -1065,8 +1283,8 @@ let step_instruction interpreter =
   | OP0_187 -> handle_op0_effect handle_new_line
   | OP0_188 -> handle_op0_effect handle_show_status
   | OP0_189 -> handle_op0_value handle_verify
-  | OP0_190 -> failwith "TODO: instruction for version greater than 3"
-  | OP0_191 -> failwith "TODO: instruction for version greater than 3"
+  | OP0_190 -> failwith (Printf.sprintf "%04x TODO: OP0_190" instruction.address)
+  | OP0_191 -> failwith (Printf.sprintf "%04x TODO: OP0_191" instruction.address)
 
   | VAR_224 -> handle_call ()
   | VAR_225 -> handle_op3_effect handle_storew
@@ -1080,26 +1298,26 @@ let step_instruction interpreter =
   | VAR_233 -> handle_pull interpreter instruction
   | VAR_234 -> failwith "TODO: split_window"
   | VAR_235 -> failwith "TODO: set_window"
-  | VAR_236
-  | VAR_237
-  | VAR_238
-  | VAR_239
-  | VAR_240
-  | VAR_241
-  | VAR_242 -> failwith "TODO: instruction for version greater than 3"
+  | VAR_236 -> failwith (Printf.sprintf "%04x TODO: VAR_236" instruction.address)
+  | VAR_237 -> failwith (Printf.sprintf "%04x TODO: VAR_237" instruction.address)
+  | VAR_238 -> failwith (Printf.sprintf "%04x TODO: VAR_238" instruction.address)
+  | VAR_239 -> failwith (Printf.sprintf "%04x TODO: VAR_239" instruction.address)
+  | VAR_240 -> failwith (Printf.sprintf "%04x TODO: VAR_240" instruction.address)
+  | VAR_241 -> failwith (Printf.sprintf "%04x TODO: VAR_241" instruction.address)
+  | VAR_242 -> failwith (Printf.sprintf "%04x TODO: VAR_242" instruction.address)
   | VAR_243 -> handle_op1_effect handle_output_stream
   | VAR_244 -> failwith "TODO: input_stream"
-  | VAR_245
-  | VAR_246
-  | VAR_247
-  | VAR_248
-  | VAR_249
-  | VAR_250
-  | VAR_251
-  | VAR_252
-  | VAR_253
-  | VAR_254
-  | VAR_255 -> failwith "TODO: instruction for version greater than 3"
+  | VAR_245 -> failwith (Printf.sprintf "%04x TODO: VAR_245" instruction.address)
+  | VAR_246 -> failwith (Printf.sprintf "%04x TODO: VAR_246" instruction.address)
+  | VAR_247 -> failwith (Printf.sprintf "%04x TODO: VAR_247" instruction.address)
+  | VAR_248 -> failwith (Printf.sprintf "%04x TODO: VAR_248" instruction.address)
+  | VAR_249 -> failwith (Printf.sprintf "%04x TODO: VAR_249" instruction.address)
+  | VAR_250 -> failwith (Printf.sprintf "%04x TODO: VAR_250" instruction.address)
+  | VAR_251 -> failwith (Printf.sprintf "%04x TODO: VAR_251" instruction.address)
+  | VAR_252 -> failwith (Printf.sprintf "%04x TODO: VAR_252" instruction.address)
+  | VAR_253 -> failwith (Printf.sprintf "%04x TODO: VAR_253" instruction.address)
+  | VAR_254 -> failwith (Printf.sprintf "%04x TODO: VAR_254" instruction.address)
+  | VAR_255 -> failwith (Printf.sprintf "%04x TODO: VAR_255" instruction.address)
   (* End step_instruction *)
 
 (* Steps the interpreter to its next public-facing state. However this need
@@ -1123,34 +1341,14 @@ let step interpreter =
   else
     step_instruction { interpreter with screen; has_new_output = false }
 
-let display_locals interpreter =
-  let to_string local value =
-    Printf.sprintf "local%01x=%04x " (local - 1) value in
-  let folder local value acc =
-    acc ^ (to_string local value) in
-  let locals = (current_frame interpreter).locals in
-  IntMap.fold folder locals ""
 
-let display_stack interpreter =
-  let to_string stack_value =
-    Printf.sprintf " %04x" stack_value in
-  let folder acc stack_value =
-    acc ^ (to_string stack_value) in
-  let stack =  (current_frame interpreter).stack in
-  List.fold_left folder "" stack
-
-let display_interpreter interpreter =
-  let locals = display_locals interpreter in
-  let stack = display_stack interpreter in
-  let instr = display_instructions interpreter.story interpreter.program_counter 1 in
-  locals ^ "\n" ^ stack ^ "\n" ^ instr;;
 
 let step_with_input interpreter key =
   let key = string_of_char key in
   let length = String.length interpreter.input in
   let instruction =
     decode_instruction interpreter.story interpreter.program_counter in
-  let handle_return () =
+  let handle_enter () =
     let blank_input = { interpreter with input = "" } in
     complete_sread blank_input instruction interpreter.input in
   let handle_backspace () =
@@ -1160,7 +1358,7 @@ let step_with_input interpreter key =
       { interpreter with input = truncate interpreter.input (length - 1)} in
   match instruction.opcode with
   | VAR_228 ->
-    if key = "\r" then handle_return()
+    if key = "\r" then handle_enter()
     else if key = "\b" then handle_backspace()
     else if length >= interpreter.input_max then interpreter
     else { interpreter with input = interpreter.input ^ key }

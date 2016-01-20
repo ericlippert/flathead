@@ -303,7 +303,11 @@ let halt debugger =
 
   let draw_routine_listing debugger =
     let current_instruction = debugger.interpreter.program_counter in
-    let first_instruction = (current_frame debugger.interpreter).called in
+    (* This can be zero if we were restored from a save game *)
+    let frame_instruction = (current_frame debugger.interpreter).called in
+    let first_instruction =
+      if frame_instruction = 0 then current_instruction
+      else frame_instruction in
     let story = debugger.interpreter.story in
     let current = Story.display_instruction (Story.decode_instruction story current_instruction) in
     let reachable = Story.all_reachable_addresses_in_routine story first_instruction in

@@ -233,7 +233,8 @@ let read_iff_file filename root_form =
     | SizedList (size, forms) -> read_sized_list size forms
     | UnorderedList forms -> read_unordered_list forms in
     (* end of read_form *)
-  read_form 0 root_form (String.length file) []
+  let (form, _) = read_form 0 root_form (String.length file) [] in
+  form
   (* end of read_iff_file *)
 
 let write_iff_file filename root_form =

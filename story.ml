@@ -595,7 +595,7 @@ let object_property story object_number property_number =
         else if length = 2 then
           read_word story address
         else
-          failwith "bad property length")
+          failwith (Printf.sprintf "object %d property %d length %d bad property length" object_number property_number length))
       else
         aux tail in
   aux (property_addresses story object_number)
@@ -870,6 +870,11 @@ let is_call opcode =
   | VAR_236 (* call_vs2 *) -> true
   | _ -> false
 
+let decode_variable n =
+  if n = 0 then Stack
+  else if n < 0x10 then Local n
+  else Global n
+
 (* Takes the address of an instruction and produces the instruction *)
 let decode_instruction story address =
   (* Helper methods for decoding *)
@@ -924,10 +929,7 @@ let decode_instruction story address =
         | x -> aux (i + 1) (x :: acc) in
       aux 0 [] in
 
-  let decode_variable n =
-    if n = 0 then Stack
-    else if n < 0x10 then Local n
-    else Global n in
+
 
   let rec decode_operands operand_address operand_types =
     match operand_types with
@@ -1141,7 +1143,7 @@ let display_instruction instr =
     match variable with
     | Stack -> "sp"
     | Local local -> Printf.sprintf "local%d" (local - 1)
-    | Global global -> Printf.sprintf "g%d" (global - 16) in
+    | Global global -> Printf.sprintf "g%02x" (global - 16) in
 
   let display_operands () =
     let to_string operand =
@@ -1411,6 +1413,11 @@ let read_global story global_number =
     let base = global_variables_table_base story in
     let offset = (global_number - first_global) * 2 in
     read_word story (base + offset)
+
+let display_globals story =
+  let to_string g =
+    Printf.sprintf "%02x %04x\n" (g - 16) (read_global story g) in
+  accumulate_strings_loop to_string 16 256
 
 let write_global story global_number value =
   if global_number < first_global || global_number > last_global then
