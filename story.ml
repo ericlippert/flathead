@@ -90,10 +90,6 @@ strings, and is half the real address in v3 but different for other versions. *)
 let decode_word_address word_address =
   word_address * 2;;
 
-(* TODO: only works for v3 *)
-let decode_packed_address story packed =
-  packed * 2
-
 let read_word story address =
   Memory.read_word story.memory address
 
@@ -248,6 +244,14 @@ let verify_checksum story =
   let c = compute_checksum story in
   h = c
 
+let routine_offset story =
+  let routine_offset_offset = 40 in
+  8 * (read_word story routine_offset_offset)
+
+let string_offset story =
+  let string_offset_offset = 42 in
+  8 * (read_word story string_offset_offset)
+
 let display_header story =
   Printf.sprintf "Version                     : %d\n" (version story) ^
   Printf.sprintf "Release number              : %d\n" (release_number story) ^
@@ -261,6 +265,30 @@ let display_header story =
   Printf.sprintf "Dictionary base             : %04x\n" (dictionary_base story) ^
   Printf.sprintf "High memory base            : %04x\n" (high_memory_base story) ^
   Printf.sprintf "Initial program counter     : %04x\n" (initial_program_counter story)
+
+let decode_routine_packed_address story packed =
+  match version story with
+  | 1
+  | 2
+  | 3 -> packed * 2
+  | 4
+  | 5 -> packed * 4
+  | 6
+  | 7 -> packed * 4 + (routine_offset story)
+  | 8 -> packed * 8
+  | _ -> failwith "bad version"
+
+let decode_string_packed_address story packed =
+  match version story with
+  | 1
+  | 2
+  | 3 -> packed * 2
+  | 4
+  | 5 -> packed * 4
+  | 6
+  | 7 -> packed * 4 + (string_offset story)
+  | 8 -> packed * 8
+  | _ -> failwith "bad version"
 
 let load_story filename =
   (* TODO: Could read in just the header first, then the dynamic block as a string,
@@ -604,7 +632,6 @@ let decode_property_data story address =
     (* In version 3 it's easy. The number of bytes of property data
     is indicated by the top 3 bits; the property number is indicated
     by the bottom 5 bits, and the header is one byte. *)
-    let len = (fetch_bits 7 3 b) + 1 in
     (1, (fetch_bits 7 3 b) + 1, (fetch_bits 4 5 b))
   else
     (* In version 4 the property number is the bottom 6 bits. *)
@@ -1079,7 +1106,7 @@ let decode_instruction story address =
         (* For calls with constant callees, unpack the address here. *)
         match instr.operands with
         | (Large large) :: tail ->
-          (Large (decode_packed_address story large)) :: tail
+          (Large (decode_routine_packed_address story large)) :: tail
         | _ -> instr.operands in
         let munge_jump_operands () =
           (* Turn relative jumps into jumps to a specific address. *)

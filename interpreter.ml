@@ -822,7 +822,7 @@ let step_instruction interpreter =
     interpreter_print interp (object_name interp.story x) in
 
   let handle_print_paddr paddr interp =
-    let addr = decode_packed_address interp.story paddr in
+    let addr = decode_string_packed_address interp.story paddr in
     let text = read_zstring interp.story addr in
     interpreter_print interp text in
 
@@ -1260,15 +1260,15 @@ let step_instruction interpreter =
       | Small small -> (small, interpreter)
       | Variable Stack ->
         let packed_addr = peek_stack interpreter in
-        let addr = decode_packed_address interpreter.story packed_addr in
+        let addr = decode_routine_packed_address interpreter.story packed_addr in
         (addr, pop_stack interpreter)
       | Variable Local local ->
         let packed_addr = read_local interpreter local in
-        let addr = decode_packed_address interpreter.story packed_addr in
+        let addr = decode_routine_packed_address interpreter.story packed_addr in
         (addr, interpreter)
       | Variable Global global ->
         let packed_addr = read_global interpreter.story global in
-        let addr = decode_packed_address interpreter.story packed_addr in
+        let addr = decode_routine_packed_address interpreter.story packed_addr in
         (addr, interpreter) in
 
     (* We now have the routine address and its operands. Operands must be copied to locals.
