@@ -396,9 +396,8 @@ let display_abbreviation_table story =
 (* Object table *)
 (* *)
 
-(* TODO: 63 in version 4 and above *)
 let default_property_table_size story =
-  31
+  if (version story) <= 3 then 31 else 63
 
 let default_property_table_entry_size = 2
 
@@ -424,9 +423,8 @@ let object_tree_base story =
   let table_size = default_property_table_size story in
   prop_base + default_property_table_entry_size * table_size
 
-(* TODO: Object table entry is larger in version 4 *)
 let object_table_entry_size story =
-  9
+  if (version story) <= 3 then 9 else 14
 
 let object_address story object_number =
   let tree_base = object_tree_base story in
@@ -441,9 +439,16 @@ let object_attributes_word_2 story object_number =
   let obj_addr = object_address story object_number in
   read_word story (obj_addr + attributes2_offset)
 
+let object_attributes_word_3 story object_number =
+  if (version story) <= 3 then
+    failwith "no such attributes"
+  else
+    let attributes3_offset = 3 in
+    let obj_addr = object_address story object_number in
+    read_word story (obj_addr + attributes3_offset)
+
 let attribute_count story =
-  32
-(* TODO: 48 attributes in version 4 *)
+  if (version story) <= 3 then 32 else 48
 
 let object_attribute_address story object_number attribute_number =
   if attribute_number < 0 || attribute_number >= (attribute_count story) then
@@ -469,39 +474,55 @@ let clear_object_attribute story object_number attribute_number =
   let byte = read_byte story address in
   write_byte story address (clear_bit bit byte)
 
-let object_parent_offset = 4
-
 let object_parent story object_number =
   let obj_addr = object_address story object_number in
-  read_byte story (obj_addr + object_parent_offset)
+  if (version story) <= 3 then
+    read_byte story (obj_addr + 4)
+  else
+    read_word story (obj_addr + 6)
 
 let set_object_parent story object_number new_parent =
   let obj_addr = object_address story object_number in
-  write_byte story (obj_addr + object_parent_offset) new_parent
-
-let object_sibling_offset = 5
+  if (version story) <= 3 then
+    write_byte story (obj_addr + 4) new_parent
+  else
+    write_word story (obj_addr + 6) new_parent
 
 let object_sibling story object_number =
   let obj_addr = object_address story object_number in
-  read_byte story (obj_addr + object_sibling_offset)
+  if (version story) <= 3 then
+    read_byte story (obj_addr + 5)
+  else
+    read_word story (obj_addr + 8)
 
 let set_object_sibling story object_number new_sibling =
   let obj_addr = object_address story object_number in
-  write_byte story (obj_addr + object_sibling_offset) new_sibling
+  if (version story) <= 3 then
+    write_byte story (obj_addr + 5) new_sibling
+  else
+    write_word story (obj_addr + 8) new_sibling
 
-let object_child_offset = 6
+let object_child_offset story =
+  if (version story) <= 3 then 6 else 10
 
 let object_child story object_number =
   let obj_addr = object_address story object_number in
-  read_byte story (obj_addr + object_child_offset)
+  if (version story) <= 3 then
+    read_byte story (obj_addr + 6)
+  else
+    read_word story (obj_addr + 10)
 
 let set_object_child story object_number new_child =
   let obj_addr = object_address story object_number in
-  write_byte story (obj_addr + object_child_offset) new_child
+  if (version story) <= 3 then
+    write_byte story (obj_addr + 6) new_child
+  else
+    write_word story (obj_addr + 10) new_child
 
-let object_property_offset = 7
-
+(* The last two bytes in an object description are a pointer to a
+block that contains additional properties. *)
 let object_property_address story object_number =
+  let object_property_offset = if (version story) <= 3 then 7 else 12 in
   let obj_addr = object_address story object_number in
   read_word story (obj_addr + object_property_offset)
 
@@ -514,6 +535,7 @@ let object_count story =
   let entry_size = object_table_entry_size story in
   (table_end - table_start) / entry_size
 
+(* The property entry begins with a length-prefixed zstring *)
 let object_name story n =
   let addr = object_property_address story n in
   let length = read_byte story addr in
@@ -567,31 +589,75 @@ let insert_object story child parent =
 
 (* Not every object has every property. An object's properties are a
    zero-terminated block of memory where the first byte indicates the
-   property number and the number of bytes in the property value. *)
+   property number and the number of bytes in the property value.
+   This block begins after the length-prefixed object name. *)
 
-(* This method produces a list of (number, length, address) tuples *)
+(* Takes the address of a property data block -- past the string.
+Returns the length of the header, the length of the data, and the
+property number. *)
+
+let decode_property_data story address =
+  let b = read_byte story address in
+  if b = 0 then
+    (0, 0, 0)
+  else if (version story) <= 3 then
+    (* In version 3 it's easy. The number of bytes of property data
+    is indicated by the top 3 bits; the property number is indicated
+    by the bottom 5 bits, and the header is one byte. *)
+    let len = (fetch_bits 7 3 b) + 1 in
+    (1, (fetch_bits 7 3 b) + 1, (fetch_bits 4 5 b))
+  else
+    (* In version 4 the property number is the bottom 6 bits. *)
+    let property_number = fetch_bits 5 6 b in
+    (* If the high bit of the first byte is set then the length is
+      indicated by the bottom six bits of the *following* byte.
+      The following byte needs to have its high bit set as well.
+      (See below).
+
+      If the high bit is not set then the length is indicated by
+      the sixth bit. *)
+    if fetch_bit 7 b then
+      let len = fetch_bits (read_byte story (address + 1)) 5 6 in
+      (2, (if len = 0 then 64 else len), property_number)
+    else
+      (1, (if fetch_bit 6 b then 2 else 1), property_number)
+
+(* This method produces a list of (number, data_length, data_address) tuples *)
 let property_addresses story object_number =
   let rec aux acc address =
     let b = read_byte story address in
     if b = 0 then
       acc
     else
-      let property_length = (fetch_bits 7 3 b) + 1 in
-      let property_number = (fetch_bits 4 5 b) in
-      let this_property = (property_number, property_length, address + 1) in
-      let next_addr = address + 1 + property_length in
+      let (header_length, data_length, property_number) =
+        decode_property_data story address in
+      let this_property =
+        (property_number, data_length, address + header_length) in
+      let next_addr = address + header_length + data_length in
       aux (this_property :: acc) next_addr in
-  let property_header_address = object_property_address story object_number in
-  let property_name_word_length = read_byte story property_header_address in
-  let first_property_address = property_header_address + 1 + property_name_word_length * 2 in
+  let property_name_address = object_property_address story object_number in
+  let property_name_word_length = read_byte story property_name_address in
+  let first_property_address = property_name_address + 1 + property_name_word_length * 2 in
   aux [] first_property_address
 
-(* Takes the address of a property data block, returns the length.
-The length is always in the top three bits of the byte before the block. *)
-
+(* Given the adddress of the data block, how long is it?  In version 3
+this is easy; we just look at the previous byte. In version 4 there could
+be two bytes before the data, but the one immediately before the data is
+always the size byte. If its high bit is on then the bottom six bits are the
+size. If the high bit is not on then the size is determined by bit 6. *)
 let property_length_from_address story address =
-  if address = 0 then 0
-  else 1 + (fetch_bits 7 3 (read_byte story (address - 1)))
+  if address = 0 then
+    0
+  else
+    let b = read_byte story (address - 1) in
+    if (version story) <= 3 then
+      1 + (fetch_bits 7 3 b)
+    else
+      if fetch_bit 7 b then
+        let len = fetch_bits 5 6 b in
+        if len = 0 then 64 else len
+      else
+        if fetch_bit 6 b then 2 else 1
 
 (* Given an object and property number, what is the address
    of the associated property block? Or zero if there is none. *)
