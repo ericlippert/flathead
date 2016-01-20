@@ -906,17 +906,33 @@ let step_instruction interpreter =
       | _ -> failwith "TODO handle failure reading stacks" in
 
     let make_frame frame_record =
-      let (ret_addr, locals_list, eval_stack, target_variable) =
+      let (ret_addr, locals_list, eval_stack, target_variable, discard_value, arg_count) =
         match frame_record with
         | Record [
           Integer24 (Some ret_addr);
-          _; (* TODO *)
-          Integer8 (Some target_variable);  (* TODO *)
-          _; (* TODO *)
-          _; (* size of evaluation stack in words *)
+          BitField [
+            Assign (_, Integer4 (Some _));  (* count of local variables *)
+            Bit (4, Some discard_value)];
+          Integer8 (Some target_variable);
+          BitField [
+            Bit (0, Some a0);
+            Bit (1, Some a1);
+            Bit (2, Some a2);
+            Bit (3, Some a3);
+            Bit (4, Some a4);
+            Bit (5, Some a5);
+            Bit (6, Some a6)];
+          Assign (_, Integer16 (Some _)); (* size of evaluation stack in words *)
           SizedList (_, locals_list);
           SizedList (_, eval_stack)] ->
-          (ret_addr, locals_list, eval_stack, target_variable)
+          let rec find_false n items =
+            match items with
+            | false :: _ -> n
+            | true :: tail -> find_false (n + 1) tail
+            | [] -> failwith "impossible" in
+          let arg_count =
+            find_false 0 [a0; a1; a2; a3; a4; a5; a6; false] in
+          (ret_addr, locals_list, eval_stack, target_variable, discard_value, arg_count)
         | _ -> failwith "TODO handle failure reading frame" in
       let decode_int16 form =
         match form with
@@ -935,8 +951,8 @@ let step_instruction interpreter =
         locals;
         called = 0;
         resume_at = ret_addr ;
-        arguments_supplied = 0; (* TODO *)
-        discard_value = false ; (* TODO *)
+        arguments_supplied = arg_count;
+        discard_value;
         target_variable
         } in
 
