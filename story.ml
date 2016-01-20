@@ -220,8 +220,15 @@ let abbreviations_table_base story =
 
 let file_size story =
   let file_size_offset = 26 in
-  (* TODO: Multiplier depends on version *)
-  2 * (read_word story file_size_offset)
+  let s = read_word story file_size_offset in
+  let m = match (version story) with
+  | 1
+  | 2
+  | 3 -> 2
+  | 4
+  | 5 -> 4
+  | _ -> 8 in
+  s * m
 
 let header_checksum story =
   let checksum_offset = 28 in
@@ -243,6 +250,22 @@ let verify_checksum story =
   let h = header_checksum story in
   let c = compute_checksum story in
   h = c
+
+let screen_height story =
+  let screen_height_offset = 32 in
+  read_byte story screen_height_offset
+
+let set_screen_height story height =
+  let screen_height_offset = 32 in
+  write_byte story screen_height_offset height
+
+let screen_width story =
+  let screen_width_offset = 33 in
+  read_byte story screen_width_offset
+
+let set_screen_width story width =
+  let screen_width_offset = 33 in
+  write_byte story screen_width_offset width
 
 let routine_offset story =
   let routine_offset_offset = 40 in
@@ -301,7 +324,6 @@ let load_story filename =
   let len = String.length file in
   if len < header_size then failwith (Printf.sprintf "%s is not a valid story file" filename);
   let version = int_of_char file.[version_offset] in
-  if version <> 3 then failwith (Printf.sprintf "%s is not a valid version 3 story file" filename);
   let high = int_of_char file.[static_memory_base_offset] in
   let low = int_of_char file.[static_memory_base_offset + 1] in
   let dynamic_length = high * 256 + low in
@@ -830,9 +852,8 @@ let dictionary_entry_length story =
   let separators = word_separators_count story in
   read_byte story (base + separators + 1)
 
-(* TODO: 9 in v4 and up *)
 let dictionary_max_word_length story =
-  6
+  if (version story) <= 3 then 6 else 9
 
 let dictionary_entry_count story =
   let base = dictionary_base story in

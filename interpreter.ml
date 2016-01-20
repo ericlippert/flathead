@@ -100,7 +100,8 @@ type t =
 }
 
 let make story screen =
-  (* TODO: Need to set appropriate words for screen size *)
+  let story = set_screen_width story screen.width in
+  let story = set_screen_height story screen.height in
   let pc = initial_program_counter story in
   let initial_frame =
   {
@@ -1380,7 +1381,7 @@ let step_instruction interpreter =
   | OP1_133 -> handle_inc interpreter instruction
   | OP1_134 -> handle_dec interpreter instruction
   | OP1_135 -> handle_op1_effect handle_print_addr
-  | OP1_136 -> failwith (Printf.sprintf "%04x TODO: OP1_136" instruction.address)
+  | OP1_136 -> handle_call ()
   | OP1_137 -> handle_op1_effect handle_remove_obj
   | OP1_138 -> handle_op1_effect handle_print_obj
   | OP1_139 -> handle_ret ()
