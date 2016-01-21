@@ -1,31 +1,33 @@
 @del deque.cmi
 @del deque.cmo
-ocamlc -c deque.ml
+ocamlc -g -c deque.ml
 @del screen.cmi
 @del screen.cmo
-ocamlc -c screen.ml
+ocamlc -g -c screen.ml
 @del immutable_bytes.cmi
 @del immutable_bytes.cmo
-ocamlc -c immutable_bytes.ml
+ocamlc -g -c immutable_bytes.ml
 @del memory.cmi
 @del memory.cmo
-ocamlc -c memory.ml
+ocamlc -g -c memory.ml
 @del story.cmi
 @del story.cmo
-ocamlc -c story.ml
+ocamlc -g -c story.ml
 @del iff.cmi
 @del iff.cmo
-ocamlc -c iff.ml
+ocamlc -g -c iff.ml
 @del quetzal.cmi
 @del quetzal.cmo
-ocamlc -c quetzal.ml
+ocamlc -g -c quetzal.ml
 @del interpreter.cmi
 @del interpreter.cmo
-ocamlc -c interpreter.ml
+ocamlc -g -c interpreter.ml
 @del button.cmi
 @del button.cmo
-ocamlc -c button.ml
+ocamlc -g -c button.ml
 @del debugger.cmi
 @del debugger.cmo
-ocamlc -c debugger.ml
+ocamlc -g -c debugger.ml
+@del flathead.cmi
+@del flathead.cmo
 ocaml deque.cmo screen.cmo immutable_bytes.cmo memory.cmo story.cmo iff.cmo quetzal.cmo interpreter.cmo graphics.cma button.cmo debugger.cmo flathead.ml

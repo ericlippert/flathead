@@ -160,6 +160,7 @@ let pop_stack interpreter =
   | _ -> failwith "frame set is empty"
 
 let push_stack interpreter value =
+  let value = unsigned_word value in
   match interpreter.frames with
   | current_frame :: other_frames ->
     let new_stack = value :: current_frame.stack in
@@ -190,6 +191,7 @@ let read_operand interpreter operand =
   | _ -> (value, interpreter)
 
 let write_local interpreter local value =
+  let value = unsigned_word value in
   match interpreter.frames with
   | current_frame :: other_frames ->
     let new_locals = IntMap.add local value current_frame.locals in
@@ -1313,7 +1315,6 @@ let step_instruction interpreter =
     handle_return interpreter instruction 0 in
 
   let handle_scan_table x table len interp =
-    let x = unsigned_word x in
     (* TODO: This is variadic; also has a 4-argument version *)
     (* Does word x occur in table of len words? If yes, give
     the address. If no, zero. *)

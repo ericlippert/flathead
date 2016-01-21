@@ -18,10 +18,16 @@ let make dynamic static =
   }
 
 let read_byte memory address =
-  if address < memory.static_offset then
+  if address < 0 then
+    failwith "Negative address in read_byte"
+  else if address < memory.static_offset then
     Immutable_bytes.read_byte memory.dynamic_memory address
   else
-    int_of_char (memory.static_memory.[address - memory.static_offset])
+    let static_addr = address - memory.static_offset in
+    if static_addr >= String.length memory.static_memory then
+      failwith (Printf.sprintf "Address %0x4 out of range" address)
+    else
+      int_of_char (memory.static_memory.[address - memory.static_offset])
 
 let read_word memory address =
   let high = read_byte memory address in
@@ -29,7 +35,9 @@ let read_word memory address =
   256 * high + low
 
 let write_byte memory address value =
-  if address >= memory.static_offset then
+  if address < 0 then
+    failwith "Negative address in write_byte"
+  else if address >= memory.static_offset then
     failwith "attempt to write static memory"
   else
     let new_memory =
