@@ -25,6 +25,9 @@ let empty =
 let is_empty deque =
   deque.front_length + deque.back_length = 0
 
+let length deque =
+  deque.front_length + deque.back_length
+
 (* TODO: balance is not part of the public surface of the module;
 consider creating a module interface file. *)
 let balance deque =
@@ -122,3 +125,17 @@ let rec set_front_at deque item n =
 let rec set_back_at deque item n =
   if n = 0 then enqueue_back (dequeue_back deque) item
   else enqueue_back (set_back_at (dequeue_back deque) item (n - 1)) (peek_back deque)
+
+let rec merge d1 d2 =
+  if is_empty d1 then d2
+  else if is_empty d2 then d1
+  else if (length d1) < (length d2) then
+    merge (dequeue_front d1) (enqueue_back d2 (peek_front d1))
+  else
+    merge (enqueue_front d1 (peek_back d2)) (dequeue_back d2)
+
+let split deque c =
+  let rec move d1 d2 =
+    if (length d1) = c then (d1, d2)
+    else move (enqueue_front d1 (peek_back d2)) (dequeue_back d2) in
+  move empty deque

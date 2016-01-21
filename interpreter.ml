@@ -1219,7 +1219,6 @@ let step_instruction interpreter =
 
   let handle_output_stream_1 stream interp =
     let stream = signed_word stream in
-    (* TODO: This is a variadic instruction *)
     let new_interpreter = match stream with
     | 0 -> interp
     | 1 -> select_output_stream interp ScreenStream true
@@ -1292,7 +1291,7 @@ let step_instruction interpreter =
         if (version interp.story) <= 4 then
           set_lower_cursor upper_moved 1 (upper_moved.height)
         else
-          set_lower_cursor upper_moved 1 (upper_moved.upper_window + 1)
+          set_lower_cursor upper_moved 1 1
       | _ -> upper_moved in
     { interp with screen = lower_moved } in
 
@@ -1654,16 +1653,14 @@ let step interpreter =
   if interpreter.state = Waiting_for_input then
     failwith "interpreter is waiting for input";
   let screen =
-    if interpreter.screen.needs_more then
-      { interpreter.screen with scroll_count = 0; needs_more = false }
+    if needs_more interpreter.screen then
+      clear_more interpreter.screen
     else
       interpreter.screen in
-  if screen.needs_scroll then
+  if needs_scroll screen then
     { interpreter with screen = scroll screen; has_new_output = true }
   else
     step_instruction { interpreter with screen; has_new_output = false }
-
-
 
 let step_with_input interpreter key =
   let key_text = string_of_char key in

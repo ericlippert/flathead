@@ -95,7 +95,7 @@ let rec draw_screen screen =
   let (x, y, _, _) = screen_extent screen in
   let rec aux n =
     if n < screen.height then (
-      let text = Deque.peek_front_at screen.lines n in
+      let text = Deque.peek_front_at (screen_lines screen) n in
       let text_y = y + text_height * n in
       draw_string_at text x text_y;
       aux (n + 1)) in
@@ -186,10 +186,10 @@ let debugger_push_undo debugger new_interpreter =
       redo_stack = [] }
 
 let needs_more debugger =
-  debugger.interpreter.screen.needs_more;;
+  Screen.needs_more debugger.interpreter.screen
 
 let has_keystrokes debugger =
-  (String.length debugger.keystrokes) > 0;;
+  (String.length debugger.keystrokes) > 0
 
 let draw_interpreter debugger =
   let interpreter = debugger.interpreter in
