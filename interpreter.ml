@@ -1333,16 +1333,25 @@ let step_instruction interpreter =
     let story2 = write_word story1 (array + 2) x in
     { interpreter with story = story2 } in
 
-  let handle_buffer_mode flag interp =
-    (* TODO: buffer_mode not yet implemented; treat as a no-op for now. *)
-    interp in
+  let handle_buffer_mode flag interpreter =
+    (* Spec:
+    If set to 1, text output on the lower window in stream 1 is buffered up
+    so that it can be word wrapped properly. If set to 0, it isn't. *)
+    (* I note that this code implements the spec; did the spec intend to leave
+    unspecified what happens when the value is neither 0 nor 1? *)
+    match flag with
+    | 0 -> { interpreter with screen =
+      set_word_wrap interpreter.screen Word_wrap_disabled }
+    | 1 -> { interpreter with screen =
+      set_word_wrap interpreter.screen Word_wrap_enabled }
+    | _ -> interpreter in
 
-  let handle_set_text_style style interp =
+  let handle_set_text_style style interpreter =
     (* TODO: set_text_style not yet implemented; treat as a no-op for now. *)
-    interp in
+    interpreter in
 
-  let handle_pop interp =
-    pop_stack interp in
+  let handle_pop interpreter =
+    pop_stack interpreter in
 
   let handle_new_line interp =
     interpreter_print interp "\n" in

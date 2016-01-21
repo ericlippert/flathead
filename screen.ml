@@ -399,3 +399,7 @@ let get_active_cursor screen =
   match screen.selected_window with
   | Lower_window -> screen.lower_window.cursor
   | Upper_window -> screen.upper_window.cursor
+
+let set_word_wrap screen can_wrap =
+  let lower_window = { screen.lower_window with can_wrap } in
+  { screen with lower_window }
