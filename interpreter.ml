@@ -211,27 +211,40 @@ let do_store interpreter variable value =
   | Global global -> write_global interpreter global value
   | Stack -> push_stack interpreter value
 
-
-(* TODO Can we now eliminate this mutual recursion? *)
-(* Note that we have a rare case of mutually recursive functions here; OCaml tends
-   to encourage directly recursive functions but not so much mutually recursive functions.
-
+(*
    Z-machine instructions essentially have three parts. The first part evaluates the
    operands. The second part either causes a side effect or computes a result.
    The third part stores the result and computes what instruction to run next.
 
-   Almost all instructions do the three parts in that order. Calls and returns are
-   the weird ones. A call does the first part -- the operands are evaluated. But
-   the back half of the call -- the production of the result and the decision about
-   where to go after the call -- are executed by the corresponding return.
+   Almost all instructions do the three parts in that order. But there are some
+   weird ones:
 
-   That's why we need this code to be mutually recursive. The branch in the third
-   half of the instruction can do a return, so it needs to be able to return. But
-   the return needs to be able to handle the storage of the result *in the context
-   of the call instruction we are returning to*, and then handle the branch to
-   the instruction after the call. *)
+   * Call does the first two parts, but the third is done by the return. The
+     call stores into the frame the information necessary to do the store.
 
-let rec handle_branch interpreter instruction result =
+   * A return of course has no third part; it's third part is that of the call
+
+   * A successful restore will pick up where the save left off, which means it
+     needs to do the branch or store of the save. See comments in save / restore.
+
+   * A throw is essentially a return that skips over frames.
+
+*)
+
+let handle_return interpreter instruction value =
+ let frame = current_frame interpreter in
+ let next_pc = frame.resume_at in
+ let discard = frame.discard_value in
+ let variable = decode_variable frame.target_variable in
+ let pop_frame_interpreter = remove_frame interpreter in
+ let result_interpreter = set_program_counter pop_frame_interpreter next_pc in
+ let store_interpreter =
+   if discard then result_interpreter
+   else do_store result_interpreter variable value in
+ (* A call never has a branch and we already know the next pc *)
+ store_interpreter
+
+let handle_branch interpreter instruction result =
   let next_instruction () =
     let addr = interpreter.program_counter + instruction.length in
     set_program_counter interpreter addr in
@@ -247,25 +260,14 @@ let rec handle_branch interpreter instruction result =
     if (result <> 0) = sense then set_program_counter interpreter branch_target
     else next_instruction ()
 
-and handle_store_and_branch interpreter instruction result =
+let handle_store_and_branch interpreter instruction result =
   let store_interpreter =
     match instruction.store with
     | None -> interpreter
     | Some variable -> do_store interpreter variable result in
   handle_branch store_interpreter instruction result
 
-and handle_return interpreter instruction value =
-  let frame = current_frame interpreter in
-  let next_pc = frame.resume_at in
-  let discard = frame.discard_value in
-  let variable = decode_variable frame.target_variable in
-  let pop_frame_interpreter = remove_frame interpreter in
-  let result_interpreter = set_program_counter pop_frame_interpreter next_pc in
-  let store_interpreter =
-    if discard then result_interpreter
-    else do_store result_interpreter variable value in
-  (* A call never has a branch and we already know the next pc *)
-  store_interpreter
+
 
 
 (*
@@ -1331,6 +1333,10 @@ let step_instruction interpreter =
     | Some text -> interpreter_print interp text
     | _ -> failwith "no text in print instruction" in
 
+  let handle_set_color foreground background interp =
+    (* TODO: Stub for set_color. Note that this is variadic in v6 *)
+    interp in
+
   (* TODO: This could use some cleanup *)
   let handle_random n interp =
     let random_next () =
@@ -1541,7 +1547,7 @@ let step_instruction interpreter =
   | OP2_24  -> handle_op2_value handle_mod
   | OP2_25  -> handle_call()
   | OP2_26  -> handle_call()
-  | OP2_27  -> failwith (Printf.sprintf "%04x TODO: OP2_27" instruction.address)
+  | OP2_27  -> handle_op2_effect handle_set_color
   | OP2_28  -> failwith (Printf.sprintf "%04x TODO: OP2_28" instruction.address)
 
   | OP1_128 -> handle_op1_value handle_jz
