@@ -101,8 +101,11 @@ type t =
 }
 
 let make story screen =
+  (* TODO: Restore these after a restart / restore *)
+
   let story = set_screen_width story screen.width in
   let story = set_screen_height story screen.height in
+  let story = set_supports_multiple_windows story true in
   let pc = initial_program_counter story in
   let initial_frame =
   {
@@ -1144,6 +1147,7 @@ let step_instruction interpreter =
       program_counter = program_counter + 1; (* TODO: Why is this off by one? *)
       frames } in
     (* TODO: All the bits that have to be preserved *)
+    (* TODO: After a restore, collapse the upper window *)
     new_interpreter in
   (* end of handle_restore *)
 
@@ -1198,20 +1202,65 @@ let step_instruction interpreter =
     interp in
 
   let handle_split_window lines interp =
-    (* TODO: split_window not yet implemented; treat as a no-op for now. *)
-    interp in
+    (* TODO: in version 3 only, clear the upper window after the split. *)
+    { interp with screen = split_window interp.screen lines } in
 
   let handle_set_window window interp =
-    (* TODO: set_window not yet implemented; treat as a no-op for now. *)
-    interp in
+    let w =
+      match window with
+      | 0 -> Lower_window
+      | 1 -> Upper_window
+      | _ -> failwith "Unexpected window in set_window" in
+    { interp with screen = set_window interp.screen w } in
 
   let handle_erase_window window interp =
-    (* TODO: erase_window not yet implemented; treat as a no-op for now. *)
-    interp in
+    (* Spec Erases window with given number (to background colour); or
+      if -1 it unsplits the screen and clears the lot; or if -2 it clears
+      the screen without unsplitting it. In cases -1 and -2, the cursor may
+      move *)
+
+    (* In Versions 5 and later, the cursor for the window being erased should
+      be moved to the top left. *)
+
+    (* In Version 4, the lower window's cursor moves to its bottom left,
+       while the upper window's cursor moves to top left *)
+    let window = signed_word window in
+    let unsplit = match window with
+      | -2 -> interp.screen
+      | -1 -> split_window interp.screen 0
+      | _ -> interp.screen in
+    let erased = match window with
+      | -2
+      | -1 -> erase_all unsplit
+      | 0 -> erase_lower unsplit
+      | 1 -> erase_upper unsplit
+      | _ -> failwith "unexpected window number in erase_window" in
+    let upper_moved = match window with
+      | -2
+      | -1
+      | 1 -> set_upper_cursor erased 1 1
+      | _ -> erased in
+    let lower_moved = match window with
+      | -2
+      | -1
+      | 0 ->
+        if (version interp.story) <= 4 then
+          set_lower_cursor upper_moved 1 (upper_moved.height)
+        else
+          set_lower_cursor upper_moved 1 (upper_moved.upper_window + 1)
+      | _ -> upper_moved in
+    { interp with screen = lower_moved } in
 
   let handle_set_cursor line column interp =
-    (* TODO: set_cursor not yet implemented; treat as a no-op for now. *)
-    interp in
+    (* Spec 8.7.2.3
+    When the upper window is selected, its cursor position can be moved with
+    set_cursor. The opcode has no effect when the lower window is selected.
+    It is illegal to move the cursor outside the current size of the upper
+    window. *)
+    match interp.screen.selected_window with
+    | Lower_window -> interp
+    | Upper_window ->
+      { interp with screen = set_cursor interp.screen column line } in
 
   let handle_buffer_mode flag interp =
     (* TODO: buffer_mode not yet implemented; treat as a no-op for now. *)
