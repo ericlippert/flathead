@@ -1,3 +1,5 @@
+open Utility
+
 type iff_contents =
 | Header of string
 | SubHeader of string
@@ -21,18 +23,7 @@ type iff_contents =
 exception BadFileFormat
 (* TODO: Better error handling *)
 
-let string_of_char x =
-  String.make 1 x
 
-let really_input_string channel length =
-  let bytes = String.create length in
-  really_input channel bytes 0 length;
-  bytes
-
-let rec first_match items predicate =
-  match items with
-  | h :: t -> if predicate h then Some h else first_match t predicate
-  | [] -> None
 
 let read_iff_file filename root_form =
 
@@ -46,13 +37,7 @@ let read_iff_file filename root_form =
     | UnorderedList contents -> UnorderedList (List.map remove_assign contents)
     | _ -> form in
 
-  let get_file () =
-    let channel = open_in_bin filename in
-    let length = in_channel_length channel in
-    let file = really_input_string channel length in
-    close_in channel;
-    file in
-  let file = get_file() in
+  let file = get_file filename in
 
   let rec read_form offset form end_position context =
     let rec resolve_lookup name forms =
@@ -317,7 +302,5 @@ let write_iff_file filename root_form =
     | _ -> failwith "unexpected form in write_form" in
   (* end of write_form *)
   let text = write_form root_form in
-  let channel = open_out_bin filename in
-  output_string channel text;
-  close_out channel
+  write_file filename text
   (* end of write_iff_file *)

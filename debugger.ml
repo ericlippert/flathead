@@ -1,3 +1,4 @@
+open Utility
 open Graphics
 open Screen
 open Interpreter;;
@@ -6,9 +7,6 @@ open_graph "";;
 auto_synchronize false;;
 set_font "Lucida Console";;
 let (text_width, text_height) = text_size "X";;
-
-let string_of_char x =
-  String.make 1 x
 
 let draw_string_at text x y =
   Graphics.moveto x y;

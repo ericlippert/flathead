@@ -1,34 +1,4 @@
-(* TODO: Move these into a utility function module. *)
-
-let rec times f n item =
-  if n = 0 then item else times f (n - 1) (f item)
-
-let spaces n =
-  String.make n ' '
-
-let rec reverse_index_from text target index =
-  if index < 0 then None
-  else if text.[index] = target then Some index
-  else reverse_index_from text target (index - 1)
-
-let left_string text length =
-  String.sub text 0 length
-
-let right_string text index =
-  String.sub text index ((String.length text) - index)
-
-let break_string text target =
-  let index = String.index text target in
-  let left = left_string text index in
-  let right = right_string text (index + 1) in
-  (left, right)
-
-let replace_at original_text index new_text =
-  let len = String.length new_text in
-  let left = left_string original_text index in
-  let right = right_string original_text (index + len) in
-  left ^ new_text ^ right
-
+open Utility
 
 (* A window is a rectangular block of text with a cursor. Text is
 written at the cursor; text which hits the edge of the window is wrapped

@@ -1,63 +1,14 @@
 (* This contains all the logic for dealing with the Z Machine
 story file itself. All state in the story file is in memory;
 these functions just provide structure around that memory. *)
+
+open Utility
+
 type t =
 {
   memory : Memory.t
 }
 
-let accumulate_strings to_string items =
-  let folder text item =
-    text ^ (to_string item) in
-  List.fold_left folder "" items
-
-let accumulate_strings_loop to_string start max =
-  let rec aux acc i =
-    if i >= max then acc
-    else aux (acc ^ (to_string i)) (i + 1) in
-  aux "" start
-
-let string_of_char x =
-  String.make 1 x
-
-let unsigned_word word =
-  ((word mod 65536) + 65536) mod 65536
-
-let signed_word word =
-  let canonical = unsigned_word word in
-  if canonical > 32767 then canonical - 65536 else canonical
-
-(* Helper method that takes an item and a function that produces related items.
-   The result is the transitive closure of the relation. *)
-
-(* TODO: This is not very efficient because of the call to List.mem in there.
-   TODO: A solution involving an immutable set would be more performant for
-   TODO: large closures. *)
-
-let transitive_closure_many items relation =
-  let rec merge related set stack =
-    match related with
-    | [] -> (set, stack)
-    | head :: tail ->
-      if List.mem head set then merge tail set stack
-      else merge tail (head :: set) (head :: stack) in
-  let rec aux set stack =
-    match stack with
-    | [] -> set
-    | head :: tail ->
-      let (new_set, new_stack) = merge (relation head) set tail in
-      aux new_set new_stack in
-  aux [] items
-
-let transitive_closure item relation =
-  transitive_closure_many [item] relation
-
-let reflexive_closure_many items relation =
-  let t = transitive_closure_many items relation in
-  List.fold_left (fun s i -> if List.mem i s then s else i :: s) t items
-
-let reflexive_closure item relation =
-  reflexive_closure_many [item] relation
 
 (* *)
 (* Dealing with memory *)
@@ -65,23 +16,6 @@ let reflexive_closure item relation =
 
 let original story =
   { memory = Memory.original story.memory }
-
-let fetch_bit n word =
-  (word land (1 lsl n)) lsr n = 1
-
-let clear_bit n word =
-  word land (lnot (1 lsl n))
-
-let set_bit n word =
-  word lor (1 lsl n)
-
-let set_bit_to n word value =
-  if value then set_bit n word
-  else clear_bit n word
-
-let fetch_bits high length word =
-  let mask = lnot (-1 lsl length) in
-  (word lsr (high - length + 1)) land mask
 
 (* A "word address" is only used in the abbreviation table, and is always
 just half the real address. A "packed address" is used in calls and fetching
@@ -123,16 +57,9 @@ let write_length_prefixed_string story address text =
   write_word copied address length
 
 (* Debugging method for displaying a raw block of memory. *)
-let display_bytes story address length =
-  let blocksize = 16 in
-  let to_string i =
-    let header =
-      if i mod blocksize = 0 then Printf.sprintf "\n%06x: " (i + address)
-      else "" in
-    let byte = read_byte story (i + address) in
-    let contents = Printf.sprintf "%02x " byte in
-    header ^ contents in
-  (accumulate_strings_loop to_string 0 length) ^ "\n"
+let display_story_bytes story address length =
+  let get_byte addr = read_byte story addr in
+  display_bytes get_byte address length
 
 (* *)
 (* Header *)
@@ -357,7 +284,7 @@ let load_story filename =
 (* *)
 
 (* TODO: Assumes v3 abbreviation table *)
-let abbreviation_table_length = 96;;
+let abbreviation_table_length = 96
 
 let abbreviation_address story n =
   if n < 0 || n >= abbreviation_table_length then
@@ -979,7 +906,7 @@ type bytecode =
   | VAR_240 | VAR_241 | VAR_242 | VAR_243 | VAR_244 | VAR_245 | VAR_246 | VAR_247
   | VAR_248 | VAR_249 | VAR_250 | VAR_251 | VAR_252 | VAR_253 | VAR_254 | VAR_255
   | EXT_0   | EXT_1   | EXT_2   | EXT_3   | EXT_4   | EXT_5   | EXT_6   | EXT_7
-  | EXT_8   | EXT_9   | EXT_10  | EXT_11  | EXT_12  | EXT_13  | EXT_14  
+  | EXT_8   | EXT_9   | EXT_10  | EXT_11  | EXT_12  | EXT_13  | EXT_14
   | EXT_16  | EXT_17  | EXT_18  | EXT_19  | EXT_20  | EXT_21  | EXT_22  | EXT_23
   | EXT_24  | EXT_25  | EXT_26  | EXT_27  | EXT_28  | EXT_29
   | ILLEGAL

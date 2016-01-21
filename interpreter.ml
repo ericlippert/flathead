@@ -1,15 +1,8 @@
+open Utility
 open Story
 open Screen
 open Iff
 open Quetzal
-
-module IntMap = Map.Make(struct type t = int let compare = compare end)
-
-let string_of_char x = String.make 1 x
-
-let truncate text length =
-  if (String.length text) > length then String.sub text 0 length
-  else text
 
 (* Word-wraps the last line in a list of lines. Assumes that
 the tail of the list is already word-wrapped. Returns the
