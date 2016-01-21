@@ -394,3 +394,8 @@ match screen.selected_window with
   { screen with lower_window = erase_line_window screen.lower_window }
 | Upper_window ->
   { screen with upper_window = erase_line_window screen.upper_window }
+
+let get_active_cursor screen =
+  match screen.selected_window with
+  | Lower_window -> screen.lower_window.cursor
+  | Upper_window -> screen.upper_window.cursor

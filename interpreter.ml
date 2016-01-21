@@ -1323,6 +1323,16 @@ let step_instruction interpreter =
     | Upper_window ->
       { interp with screen = set_cursor interp.screen column line } in
 
+  let handle_get_cursor array interpreter =
+    (* Spec:
+    Puts the current cursor row into the word 0 of the given array, and the
+    current cursor column into word 1. (The array is not a table and has no
+    size information in its initial entry.) *)
+    let (x, y) = get_active_cursor interpreter.screen in
+    let story1 = write_word interpreter.story array y in
+    let story2 = write_word story1 (array + 2) x in
+    { interpreter with story = story2 } in
+
   let handle_buffer_mode flag interp =
     (* TODO: buffer_mode not yet implemented; treat as a no-op for now. *)
     interp in
@@ -1631,7 +1641,7 @@ let step_instruction interpreter =
   | VAR_237 -> handle_op1_effect handle_erase_window
   | VAR_238 -> handle_op1_effect handle_erase_line
   | VAR_239 -> handle_op2_effect handle_set_cursor
-  | VAR_240 -> failwith (Printf.sprintf "%04x TODO: VAR_240" instruction.address)
+  | VAR_240 -> handle_op1_effect handle_get_cursor
   | VAR_241 -> handle_op1_effect handle_set_text_style
   | VAR_242 -> handle_op1_effect handle_buffer_mode
   | VAR_243 -> handle_output_stream ()
