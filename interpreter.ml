@@ -336,6 +336,7 @@ let handle_dec interpreter instruction =
   | _ -> failwith "dec requires a variable"
 
 let handle_pull interpreter instruction =
+  (* TODO: Variadic in v6 *)
   match instruction.operands with
   | [(Variable variable)] ->
     let value = peek_stack interpreter in
@@ -610,6 +611,7 @@ let complete_read_char interpreter instruction input =
     handle_store_and_branch running_interpreter instruction (int_of_char input)
 
 let handle_sread interpreter instruction =
+  (* TODO: Variadic instruction *)
 
   (* This instruction is broken up into two halves. The first determines the size of
   the text buffer needed and then gives back an interpreter set to "I need input".
@@ -1250,7 +1252,6 @@ let step_instruction interpreter =
     (* TODO: input_stream not yet implemented; treat as a no-op for now. *)
     interp in
 
-
   let handle_set_window window interp =
     let w =
       match window with
@@ -1259,8 +1260,22 @@ let step_instruction interpreter =
       | _ -> failwith "Unexpected window in set_window" in
     { interp with screen = set_window interp.screen w } in
 
+  let handle_erase_line value interp =
+
+  (* Spec:
+  Versions 4 and 5: if the value is 1, erase from the current cursor
+  position to the end of its line in the current window. If the value
+  is anything other than 1, do nothing. *)
+
+  if value = 1 then
+    { interp with screen = erase_line interp.screen }
+  else
+    interp in
+
   let handle_erase_window window interp =
-    (* Spec Erases window with given number (to background colour); or
+    (* Spec:
+
+      Erases window with given number (to background colour); or
       if -1 it unsplits the screen and clears the lot; or if -2 it clears
       the screen without unsplitting it. In cases -1 and -2, the cursor may
       move *)
@@ -1327,6 +1342,9 @@ let step_instruction interpreter =
 
   let handle_verify interp =
     if verify_checksum interp.story then 1 else 0 in
+
+  let handle_piracy interp =
+    1 in
 
   let handle_print interp =
     match instruction.text with
@@ -1426,6 +1444,12 @@ let step_instruction interpreter =
         if x = y then addr
         else aux (i + 1) in
     aux 0 in
+
+  let handle_catch() =
+    failwith "catch instruction TODO" in
+
+  let handle_throw() =
+    failwith "throw instruction TODO" in
 
   let handle_call () =
     (* The packed address is already unpacked if the operand is a constant,
@@ -1548,7 +1572,7 @@ let step_instruction interpreter =
   | OP2_25  -> handle_call()
   | OP2_26  -> handle_call()
   | OP2_27  -> handle_op2_effect handle_set_color
-  | OP2_28  -> failwith (Printf.sprintf "%04x TODO: OP2_28" instruction.address)
+  | OP2_28  -> handle_throw()
 
   | OP1_128 -> handle_op1_value handle_jz
   | OP1_129 -> handle_op1_value handle_get_sibling
@@ -1579,13 +1603,17 @@ let step_instruction interpreter =
   | OP0_182 -> handle_restore ()
   | OP0_183 -> handle_restart ()
   | OP0_184 -> handle_ret_popped ()
-  | OP0_185 -> handle_op0_effect handle_pop
+  | OP0_185 ->
+    if (version interpreter.story <= 4) then
+      handle_op0_effect handle_pop
+    else
+      handle_catch()
   | OP0_186 -> handle_quit ()
   | OP0_187 -> handle_op0_effect handle_new_line
   | OP0_188 -> handle_op0_effect handle_show_status
   | OP0_189 -> handle_op0_value handle_verify
-  | OP0_190 -> failwith (Printf.sprintf "%04x TODO: OP0_190" instruction.address)
-  | OP0_191 -> failwith (Printf.sprintf "%04x TODO: OP0_191" instruction.address)
+  | OP0_190 -> failwith "190 is the extended opcode marker"
+  | OP0_191 -> handle_op0_value handle_piracy
 
   | VAR_224 -> handle_call ()
   | VAR_225 -> handle_op3_effect handle_storew
@@ -1601,7 +1629,7 @@ let step_instruction interpreter =
   | VAR_235 -> handle_op1_effect handle_set_window
   | VAR_236 -> failwith (Printf.sprintf "%04x TODO: VAR_236" instruction.address)
   | VAR_237 -> handle_op1_effect handle_erase_window
-  | VAR_238 -> failwith (Printf.sprintf "%04x TODO: VAR_238" instruction.address)
+  | VAR_238 -> handle_op1_effect handle_erase_line
   | VAR_239 -> handle_op2_effect handle_set_cursor
   | VAR_240 -> failwith (Printf.sprintf "%04x TODO: VAR_240" instruction.address)
   | VAR_241 -> handle_op1_effect handle_set_text_style

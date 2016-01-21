@@ -136,6 +136,13 @@ let set_line window line y =
   let lines = Deque.set_front_at window.lines line (window.height - y) in
   { window with lines }
 
+let erase_line_window window =
+  let (x, y) = window.cursor in
+  let old_line = get_line window y in
+  let left = left_string old_line (x - 1) in
+  let right = spaces (window.width - x + 1) in
+  set_line window (left ^ right) y
+
 let rec print_window window text =
   let len = String.length text in
   if len = 0 then
@@ -380,3 +387,10 @@ let more screen =
 
 let clear_more screen =
   { screen with lower_window = clear_more_window screen.lower_window }
+
+let erase_line screen =
+match screen.selected_window with
+| Lower_window ->
+  { screen with lower_window = erase_line_window screen.lower_window }
+| Upper_window ->
+  { screen with upper_window = erase_line_window screen.upper_window }
