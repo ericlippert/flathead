@@ -570,6 +570,17 @@ let complete_sread interpreter instruction input =
   handle_store_and_branch length_copied_interpreter instruction 0
   (* End of complete_sread *)
 
+let handle_read_char interpreter instruction =
+  (* TODO: Support for time routine *)
+  { interpreter with
+      state = Waiting_for_input ;
+      input_max = 1 }
+
+let complete_read_char interpreter instruction input =
+    (*  TODO: Handle arguments; could require taking stuff off stack. *)
+    let running_interpreter = { interpreter with state = Running } in
+    handle_store_and_branch running_interpreter instruction (int_of_char input)
+
 let handle_sread interpreter instruction =
 
   (* This instruction is broken up into two halves. The first determines the size of
@@ -1162,8 +1173,16 @@ let step_instruction interpreter =
     (* TODO: erase_window not yet implemented; treat as a no-op for now. *)
     interp in
 
+  let handle_set_cursor line column interp =
+    (* TODO: set_cursor not yet implemented; treat as a no-op for now. *)
+    interp in
+
   let handle_buffer_mode flag interp =
     (* TODO: buffer_mode not yet implemented; treat as a no-op for now. *)
+    interp in
+
+  let handle_set_text_style style interp =
+    (* TODO: set_text_style not yet implemented; treat as a no-op for now. *)
     interp in
 
   let handle_pop interp =
@@ -1376,7 +1395,7 @@ let step_instruction interpreter =
   | OP2_22  -> handle_op2_value handle_mul
   | OP2_23  -> handle_op2_value handle_div
   | OP2_24  -> handle_op2_value handle_mod
-  | OP2_25  -> failwith (Printf.sprintf "%04x TODO: OP2_25" instruction.address)
+  | OP2_25  -> handle_call()
   | OP2_26  -> failwith (Printf.sprintf "%04x TODO: OP2_26" instruction.address)
   | OP2_27  -> failwith (Printf.sprintf "%04x TODO: OP2_27" instruction.address)
   | OP2_28  -> failwith (Printf.sprintf "%04x TODO: OP2_28" instruction.address)
@@ -1430,14 +1449,14 @@ let step_instruction interpreter =
   | VAR_236 -> failwith (Printf.sprintf "%04x TODO: VAR_236" instruction.address)
   | VAR_237 -> handle_op1_effect handle_erase_window
   | VAR_238 -> failwith (Printf.sprintf "%04x TODO: VAR_238" instruction.address)
-  | VAR_239 -> failwith (Printf.sprintf "%04x TODO: VAR_239" instruction.address)
+  | VAR_239 -> handle_op2_effect handle_set_cursor
   | VAR_240 -> failwith (Printf.sprintf "%04x TODO: VAR_240" instruction.address)
-  | VAR_241 -> failwith (Printf.sprintf "%04x TODO: VAR_241" instruction.address)
+  | VAR_241 -> handle_op1_effect handle_set_text_style
   | VAR_242 -> handle_op1_effect handle_buffer_mode
   | VAR_243 -> handle_op1_effect handle_output_stream
   | VAR_244 -> handle_op1_effect handle_input_stream
   | VAR_245 -> failwith (Printf.sprintf "%04x TODO: VAR_245" instruction.address)
-  | VAR_246 -> failwith (Printf.sprintf "%04x TODO: VAR_246" instruction.address)
+  | VAR_246 -> handle_read_char interpreter instruction
   | VAR_247 -> failwith (Printf.sprintf "%04x TODO: VAR_247" instruction.address)
   | VAR_248 -> failwith (Printf.sprintf "%04x TODO: VAR_248" instruction.address)
   | VAR_249 -> failwith (Printf.sprintf "%04x TODO: VAR_249" instruction.address)
@@ -1499,7 +1518,7 @@ let step interpreter =
 
 
 let step_with_input interpreter key =
-  let key = string_of_char key in
+  let key_text = string_of_char key in
   let length = String.length interpreter.input in
   let instruction =
     decode_instruction interpreter.story interpreter.program_counter in
@@ -1512,9 +1531,10 @@ let step_with_input interpreter key =
     else
       { interpreter with input = truncate interpreter.input (length - 1)} in
   match instruction.opcode with
+  | VAR_246 -> complete_read_char interpreter instruction key
   | VAR_228 ->
-    if key = "\r" then handle_enter()
-    else if key = "\b" then handle_backspace()
+    if key_text = "\r" then handle_enter()
+    else if key_text = "\b" then handle_backspace()
     else if length >= interpreter.input_max then interpreter
-    else { interpreter with input = interpreter.input ^ key }
+    else { interpreter with input = interpreter.input ^ key_text }
   | _ -> failwith "not waiting for input"

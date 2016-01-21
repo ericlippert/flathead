@@ -323,7 +323,6 @@ let load_story filename =
   close_in channel;
   let len = String.length file in
   if len < header_size then failwith (Printf.sprintf "%s is not a valid story file" filename);
-  let version = int_of_char file.[version_offset] in
   let high = int_of_char file.[static_memory_base_offset] in
   let low = int_of_char file.[static_memory_base_offset + 1] in
   let dynamic_length = high * 256 + low in
