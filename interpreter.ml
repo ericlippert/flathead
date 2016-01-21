@@ -88,7 +88,8 @@ type t =
   transcript : string list;
   transcript_selected : bool;
 
-  (* TODO: output stream 3 NYI *)
+  memory_table : int list;
+  memory_selected : bool;
 
   (* output stream 4 *)
   commands : string list;
@@ -131,6 +132,8 @@ let make story screen =
     transcript_selected = get_transcript_flag story;
     commands = [];
     commands_selected = false;
+    memory_table = [];
+    memory_selected = false;
     input = "";
     input_max = 0
 }
@@ -346,8 +349,19 @@ let select_output_stream interpreter stream value =
   | TranscriptStream -> { interpreter with
     transcript_selected = value;
     story = set_transcript_flag interpreter.story value }
-  | MemoryStream -> failwith "TODO: output stream 3 NYI"
+  | MemoryStream -> failwith "use select/deselect memory stream"
   | CommandStream -> { interpreter with commands_selected = value };;
+
+let select_memory_stream interpreter table =
+  { interpreter with
+    memory_selected = true;
+    memory_table = table :: interpreter.memory_table }
+
+let deselect_memory_stream interpreter =
+  match interpreter.memory_table with
+  | [] -> { interpreter with memory_selected = false }
+  | [_] -> { interpreter with memory_selected = false; memory_table = [] }
+  | _ :: t -> { interpreter with memory_selected = true; memory_table = t }
 
 let add_to_transcript transcript text =
   let add_to_lines lines str =
@@ -358,17 +372,24 @@ let add_to_transcript transcript text =
   wrap_lines (add_to_lines transcript text) transcript_width
 
 let interpreter_print interpreter text =
-  let new_transcript =
-    if interpreter.transcript_selected then
-      add_to_transcript interpreter.transcript text
-    else interpreter.transcript in
-  let new_screen =
-    if interpreter.screen_selected then Screen.print interpreter.screen text
-    else interpreter.screen in
-  { interpreter with
-    transcript = new_transcript;
-    screen = new_screen;
-    has_new_output = interpreter.screen_selected }
+  (* If output stream 3 is selected then no output goes to any other
+  selected stream *)
+  if interpreter.memory_selected then
+    let table = List.hd interpreter.memory_table in
+    let new_story = write_length_prefixed_string interpreter.story table text in
+    { interpreter with story = new_story }
+  else
+    let new_transcript =
+      if interpreter.transcript_selected then
+        add_to_transcript interpreter.transcript text
+      else interpreter.transcript in
+    let new_screen =
+      if interpreter.screen_selected then Screen.print interpreter.screen text
+      else interpreter.screen in
+    { interpreter with
+      transcript = new_transcript;
+      screen = new_screen;
+      has_new_output = interpreter.screen_selected }
 
 (* TODO: This code could use some cleanup *)
 let set_status_line interpreter =
@@ -691,7 +712,7 @@ let step_instruction interpreter =
       let (x, operand_interpreter) = read_operand interpreter x_operand in
       let (result, result_interpreter) = compute_result x operand_interpreter in
       handle_store_and_branch result_interpreter instruction result
-   | _ -> failwith "instruction must have one operand" in
+   | _ -> failwith (Printf.sprintf "instruction %s must have one operand" (display_instruction  instruction ) ) in
 
   let handle_op1_effect compute_effect =
     handle_op1 (fun x i -> (0, compute_effect x i)) in
@@ -1142,7 +1163,8 @@ let step_instruction interpreter =
   let handle_push x interp =
     push_stack interp x in
 
-  let handle_output_stream stream interp =
+  let handle_output_stream_1 stream interp =
+    let stream = signed_word stream in
     (* TODO: This is a variadic instruction *)
     let new_interpreter = match stream with
     | 0 -> interp
@@ -1150,12 +1172,24 @@ let step_instruction interpreter =
     | -1 -> select_output_stream interp ScreenStream false
     | 2 -> select_output_stream interp TranscriptStream true
     | -2 -> select_output_stream interp TranscriptStream true
-    | 3
-    | -3 -> failwith "TODO: selecting/deselecting stream 3 is NYI "
+    | 3 -> failwith "Illegal to select stream 3 without table "
+    | -3 -> deselect_memory_stream interp
     | 4 -> select_output_stream interp CommandStream true
     | -4 -> select_output_stream interp CommandStream true
-    | _ -> failwith "Invalid stream in output_stream" in
+    | _ -> failwith (Printf.sprintf "Invalid stream %d in output_stream" stream) in
     new_interpreter in
+
+  let handle_output_stream_2 stream table interp =
+    if stream = 3 then
+      select_memory_stream interp table
+    else
+      handle_output_stream_1 stream interp in
+
+  let handle_output_stream () =
+    match instruction.operands with
+    | [_] -> handle_op1_effect handle_output_stream_1
+    | [_; _] -> handle_op2_effect handle_output_stream_2
+    | _ -> failwith "output_stream requires 1 or 2 arguments" in
 
   let handle_input_stream stream interp =
     (* TODO: input_stream not yet implemented; treat as a no-op for now. *)
@@ -1277,6 +1311,21 @@ let step_instruction interpreter =
 
   let handle_rfalse () =
     handle_return interpreter instruction 0 in
+
+  let handle_scan_table x table len interp =
+    let x = unsigned_word x in
+    (* TODO: This is variadic; also has a 4-argument version *)
+    (* Does word x occur in table of len words? If yes, give
+    the address. If no, zero. *)
+    let rec aux i =
+      if i = len then
+        0
+      else
+        let addr = table + 2 * i in
+        let y = unsigned_word (read_word interp.story addr) in
+        if x = y then addr
+        else aux (i + 1) in
+    aux 0 in
 
   let handle_call () =
     (* The packed address is already unpacked if the operand is a constant, but not if the operand is a variable. *)
@@ -1453,11 +1502,11 @@ let step_instruction interpreter =
   | VAR_240 -> failwith (Printf.sprintf "%04x TODO: VAR_240" instruction.address)
   | VAR_241 -> handle_op1_effect handle_set_text_style
   | VAR_242 -> handle_op1_effect handle_buffer_mode
-  | VAR_243 -> handle_op1_effect handle_output_stream
+  | VAR_243 -> handle_output_stream ()
   | VAR_244 -> handle_op1_effect handle_input_stream
   | VAR_245 -> failwith (Printf.sprintf "%04x TODO: VAR_245" instruction.address)
   | VAR_246 -> handle_read_char interpreter instruction
-  | VAR_247 -> failwith (Printf.sprintf "%04x TODO: VAR_247" instruction.address)
+  | VAR_247 -> handle_op3_value handle_scan_table
   | VAR_248 -> failwith (Printf.sprintf "%04x TODO: VAR_248" instruction.address)
   | VAR_249 -> failwith (Printf.sprintf "%04x TODO: VAR_249" instruction.address)
   | VAR_250 -> failwith (Printf.sprintf "%04x TODO: VAR_250" instruction.address)

@@ -112,6 +112,16 @@ let write_string story address text =
   let copied = aux 0 story in
   write_byte copied (address + length) 0
 
+(* Writes a series of bytes into memory; no zero terminator,
+prefixed by length *)
+let write_length_prefixed_string story address text =
+  let length = String.length text in
+  let rec aux i s =
+    if i = length then s
+    else aux (i + 1) (write_byte s (address + 2 + i) (int_of_char text.[i])) in
+  let copied = aux 0 story in
+  write_word copied address length
+
 (* Debugging method for displaying a raw block of memory. *)
 let display_bytes story address length =
   let blocksize = 16 in
