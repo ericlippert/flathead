@@ -717,7 +717,7 @@ let step_instruction interpreter =
       let (x, operand_interpreter) = read_operand interpreter x_operand in
       let (result, result_interpreter) = compute_result x operand_interpreter in
       handle_store_and_branch result_interpreter instruction result
-   | _ -> failwith (Printf.sprintf "instruction %s must have one operand" (display_instruction  instruction ) ) in
+   | _ -> failwith (Printf.sprintf "instruction %s must have one operand" (display_instruction interpreter.story instruction ) ) in
 
   let handle_op1_effect compute_effect =
     handle_op1 (fun x i -> (0, compute_effect x i)) in
@@ -1495,7 +1495,7 @@ let step_instruction interpreter =
   | OP2_23  -> handle_op2_value handle_div
   | OP2_24  -> handle_op2_value handle_mod
   | OP2_25  -> handle_call()
-  | OP2_26  -> failwith (Printf.sprintf "%04x TODO: OP2_26" instruction.address)
+  | OP2_26  -> handle_call()
   | OP2_27  -> failwith (Printf.sprintf "%04x TODO: OP2_27" instruction.address)
   | OP2_28  -> failwith (Printf.sprintf "%04x TODO: OP2_28" instruction.address)
 
@@ -1514,8 +1514,11 @@ let step_instruction interpreter =
   | OP1_140 -> handle_jump ()
   | OP1_141 -> handle_op1_effect handle_print_paddr
   | OP1_142 -> handle_op1_value handle_load
-  | OP1_143 -> handle_op1_value handle_not
-
+  | OP1_143 ->
+    if (version interpreter.story) <= 4 then
+      handle_op1_value handle_not
+    else
+      handle_call()
   | OP0_176 -> handle_rtrue ()
   | OP0_177 -> handle_rfalse ()
   | OP0_178 -> handle_op0_effect handle_print
@@ -1557,7 +1560,7 @@ let step_instruction interpreter =
   | VAR_245 -> failwith (Printf.sprintf "%04x TODO: VAR_245" instruction.address)
   | VAR_246 -> handle_read_char interpreter instruction
   | VAR_247 -> handle_op3_value handle_scan_table
-  | VAR_248 -> failwith (Printf.sprintf "%04x TODO: VAR_248" instruction.address)
+  | VAR_248 -> handle_op1_value handle_not
   | VAR_249 -> failwith (Printf.sprintf "%04x TODO: VAR_249" instruction.address)
   | VAR_250 -> failwith (Printf.sprintf "%04x TODO: VAR_250" instruction.address)
   | VAR_251 -> failwith (Printf.sprintf "%04x TODO: VAR_251" instruction.address)
