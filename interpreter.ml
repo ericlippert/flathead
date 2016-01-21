@@ -771,8 +771,8 @@ let step_instruction interpreter =
       handle_store_and_branch result_interpreter instruction result
      | _ -> failwith (Printf.sprintf "instruction at %04x must have four operands" instruction.address ) in
 
-(*         let handle_op4_effect compute_effect =
-       handle_op4 (fun w x y z i -> (0, compute_effect w x y z i)) in *)
+  let handle_op4_effect compute_effect =
+    handle_op4 (fun w x y z i -> (0, compute_effect w x y z i)) in
 
   let handle_op4_value compute_value =
     handle_op4 (fun w x y z i -> (compute_value w x y z i, i)) in
@@ -1248,19 +1248,23 @@ let step_instruction interpreter =
     | [_; _] -> handle_op2_effect handle_output_stream_2
     | _ -> failwith "output_stream requires 1 or 2 arguments" in
 
-  let handle_input_stream stream interp =
+  let handle_input_stream stream interpreter =
     (* TODO: input_stream not yet implemented; treat as a no-op for now. *)
-    interp in
+    interpreter in
 
-  let handle_set_window window interp =
+  let handle_sound_effect() =
+    (* TODO: sound_effect not yet implemented; treat as a no-op for now. *)
+    interpreter in
+
+  let handle_set_window window interpreter =
     let w =
       match window with
       | 0 -> Lower_window
       | 1 -> Upper_window
       | _ -> failwith "Unexpected window in set_window" in
-    { interp with screen = set_window interp.screen w } in
+    { interpreter with screen = set_window interpreter.screen w } in
 
-  let handle_erase_line value interp =
+  let handle_erase_line value interpreter =
 
   (* Spec:
   Versions 4 and 5: if the value is 1, erase from the current cursor
@@ -1268,9 +1272,9 @@ let step_instruction interpreter =
   is anything other than 1, do nothing. *)
 
   if value = 1 then
-    { interp with screen = erase_line interp.screen }
+    { interpreter with screen = erase_line interpreter.screen }
   else
-    interp in
+    interpreter in
 
   let handle_erase_window window interp =
     (* Spec:
@@ -1349,6 +1353,45 @@ let step_instruction interpreter =
   let handle_set_text_style style interpreter =
     (* TODO: set_text_style not yet implemented; treat as a no-op for now. *)
     interpreter in
+
+  let handle_tokenise () =
+    failwith "tokenise not implemented" in
+
+  let handle_encode_text () =
+    failwith "TODO encode_text not implemented" in
+
+  let handle_copy_table first second size interpreter =
+    (* Spec:
+    If second is zero, then size bytes of first are zeroed. Otherwise first
+    is copied into second, its length in bytes being the absolute value of
+    size (i.e., size if size is positive, -size if size is negative).
+    The tables are allowed to overlap. If size is positive, the interpreter
+    must copy either forwards or backwards so as to avoid corrupting first in
+    the copying process. If size is negative, the interpreter
+    must copy forwards even if this corrupts first. *)
+    failwith "TODO copy_table not implemented" in
+
+  let handle_print_table text width height skip interpreter =
+  (* TODO: Note: variadic instruction *)
+      (* Spec:
+      Print a rectangle of text on screen spreading right and down from the
+      current cursor position, of given width and height, from the table of
+      ZSCII text given. (Height is optional and defaults to 1.) If a skip
+      value is given, then that many characters of text are skipped over in
+      between each line and the next. (So one could make this display, for
+      instance, a 2 by 3 window onto a giant 40 by 40 character graphics map.) *)
+
+      failwith "TODO print_table not implemented" in
+
+  let handle_check_arg_count number interpreter =
+    (* Spec:
+      Branches if the given argument-number (counting from 1) has been
+      provided by the routine call to the current routine. (This allows
+      routines in Versions 5 and later to distinguish between the calls
+      routine(1) and routine(1,0), which would otherwise be impossible to
+      tell apart.) *)
+
+    failwith "TODO check_arg_count not implemented" in
 
   let handle_pop interpreter =
     pop_stack interpreter in
@@ -1646,7 +1689,7 @@ let step_instruction interpreter =
   | VAR_233 -> handle_pull interpreter instruction
   | VAR_234 -> handle_op1_effect handle_split_window
   | VAR_235 -> handle_op1_effect handle_set_window
-  | VAR_236 -> failwith (Printf.sprintf "%04x TODO: VAR_236" instruction.address)
+  | VAR_236 -> handle_call()
   | VAR_237 -> handle_op1_effect handle_erase_window
   | VAR_238 -> handle_op1_effect handle_erase_line
   | VAR_239 -> handle_op2_effect handle_set_cursor
@@ -1655,17 +1698,17 @@ let step_instruction interpreter =
   | VAR_242 -> handle_op1_effect handle_buffer_mode
   | VAR_243 -> handle_output_stream ()
   | VAR_244 -> handle_op1_effect handle_input_stream
-  | VAR_245 -> failwith (Printf.sprintf "%04x TODO: VAR_245" instruction.address)
+  | VAR_245 -> handle_sound_effect()
   | VAR_246 -> handle_read_char interpreter instruction
   | VAR_247 -> handle_op3_value handle_scan_table
   | VAR_248 -> handle_op1_value handle_not
-  | VAR_249 -> failwith (Printf.sprintf "%04x TODO: VAR_249" instruction.address)
-  | VAR_250 -> failwith (Printf.sprintf "%04x TODO: VAR_250" instruction.address)
-  | VAR_251 -> failwith (Printf.sprintf "%04x TODO: VAR_251" instruction.address)
-  | VAR_252 -> failwith (Printf.sprintf "%04x TODO: VAR_252" instruction.address)
-  | VAR_253 -> failwith (Printf.sprintf "%04x TODO: VAR_253" instruction.address)
-  | VAR_254 -> failwith (Printf.sprintf "%04x TODO: VAR_254" instruction.address)
-  | VAR_255 -> failwith (Printf.sprintf "%04x TODO: VAR_255" instruction.address)
+  | VAR_249 -> handle_call()
+  | VAR_250 -> handle_call()
+  | VAR_251 -> handle_tokenise()
+  | VAR_252 -> handle_encode_text()
+  | VAR_253 -> handle_op3_effect handle_copy_table
+  | VAR_254 -> handle_op4_effect handle_print_table
+  | VAR_255 -> handle_op1_value handle_check_arg_count
   | EXT_0   -> failwith (Printf.sprintf "%04x TODO: EXT_0" instruction.address)
   | EXT_1   -> failwith (Printf.sprintf "%04x TODO: EXT_1" instruction.address)
   | EXT_2   -> failwith (Printf.sprintf "%04x TODO: EXT_2" instruction.address)
@@ -1679,6 +1722,8 @@ let step_instruction interpreter =
   | EXT_10   -> failwith (Printf.sprintf "%04x TODO: EXT_10" instruction.address)
   | EXT_11   -> failwith (Printf.sprintf "%04x TODO: EXT_11" instruction.address)
   | EXT_12   -> failwith (Printf.sprintf "%04x TODO: EXT_12" instruction.address)
+  | EXT_13   -> failwith (Printf.sprintf "%04x TODO: EXT_13" instruction.address)
+  | EXT_14   -> failwith (Printf.sprintf "%04x TODO: EXT_14" instruction.address)
   | EXT_16   -> failwith (Printf.sprintf "%04x TODO: EXT_16" instruction.address)
   | EXT_17   -> failwith (Printf.sprintf "%04x TODO: EXT_17" instruction.address)
   | EXT_18   -> failwith (Printf.sprintf "%04x TODO: EXT_18" instruction.address)
@@ -1692,6 +1737,8 @@ let step_instruction interpreter =
   | EXT_26   -> failwith (Printf.sprintf "%04x TODO: EXT_26" instruction.address)
   | EXT_27   -> failwith (Printf.sprintf "%04x TODO: EXT_27" instruction.address)
   | EXT_28   -> failwith (Printf.sprintf "%04x TODO: EXT_28" instruction.address)
+  | EXT_29   -> failwith (Printf.sprintf "%04x TODO: EXT_29" instruction.address)
+
   (* End step_instruction *)
 
 (* Steps the interpreter to its next public-facing state. However this need

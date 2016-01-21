@@ -216,6 +216,17 @@ let set_transcript_flag story value =
   let new_flags2 = (set_bit_to transcript_bit (flags2 story) value) in
   write_byte story flags2_offset new_flags2
 
+let get_sound_effects_flag story =
+  let sfx_bit = 7 in
+  fetch_bit sfx_bit (flags2 story)
+
+(* TODO: Turn this off when starting / restoring *)
+let set_sound_effects_flag story value =
+  let flags2_offset = 16 in
+  let sfx_bit = 0 in
+  let new_flags2 = (set_bit_to sfx_bit (flags2 story) value) in
+  write_byte story flags2_offset new_flags2
+
 let serial_number story =
   let start_offset = 18 in
   let end_offset = 24 in
@@ -968,9 +979,9 @@ type bytecode =
   | VAR_240 | VAR_241 | VAR_242 | VAR_243 | VAR_244 | VAR_245 | VAR_246 | VAR_247
   | VAR_248 | VAR_249 | VAR_250 | VAR_251 | VAR_252 | VAR_253 | VAR_254 | VAR_255
   | EXT_0   | EXT_1   | EXT_2   | EXT_3   | EXT_4   | EXT_5   | EXT_6   | EXT_7
-  | EXT_8   | EXT_9   | EXT_10  | EXT_11  | EXT_12  | EXT_16  | EXT_17  | EXT_18
-  | EXT_19  | EXT_20  | EXT_21  | EXT_22  | EXT_23  | EXT_24  | EXT_25  | EXT_26
-  | EXT_27  | EXT_28
+  | EXT_8   | EXT_9   | EXT_10  | EXT_11  | EXT_12  | EXT_13  | EXT_14  
+  | EXT_16  | EXT_17  | EXT_18  | EXT_19  | EXT_20  | EXT_21  | EXT_22  | EXT_23
+  | EXT_24  | EXT_25  | EXT_26  | EXT_27  | EXT_28  | EXT_29
   | ILLEGAL
 
 (* The tables which follow are maps from the opcode identification number
@@ -998,9 +1009,9 @@ let var_operand_bytecodes = [|
 
 let ext_bytecodes = [|
   EXT_0;   EXT_1;   EXT_2;   EXT_3;   EXT_4;   EXT_5;   EXT_6;   EXT_7;
-  EXT_8;   EXT_9;   EXT_10;  EXT_11;  EXT_12;  ILLEGAL; ILLEGAL; ILLEGAL;
+  EXT_8;   EXT_9;   EXT_10;  EXT_11;  EXT_12;  EXT_13;  EXT_14;  ILLEGAL;
   EXT_16;  EXT_17;  EXT_18;  EXT_19;  EXT_20;  EXT_21;  EXT_22;  EXT_23;
-  EXT_24;  EXT_25;  EXT_26;  EXT_27;  EXT_28;  ILLEGAL; ILLEGAL; ILLEGAL |]
+  EXT_24;  EXT_25;  EXT_26;  EXT_27;  EXT_28;  EXT_29;  ILLEGAL; ILLEGAL |]
 
 type branch_address =
   | Return_true
@@ -1046,7 +1057,7 @@ let decode_instruction story address =
     | OP2_1   | OP2_2   | OP2_3   | OP2_4   | OP2_5   | OP2_6   | OP2_7   | OP2_10
     | OP1_128 | OP1_129 | OP1_130 | OP0_189 | OP0_191
     | VAR_247 | VAR_255
-    | EXT_6   | EXT_24  | EXT_27 -> true
+    | EXT_6   | EXT_14 | EXT_24  | EXT_27 -> true
     | _ -> false in
 
   let has_store opcode =
@@ -1063,7 +1074,7 @@ let decode_instruction story address =
     | OP1_129 | OP1_130 | OP1_131 | OP1_132 | OP1_136 | OP1_142
     | VAR_224 | VAR_231 | VAR_236 | VAR_246 | VAR_247 | VAR_248
     | EXT_0   | EXT_1   | EXT_2   | EXT_3   | EXT_4   | EXT_9
-    | EXT_10  | EXT_19 -> true
+    | EXT_10  | EXT_19  | EXT_29 -> true
     | _ -> false in
 
   (* These opcodes store to a variable identified as a "small" rather
@@ -1463,6 +1474,8 @@ let display_instruction story instr =
     | EXT_10  -> "restore_undo"
     | EXT_11  -> "print_unicode"
     | EXT_12  -> "check_unicode"
+    | EXT_13  -> "set_true_colour"
+    | EXT_14  -> "sound_data"
     | EXT_16  -> "move_window"
     | EXT_17  -> "window_size"
     | EXT_18  -> "window_style"
@@ -1475,7 +1488,8 @@ let display_instruction story instr =
     | EXT_25  -> "put_wind_prop"
     | EXT_26  -> "print_form"
     | EXT_27  -> "make_menu"
-    | EXT_28  -> "picture_table" in
+    | EXT_28  -> "picture_table"
+    | EXT_29  -> "buffer_screen" in
 
   let start_addr = instr.address in
   let name = opcode_name instr.opcode in
