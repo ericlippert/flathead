@@ -873,6 +873,10 @@ let step_instruction interpreter =
   let handle_nop interp =
     interp in
 
+  let handle_split_window lines interp =
+    (* TODO: in version 3 only, clear the upper window after the split. *)
+    { interp with screen = split_window interp.screen lines } in
+
   let handle_restart () =
     (* If transcripting is active, this has to stay on in
     the restarted interpreter *)
@@ -886,6 +890,9 @@ let step_instruction interpreter =
     { restarted_interpreter with transcript = transcript; commands = commands } in
 
   let filename = "FLATHEAD.SAV" in
+  let save_failed = 0 in
+  let save_succeeded = 1 in
+  let restore_succeeded = 2 in
 
   let handle_save interp =
     let current_story = interp.story in
@@ -946,9 +953,35 @@ let step_instruction interpreter =
         SizedList (Integer8 (Some (List.length frame.stack)) , stack)] in
     let frames = List.rev (List.map make_frame_record interp.frames) in
 
-    (* TODO: I still don't know why the PC is off by one. This puts
-    it in the middle of the save instruction, not after it. But both
-    Frotz and Nitfol follow this convention *)
+    (* TODO: The PC at present points to the save instruction. The convention,
+    documented nowhere I have found thus far, is to save the PC + 1.  Why
+    on earth would we do that?
+
+    The save instruction has a branch in v3 and a store in v4. When control
+    resumes *following the restore*, the restore code needs to know
+    whether to branch / what to store, which is indicated by the second
+    byte of the save instruction! So we serialize the address of that thing.
+
+    So on version 3, what happens is:
+
+    * On a failed save the result is 0 so the branch of the save is not taken.
+    * On a successful save the result is 1, so the branch of the save is taken.
+    * On a failed restore the result is 0 so the branch of the restore is not taken.
+    * On a successful restore the result is *2*, but the branch is never taken
+      from the restore; the branch is taken from the save.
+    * Note that this means that in v3, the game has no idea when it resumes
+      from the save whether it just completed a successful save, or just
+      completed a successful restore. (The *interpreter* knows but the *game*
+      does not.)
+
+    In version 4:
+    * On a failed save the result is 0, which is stored.
+    * On a successful save the result is 1, which is stored.
+    * On a failed restore the result is 0, which is stored.
+    * On a successful restore the storage of the restore never happens.
+      The result is 2, which is then stored by the back end of the save.
+    * Now the game can determine whether the save failed (0), succeeded (1)
+      or we just restored (2). *)
 
     let root_form =
       Record [
@@ -974,7 +1007,7 @@ let step_instruction interpreter =
 
     write_iff_file filename root_form;
     (* TODO: handle failure *)
-    1 in (* end of handle_save *)
+    save_succeeded in (* end of handle_save *)
 
   let handle_restore () =
     (* TODO: This helper method can go into the IFF library *)
@@ -1142,13 +1175,28 @@ let step_instruction interpreter =
         apply_changes 0 0 original_story
       | _ -> failwith "TODO handle failure reading memory" in
 
+
+    (* TODO: If restore failed then we need to complete the restore instruction
+    with result 0. *)
+
+    (* If the restore succeeded then we need to complete the save instruction
+      with result 2. See comments in handle_save that describe what is going
+      on here. *)
+
+    let save_pc = program_counter - 1 in
+    let save_instruction = decode_instruction new_story save_pc in
     let new_interpreter = { interpreter with
       story = new_story;
-      program_counter = program_counter + 1; (* TODO: Why is this off by one? *)
+      program_counter = save_pc;
       frames } in
     (* TODO: All the bits that have to be preserved *)
-    (* TODO: After a restore, collapse the upper window *)
-    new_interpreter in
+
+    (* After a restore, redraw the status line *)
+    (* After a restore, collapse the upper window *)
+    let new_interpreter = handle_split_window 0 new_interpreter in
+    let new_interpreter = set_status_line new_interpreter in
+
+    handle_store_and_branch new_interpreter save_instruction restore_succeeded in
   (* end of handle_restore *)
 
   let handle_storew arr ind value interp =
@@ -1201,9 +1249,6 @@ let step_instruction interpreter =
     (* TODO: input_stream not yet implemented; treat as a no-op for now. *)
     interp in
 
-  let handle_split_window lines interp =
-    (* TODO: in version 3 only, clear the upper window after the split. *)
-    { interp with screen = split_window interp.screen lines } in
 
   let handle_set_window window interp =
     let w =
@@ -1378,7 +1423,8 @@ let step_instruction interpreter =
     aux 0 in
 
   let handle_call () =
-    (* The packed address is already unpacked if the operand is a constant, but not if the operand is a variable. *)
+    (* The packed address is already unpacked if the operand is a constant,
+    but not if the operand is a variable. *)
     let routine_address_operand = List.hd instruction.operands in
     let routine_operands = List.tl instruction.operands in
     let (routine_address, routine_interpreter) =

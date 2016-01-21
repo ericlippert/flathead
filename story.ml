@@ -1041,8 +1041,10 @@ let decode_instruction story address =
   (* Helper methods for decoding *)
   let has_branch opcode =
     match opcode with
+    | OP0_181 -> (version story) <= 3 (* save branches in v3, stores in v4 *)
+    | OP0_182 -> (version story) <= 3 (* restore branches in v3, stores in v4 *)
     | OP2_1   | OP2_2   | OP2_3   | OP2_4   | OP2_5   | OP2_6   | OP2_7   | OP2_10
-    | OP1_128 | OP1_129 | OP1_130 | OP0_181 | OP0_182 | OP0_189 | OP0_191
+    | OP1_128 | OP1_129 | OP1_130 | OP0_189 | OP0_191
     | VAR_247 | VAR_255
     | EXT_6   | EXT_24  | EXT_27 -> true
     | _ -> false in
@@ -1050,6 +1052,8 @@ let decode_instruction story address =
   let has_store opcode =
     match opcode with
     | OP1_143 -> (version story) <= 4
+    | OP0_181 -> (version story) >= 4 (* save branches in v3, stores in v4 *)
+    | OP0_182 -> (version story) >= 4 (* restore branches in v3, stores in v4 *)
     | OP2_8   | OP2_9   | OP2_15  | OP2_16  | OP2_17  | OP2_18  | OP2_19
     | OP2_20  | OP2_21  | OP2_22  | OP2_23  | OP2_24  | OP2_25
     | OP1_129 | OP1_130 | OP1_131 | OP1_132 | OP1_136 | OP1_142
