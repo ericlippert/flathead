@@ -500,7 +500,7 @@ let object_attributes_word_2 story object_number =
 
 let object_attributes_word_3 story object_number =
   if (version story) <= 3 then
-    failwith "no such attributes"
+    0
   else
     let attributes3_offset = 3 in
     let obj_addr = object_address story object_number in
@@ -675,7 +675,7 @@ let decode_property_data story address =
       If the high bit is not set then the length is indicated by
       the sixth bit. *)
     if fetch_bit 7 b then
-      let len = fetch_bits (read_byte story (address + 1)) 5 6 in
+      let len = fetch_bits 5 6 (read_byte story (address + 1)) in
       (2, (if len = 0 then 64 else len), property_number)
     else
       (1, (if fetch_bit 6 b then 2 else 1), property_number)
@@ -798,14 +798,15 @@ let display_object_table story =
   let to_string i =
     let flags1 = object_attributes_word_1 story i in
     let flags2 = object_attributes_word_2 story i in
+    let flags3 = object_attributes_word_3 story i in
     let parent = object_parent story i in
     let sibling = object_sibling story i in
     let child = object_child story i in
     let properties = object_property_address story i in
     let name = object_name story i in
     let object_text =
-      Printf.sprintf "%02x: %04x%04x %02x %02x %02x %04x %s "
-      i flags1 flags2 parent sibling child properties name in
+      Printf.sprintf "%04d: %04x%04x%04x %04x %04x %04x %04x %s "
+      i flags1 flags2 flags3 parent sibling child properties name in
     let properties_text = display_properties story i in
     object_text ^ properties_text ^ "\n" in
   accumulate_strings_loop to_string 1 (count + 1)
@@ -830,7 +831,7 @@ let display_object_tree story =
       let child = object_child story object_number in
       let sibling = object_sibling story object_number in
       let object_text =
-        Printf.sprintf "%s%02x %s\n" indent object_number name in
+        Printf.sprintf "%s%04d %s\n" indent object_number name in
       let with_object = acc ^ object_text in
       let new_indent = "    " ^ indent in
       let with_children = aux with_object new_indent child in
