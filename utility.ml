@@ -137,3 +137,14 @@ let rec first_match items predicate =
   match items with
   | h :: t -> if predicate h then Some h else first_match t predicate
   | [] -> None
+
+(* Binary search a range. Min is inclusive, max is exclusive. *)
+let rec binary_search min max compare =
+  if min >= max then
+    None
+  else
+    let middle = (min + max) / 2 in
+    let comparison = compare middle in
+    if comparison < 0 then binary_search (middle + 1) max compare
+    else if comparison > 0 then binary_search min middle compare
+    else Some middle

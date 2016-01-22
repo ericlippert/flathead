@@ -185,12 +185,12 @@ let header_checksum story =
 (* The checksum is simply the bottom two bytes of the sum of all the
    bytes in the original story file, not counting the header. *)
 let compute_checksum story =
-  let original = Memory.original story.memory in
+  let orig = original story in
   let size = file_size story in
   let rec aux acc addr =
     if addr >= size then acc
     else
-      let byte = Memory.read_byte original addr in
+      let byte = read_byte orig addr in
       aux (unsigned_word (acc + byte)) (addr + 1) in
   aux 0 header_size
 
@@ -262,19 +262,15 @@ let decode_string_packed_address story packed =
   | _ -> failwith "bad version"
 
 let load_story filename =
-  (* TODO: Could read in just the header first, then the dynamic block as a string,
-  then the static block as a string. Less copying that way. *)
-  let channel = open_in_bin filename in
-  let length = in_channel_length channel in
-  let file = String.create length in
-  really_input channel file 0 length;
-  close_in channel;
+  let file = get_file filename in
   let len = String.length file in
-  if len < header_size then failwith (Printf.sprintf "%s is not a valid story file" filename);
+  if len < header_size then
+    failwith (Printf.sprintf "%s is not a valid story file" filename);
   let high = int_of_char file.[static_memory_base_offset] in
   let low = int_of_char file.[static_memory_base_offset + 1] in
   let dynamic_length = high * 256 + low in
-  if (dynamic_length > len) then failwith (Printf.sprintf "%s is not a valid story file" filename);
+  if (dynamic_length > len) then
+    failwith (Printf.sprintf "%s is not a valid story file" filename);
   let dynamic = String.sub file 0 dynamic_length in
   let static = String.sub file dynamic_length (len - dynamic_length) in
   { memory = Memory.make dynamic static };;
@@ -283,7 +279,6 @@ let load_story filename =
 (* Abbreviation table and string decoding *)
 (* *)
 
-(* TODO: Assumes v3 abbreviation table *)
 let abbreviation_table_length = 96
 
 let abbreviation_address story n =
@@ -304,9 +299,11 @@ let rec read_zstring story address =
     read_zstring story abbr_addr in
   Zstring.read (read_word story) read_abbrv address
 
+(* Debugging helper *)
 let display_zchar_bytes story offset length =
   Zstring.display_bytes (read_word story) offset length
 
+(* Debugging helper *)
 let display_abbreviation_table story =
   let to_string i =
     let address = abbreviation_address story i in
@@ -707,8 +704,6 @@ let display_object_tree story =
 (* Dictionary *)
 (* *)
 
-(* TODO: Only supports version 3 *)
-
 let word_separators_count story =
   read_byte story (dictionary_base story)
 
@@ -746,17 +741,6 @@ let dictionary_entry_address story dictionary_number =
 let dictionary_entry story dictionary_number =
   let addr = dictionary_entry_address story dictionary_number in
   read_zstring story addr
-
-(* Binary search a range. Min is inclusive, max is exclusive. *)
-let rec binary_search min max compare =
-  if min >= max then
-    None
-  else
-    let middle = (min + max) / 2 in
-    let comparison = compare middle in
-    if comparison < 0 then binary_search (middle + 1) max compare
-    else if comparison > 0 then binary_search min middle compare
-    else Some middle
 
 let truncate text length =
   if (String.length text) > length then String.sub text 0 length
@@ -882,9 +866,10 @@ type instruction =
 }
 
 let is_call story opcode =
+  let ver = version story in
   match opcode with
   | OP1_143 (* call_1n in v5, logical not in v1-4 *)
-    -> (version story) >= 5
+    -> ver >= 5
   | VAR_224 (* call / call_vs *)
   | OP1_136 (* call_1s *)
   | OP2_26  (* call_2n *)
@@ -901,11 +886,14 @@ let decode_variable n =
 
 (* Takes the address of an instruction and produces the instruction *)
 let decode_instruction story address =
+  let ver = version story in
+  let word_reader = read_word story in
+  let byte_reader = read_byte story in
   (* Helper methods for decoding *)
   let has_branch opcode =
     match opcode with
-    | OP0_181 -> (version story) <= 3 (* save branches in v3, stores in v4 *)
-    | OP0_182 -> (version story) <= 3 (* restore branches in v3, stores in v4 *)
+    | OP0_181 -> ver <= 3 (* save branches in v3, stores in v4 *)
+    | OP0_182 -> ver <= 3 (* restore branches in v3, stores in v4 *)
     | OP2_1   | OP2_2   | OP2_3   | OP2_4   | OP2_5   | OP2_6   | OP2_7   | OP2_10
     | OP1_128 | OP1_129 | OP1_130 | OP0_189 | OP0_191
     | VAR_247 | VAR_255
@@ -915,12 +903,12 @@ let decode_instruction story address =
   let has_store opcode =
     match opcode with
 
-    | OP1_143 -> (version story) <= 4
-    | OP0_181 -> (version story) >= 4 (* save branches in v3, stores in v4 *)
-    | OP0_182 -> (version story) >= 4 (* restore branches in v3, stores in v4 *)
-    | OP0_185 -> (version story) >= 4 (* pop in v4, catch in v5 *)
-    | VAR_233 -> (version story) >= 6
-    | VAR_228 -> (version story) >= 5
+    | OP1_143 -> ver <= 4
+    | OP0_181 -> ver >= 4 (* save branches in v3, stores in v4 *)
+    | OP0_182 -> ver >= 4 (* restore branches in v3, stores in v4 *)
+    | OP0_185 -> ver >= 4 (* pop in v4, catch in v5 *)
+    | VAR_233 -> ver >= 6
+    | VAR_228 -> ver >= 5
     | OP2_8   | OP2_9   | OP2_15  | OP2_16  | OP2_17  | OP2_18  | OP2_19
     | OP2_20  | OP2_21  | OP2_22  | OP2_23  | OP2_24  | OP2_25
     | OP1_129 | OP1_130 | OP1_131 | OP1_132 | OP1_136 | OP1_142
@@ -969,15 +957,15 @@ let decode_instruction story address =
     match operand_types with
     | [] -> []
     | Large_operand :: types ->
-      let head = Large (read_word story operand_address) in
+      let head = Large (word_reader operand_address) in
       let tail = decode_operands (operand_address + 2) types in
       head :: tail
     | Small_operand :: types ->
-      let head = Small (read_byte story operand_address) in
+      let head = Small (byte_reader operand_address) in
       let tail = decode_operands (operand_address + 1) types in
       head :: tail
     | Variable_operand :: types ->
-      let head = Variable (decode_variable (read_byte story operand_address)) in
+      let head = Variable (decode_variable (byte_reader operand_address)) in
       let tail = decode_operands (operand_address + 1) types in
       head :: tail
     | Omitted :: _ ->
@@ -991,18 +979,18 @@ let decode_instruction story address =
 
     (* Spec 4.7 *)
     let branch_size branch_code_address =
-      let b = read_byte story branch_code_address in
+      let b = byte_reader branch_code_address in
       if (fetch_bit 6 b) then 1 else 2 in
 
     let decode_branch branch_code_address total_length =
-      let high = read_byte story branch_code_address in
+      let high = byte_reader branch_code_address in
       let sense = fetch_bit 7 high in
       let bottom6 = fetch_bits 5 6 high in
       let offset =
         if fetch_bit 6 high then
           bottom6
         else
-          let low = read_byte story (branch_code_address + 1) in
+          let low = byte_reader (branch_code_address + 1) in
           let unsigned = 256 * bottom6 + low in
           if unsigned < 8192 then unsigned else unsigned - 16384 in
         match offset with
@@ -1069,7 +1057,7 @@ let decode_instruction story address =
 
     *)
 
-    let b = read_byte story address in
+    let b = byte_reader address in
 
     let form = match fetch_bits 7 2 b with
     | 3 -> Variable_form
@@ -1089,8 +1077,8 @@ let decode_instruction story address =
       | (_, OP2) -> (two_operand_bytecodes.(fetch_bits 4 5 b), 1)
       | (Variable_form, VAR) -> (var_operand_bytecodes.(fetch_bits 4 5 b), 1)
       | _ ->
-        let ext = read_byte story (address + 1) in
-        ((if ext > 28 then ILLEGAL else ext_bytecodes.(ext)), 2) in
+        let ext = byte_reader (address + 1) in
+        ((if ext > 29 then ILLEGAL else ext_bytecodes.(ext)), 2) in
 
     (* SPEC
 
@@ -1131,11 +1119,11 @@ let decode_instruction story address =
       | _ -> [ Variable_operand; Variable_operand ])
     | (Variable_form, _, VAR_236)
     | (Variable_form, _, VAR_250) ->
-      let type_byte_0 = read_byte story (address + opcode_length) in
-      let type_byte_1 = read_byte story (address + opcode_length + 1) in
+      let type_byte_0 = byte_reader (address + opcode_length) in
+      let type_byte_1 = byte_reader (address + opcode_length + 1) in
       (decode_variable_types type_byte_0) @ (decode_variable_types type_byte_1)
     | _ ->
-      let type_byte = read_byte story (address + opcode_length) in
+      let type_byte = byte_reader (address + opcode_length) in
       decode_variable_types type_byte in
 
     let type_length =
@@ -1150,7 +1138,7 @@ let decode_instruction story address =
     let store_address = operand_address + operand_length in
     let store =
       if has_store opcode then
-        let store_byte = read_byte story store_address in
+        let store_byte = byte_reader store_address in
         Some (decode_variable store_byte)
       else
         None in
@@ -1183,6 +1171,7 @@ let decode_instruction story address =
     (* End of decode_instruction *)
 
 let display_instruction story instr =
+  let ver = version story in
   (* We match Inform's convention of numbering the locals and globals from zero *)
   let display_variable variable =
     match variable with
@@ -1264,7 +1253,7 @@ let display_instruction story instr =
     | OP1_140 -> "jump"
     | OP1_141 -> "print_paddr"
     | OP1_142 -> "load"
-    | OP1_143 -> if (version story) <= 4 then "not" else "call_1n"
+    | OP1_143 -> if ver <= 4 then "not" else "call_1n"
     | OP0_176 -> "rtrue"
     | OP0_177 -> "rfalse"
     | OP0_178 -> "print"
@@ -1274,18 +1263,18 @@ let display_instruction story instr =
     | OP0_182 -> "restore"
     | OP0_183 -> "restart"
     | OP0_184 -> "ret_popped"
-    | OP0_185 -> if (version story) <= 4 then "pop" else "catch"
+    | OP0_185 -> if ver <= 4 then "pop" else "catch"
     | OP0_186 -> "quit"
     | OP0_187 -> "new_line"
     | OP0_188 -> "show_status"
     | OP0_189 -> "verify"
     | OP0_190 -> "EXTENDED"
     | OP0_191 -> "piracy"
-    | VAR_224 -> if (version story) <= 3 then "call" else "call_vs"
+    | VAR_224 -> if ver <= 3 then "call" else "call_vs"
     | VAR_225 -> "storew"
     | VAR_226 -> "storeb"
     | VAR_227 -> "put_prop"
-    | VAR_228 -> if (version story) <= 4 then "sread" else "aread"
+    | VAR_228 -> if ver <= 4 then "sread" else "aread"
     | VAR_229 -> "print_char"
     | VAR_230 -> "print_num"
     | VAR_231 -> "random"
@@ -1420,9 +1409,11 @@ let display_reachable_instructions story address =
     display_instruction story instr in
   accumulate_strings to_string sorted
 
+let maximum_local = 15
+
 let locals_count story routine_address =
   let count = read_byte story routine_address in
-  if count > 15 then failwith "routine must have fewer than 16 locals"
+  if count > maximum_local then failwith "routine must have fewer than 16 locals"
   else count
 
 let first_instruction story routine_address =
@@ -1431,7 +1422,7 @@ let first_instruction story routine_address =
 
 (* Note that here the locals are indexed from 1 to 15, not 0 to 14 *)
 let local_default_value story routine_address n =
-  if n < 1 || n > 15 then failwith "invalid local"
+  if n < 1 || n > maximum_local then failwith "invalid local"
   else read_word story (routine_address + 1 + 2 * (n - 1));;
 
 let display_routine story routine_address =
