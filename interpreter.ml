@@ -776,31 +776,7 @@ let step_instruction interpreter =
   let restore_succeeded = 2 in
 
   let handle_save interp =
-    let current_story = interp.story in
-    let original_story = original current_story in
-    let memory_length = static_memory_base current_story in
-    let rec compress_memory acc i c =
-      let string_of_byte b =
-        string_of_char (char_of_int b) in
-      if i = memory_length then
-        acc
-      else if c = 256 then
-        let encoded = "\000" ^ (string_of_byte (c - 1)) in
-        compress_memory (acc ^ encoded) i 0
-      else
-        let original_byte = read_byte original_story i in
-        let current_byte = read_byte current_story i in
-        let combined = original_byte lxor current_byte in
-        if combined = 0 then
-          compress_memory acc (i + 1) (c + 1)
-        else if c > 0 then
-          let encoded = "\000" ^ (string_of_byte (c - 1)) ^ (string_of_byte combined) in
-          compress_memory (acc ^ encoded) (i + 1) 0
-        else
-          let encoded = string_of_byte combined in
-          compress_memory (acc ^ encoded) (i + 1) 0 in
-    let compressed = compress_memory "" 0 0 in
-
+    let compressed = compress interp.story in
     let frames = Frameset.make_frameset_record interp.frames in
 
     (* TODO: The PC at present points to the save instruction. The convention,
@@ -842,9 +818,9 @@ let step_instruction interpreter =
           Record [
             Header "IFhd";
             Length None;
-            Integer16 (Some (release_number current_story));
-            ByteString (Some (serial_number current_story), 6);
-            Integer16 (Some (header_checksum current_story));
+            Integer16 (Some (release_number interp.story));
+            ByteString (Some (serial_number interp.story), 6);
+            Integer16 (Some (header_checksum interp.story));
             Integer24 (Some (interp.program_counter + 1)) ];
           Record [
             Header "CMem";
@@ -906,6 +882,7 @@ let step_instruction interpreter =
 
     (* TODO: Check the release, serial number, checksum *)
 
+    (* TODO: Move this logic into the frameset *)
     let frame_records =
       match stacks_chunk with
       | Some (
@@ -918,7 +895,7 @@ let step_instruction interpreter =
     (* TODO: Deal with memory size mismatch. *)
     let frames = Frameset.make_frameset_from_records frame_records in
 
-    let original_story = original interpreter.story in
+    (* TODO: Move this logic into the story *)
     let new_story =
       match (umem_chunk, cmem_chunk) with
       | (Some (
@@ -927,44 +904,15 @@ let step_instruction interpreter =
             Length (Some length);
             RemainingBytes Some bytes]),
         _) ->
-          (* We cannot simply say "make a new dynamic memory chunk out of
-          these bytes" because then the *next* time we load a save game,
-          that dynamic memory will be the "original" memory, which is wrong.
-          We need to maintain the truly original loaded-off-disk memory. *)
-          let rec apply_changes index story =
-            if index >= length then
-              story
-            else
-              let new_byte = int_of_char bytes.[index] in
-              let orig_byte = read_byte original_story index in
-              let new_story =
-                if new_byte = orig_byte then story
-                else write_byte story index new_byte in
-              apply_changes (index + 1) new_story in
-          apply_changes 0 original_story
+          Story.apply_uncompressed_changes interpreter.story bytes
       | (_,
         Some (
           Record [
             Header "CMem";
             Length Some length;
             RemainingBytes Some bytes])) ->
-        let rec apply_changes index_change index_mem story =
-          if index_change >= length then
-            story
-          else
-            let b = int_of_char bytes.[index_change] in
-            if b = 0 then
-              (* TODO: If length - 1 this is a problem *)
-              let c = 1 + int_of_char bytes.[index_change + 1] in
-              apply_changes (index_change + 2) (index_mem + c) story
-            else
-              let orig_byte = read_byte original_story index_mem in
-              let new_byte = b lxor orig_byte in
-              let new_story = write_byte story index_mem new_byte in
-              apply_changes (index_change + 1) (index_mem + 1) new_story in
-        apply_changes 0 0 original_story
+        Story.apply_compressed_changes interpreter.story bytes
       | _ -> failwith "TODO handle failure reading memory" in
-
 
     (* TODO: If restore failed then we need to complete the restore instruction
     with result 0. *)
