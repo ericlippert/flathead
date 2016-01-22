@@ -201,13 +201,14 @@ let handle_return interpreter instruction value =
 (* TODO: Clean this up to not be so much reading from frame's members.  *)
  let frame = current_frame interpreter in
  let next_pc = frame.Frame.resume_at in
- let discard = frame.Frame.discard_value in
- let variable = decode_variable frame.Frame.target_variable in
+ let store = frame.Frame.store in
  let pop_frame_interpreter = remove_frame interpreter in
  let result_interpreter = set_program_counter pop_frame_interpreter next_pc in
  let store_interpreter =
-   if discard then result_interpreter
-   else do_store result_interpreter variable value in
+   match store with
+   | None -> result_interpreter
+   | Some variable -> do_store result_interpreter variable value in
+
  (* A call never has a branch and we already know the next pc *)
  store_interpreter
 
@@ -1444,14 +1445,7 @@ let step_instruction interpreter =
     else
       let first_instruction =
         first_instruction locals_interpreter.story routine_address in
-      let (discard_value, target_variable) =
-        match instruction.store with
-        | None -> (true, 0)
-        | Some Stack -> (false, 0)
-        | Some Local n -> (false, n)
-        | Some Global n -> (false, n) in
-
-      let frame =
+      let frame = (* TODO: put this construction logic in the frame module *)
       {
         Frame.stack = [];
         Frame.locals = locals;
@@ -1459,8 +1453,7 @@ let step_instruction interpreter =
         Frame.called = first_instruction;
         Frame.resume_at = instruction.address + instruction.length ;
         Frame.arguments_supplied = List.length routine_operands;
-        Frame.discard_value = discard_value;
-        Frame.target_variable = target_variable
+        Frame.store = instruction.store
       } in
       set_program_counter (add_frame locals_interpreter frame) first_instruction in
     (* End handle_call *)
