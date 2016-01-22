@@ -1,6 +1,7 @@
 open Utility
 open Iff
 open Story
+open Instruction
 
 type t =
 {
