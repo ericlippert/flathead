@@ -15,9 +15,10 @@ ocamlc -g -c local_store.ml
 ocamlc -g -c frame.ml
 ocamlc -g -c frameset.ml
 ocamlc -g -c randomness.ml
+ocamlc -g -c transcript.ml
 ocamlc -g -c interpreter.ml
 ocamlc -g -c button.ml
 ocamlc -g -c debugger.ml
-ocaml utility.cmo deque.cmo screen.cmo immutable_bytes.cmo memory.cmo zstring.cmo instruction.cmo story.cmo iff.cmo quetzal.cmo evaluation_stack.cmo local_store.cmo frame.cmo frameset.cmo randomness.cmo interpreter.cmo graphics.cma button.cmo debugger.cmo flathead.ml
+ocaml utility.cmo deque.cmo screen.cmo immutable_bytes.cmo memory.cmo zstring.cmo instruction.cmo story.cmo iff.cmo quetzal.cmo evaluation_stack.cmo local_store.cmo frame.cmo frameset.cmo randomness.cmo transcript.cmo interpreter.cmo graphics.cma button.cmo debugger.cmo flathead.ml
 @del *.cmi
 @del *.cmo

@@ -5,45 +5,6 @@ open Screen
 open Iff
 open Quetzal
 
-(* Word-wraps the last line in a list of lines. Assumes that
-the tail of the list is already word-wrapped. Returns the
-new list. *)
-
-(* TODO: Clean this up like the same code was cleaned up for screen *)
-
-let rec wrap_lines lines line_length =
-  let rec reverse_index_from text target index =
-    if index < 0 then None
-    else if text.[index] = target then Some index
-    else reverse_index_from text target (index - 1) in
-  let rec aux lines =
-    match lines with
-    | [] -> []
-    | h :: t ->
-      let len = String.length h in
-      if String.contains h '\n' then
-        (* Recursive case 1: there is a break in the last string.
-         Split the string, solve the wrapping problem with no return,
-         and then recurse on the remainder of the string. *)
-        let b = String.index h '\n' in
-        let f = String.sub h 0 b in
-        let r = String.sub h (b + 1) (len - b - 1) in
-        let w1 = wrap_lines (f :: t) line_length in
-        wrap_lines (r :: w1) line_length
-      else if len > line_length then
-        (* Recursive case 2: there are no breaks but the line is too long.
-           Find a space to break on, break it, and recurse. *)
-        let space_location = reverse_index_from h ' ' line_length in
-        let break_point =
-          match space_location with
-          | None -> line_length
-          | Some location -> location in
-        aux ((String.sub h (break_point + 1) (len - break_point - 1)) :: (String.sub h 0 break_point) :: t)
-      else
-        (* Base case: the line has no breaks and is short enough. Do nothing. *)
-        lines in
-  aux lines
-
 type state =
   | Running
   | Waiting_for_input
@@ -64,7 +25,7 @@ type t =
   screen_selected : bool;
 
   (* output stream 2 *)
-  transcript : string list;
+  transcript : Transcript.t;
   transcript_selected : bool;
 
   memory_table : int list;
@@ -95,7 +56,7 @@ let make story screen =
     screen = screen;
     has_new_output = false;
     screen_selected = true;
-    transcript = [""];
+    transcript = Transcript.empty;
     transcript_selected = get_transcript_flag story;
     commands = [];
     commands_selected = false;
@@ -319,14 +280,6 @@ let deselect_memory_stream interpreter =
   | [_] -> { interpreter with memory_selected = false; memory_table = [] }
   | _ :: t -> { interpreter with memory_selected = true; memory_table = t }
 
-let add_to_transcript transcript text =
-  let add_to_lines lines str =
-    match lines with
-    | [] -> [str]
-    | h :: t -> (h ^ str) :: t in
-  let transcript_width = 80 in
-  wrap_lines (add_to_lines transcript text) transcript_width
-
 let interpreter_print interpreter text =
   (* If output stream 3 is selected then no output goes to any other
   selected stream *)
@@ -337,7 +290,7 @@ let interpreter_print interpreter text =
   else
     let new_transcript =
       if interpreter.transcript_selected then
-        add_to_transcript interpreter.transcript text
+        Transcript.append interpreter.transcript text
       else interpreter.transcript in
     let new_screen =
       if interpreter.screen_selected then Screen.print interpreter.screen text
