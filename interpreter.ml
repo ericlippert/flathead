@@ -1448,11 +1448,10 @@ let step_instruction interpreter =
       let frame = (* TODO: put this construction logic in the frame module *)
       {
         Frame.stack = [];
-        Frame.locals = locals;
-        Frame.locals_count = count;
+        (* TODO: Be smarter *)
+        Frame.local_store = Local_store.make locals count (List.length routine_operands);
         Frame.called = first_instruction;
         Frame.resume_at = instruction.address + instruction.length ;
-        Frame.arguments_supplied = List.length routine_operands;
         Frame.store = instruction.store
       } in
       set_program_counter (add_frame locals_interpreter frame) first_instruction in
