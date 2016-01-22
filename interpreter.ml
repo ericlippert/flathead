@@ -1265,6 +1265,7 @@ let step_instruction interpreter =
 
   (* For an unconditional jump we might as well just evaluate the operand and branch directly. *)
   let handle_jump () =
+  (* TODO: Fix this up to more closely match the spec. *)
     match instruction.operands with
     | [target_operand] ->
       let (target, target_interpreter) = read_operand interpreter target_operand in

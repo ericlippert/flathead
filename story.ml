@@ -743,10 +743,6 @@ let dictionary_entry story dictionary_number =
   let addr = dictionary_entry_address story dictionary_number in
   read_zstring story addr
 
-let truncate text length =
-  if (String.length text) > length then String.sub text 0 length
-  else text
-
 (* Takes a string and finds the address of the corresponding zstring
   in the dictionary *)
 (* Note this computes the address of the dictionary string, not the dictionary
@@ -774,294 +770,21 @@ let display_dictionary story =
 (* Bytecode *)
 (* *)
 
-(* Takes the address of an instruction and produces the instruction *)
+
+
+
+
+
 let decode_instruction story address =
-  let ver = version story in
-  let word_reader = read_word story in
-  let byte_reader = read_byte story in
-  let zstring_reader = read_zstring story in
-  let zstring_length = zstring_length story in
-  (* Helper methods for decoding *)
-  let has_branch opcode =
-    match opcode with
-    | OP0_181 -> ver <= 3 (* save branches in v3, stores in v4 *)
-    | OP0_182 -> ver <= 3 (* restore branches in v3, stores in v4 *)
-    | OP2_1   | OP2_2   | OP2_3   | OP2_4   | OP2_5   | OP2_6   | OP2_7   | OP2_10
-    | OP1_128 | OP1_129 | OP1_130 | OP0_189 | OP0_191
-    | VAR_247 | VAR_255
-    | EXT_6   | EXT_14 | EXT_24  | EXT_27 -> true
-    | _ -> false in
-
-  let has_store opcode =
-    match opcode with
-
-    | OP1_143 -> ver <= 4
-    | OP0_181 -> ver >= 4 (* save branches in v3, stores in v4 *)
-    | OP0_182 -> ver >= 4 (* restore branches in v3, stores in v4 *)
-    | OP0_185 -> ver >= 4 (* pop in v4, catch in v5 *)
-    | VAR_233 -> ver >= 6
-    | VAR_228 -> ver >= 5
-    | OP2_8   | OP2_9   | OP2_15  | OP2_16  | OP2_17  | OP2_18  | OP2_19
-    | OP2_20  | OP2_21  | OP2_22  | OP2_23  | OP2_24  | OP2_25
-    | OP1_129 | OP1_130 | OP1_131 | OP1_132 | OP1_136 | OP1_142
-    | VAR_224 | VAR_231 | VAR_236 | VAR_246 | VAR_247 | VAR_248
-    | EXT_0   | EXT_1   | EXT_2   | EXT_3   | EXT_4   | EXT_9
-    | EXT_10  | EXT_19  | EXT_29 -> true
-    | _ -> false in
-
-  (* These opcodes store to a variable identified as a "small" rather
-  than as a "variable". *)
-
-  let is_special_store opcode =
-    match opcode with
-    | OP2_4   (* dec_chk *)
-    | OP2_5   (* inc_chk *)
-    | OP2_13  (* store *)
-    | OP1_133 (* inc *)
-    | OP1_134 (* dec *)
-    | OP1_142 (* load *)
-    | VAR_233 (* pull *) -> true
-    | _ -> false in
-
-  let has_text opcode =
-    match opcode with
-    | OP0_178 | OP0_179 -> true
-    | _ -> false in
-
-  let decode_types n =
-    match n with
-    | 0 -> Large_operand
-    | 1 -> Small_operand
-    | 2 -> Variable_operand
-    | _ -> Omitted in
-
-  let decode_variable_types types =
-    let rec aux i acc =
-      if i > 3 then
-        acc
-      else
-        match decode_types (fetch_bits (i * 2 + 1) 2 types) with
-        | Omitted -> aux (i + 1) acc
-        | x -> aux (i + 1) (x :: acc) in
-      aux 0 [] in
-
-  let rec decode_operands operand_address operand_types =
-    match operand_types with
-    | [] -> []
-    | Large_operand :: types ->
-      let head = Large (word_reader operand_address) in
-      let tail = decode_operands (operand_address + 2) types in
-      head :: tail
-    | Small_operand :: types ->
-      let head = Small (byte_reader operand_address) in
-      let tail = decode_operands (operand_address + 1) types in
-      head :: tail
-    | Variable_operand :: types ->
-      let head = Variable (decode_variable (byte_reader operand_address)) in
-      let tail = decode_operands (operand_address + 1) types in
-      head :: tail
-    | Omitted :: _ ->
-      failwith "omitted operand type passed to decode operands" in
-
-    let rec operand_size operand_types =
-      match operand_types with
-      | [] -> 0
-      | Large_operand :: types -> 2 + (operand_size types)
-      | _ :: types -> 1 + (operand_size types) in
-
-    (* Spec 4.7 *)
-    let branch_size branch_code_address =
-      let b = byte_reader branch_code_address in
-      if (fetch_bit 6 b) then 1 else 2 in
-
-    let decode_branch branch_code_address total_length =
-      let high = byte_reader branch_code_address in
-      let sense = fetch_bit 7 high in
-      let bottom6 = fetch_bits 5 6 high in
-      let offset =
-        if fetch_bit 6 high then
-          bottom6
-        else
-          let low = byte_reader (branch_code_address + 1) in
-          let unsigned = 256 * bottom6 + low in
-          if unsigned < 8192 then unsigned else unsigned - 16384 in
-        match offset with
-        | 0 -> (sense, Return_false)
-        | 1 -> (sense, Return_true)
-        | _ -> (sense, Branch_address (address + total_length + offset - 2)) in
-
-    let munge_operands instr =
-      let munge_store_operands () =
-        (* The first operand must be a variable,
-        but it is sometimes a value instead *)
-        match instr.operands with
-        | (Small small) :: tail -> (Variable (decode_variable small)) :: tail
-        | _ -> instr.operands in
-      let munge_call_operands () =
-        (* For calls with constant callees, unpack the address here. *)
-        match instr.operands with
-        | (Large large) :: tail ->
-          (Large (decode_routine_packed_address story large)) :: tail
-        | _ -> instr.operands in
-        let munge_jump_operands () =
-          (* Turn relative jumps into jumps to a specific address. *)
-          match instr.operands with
-          | [(Large large)] ->
-            [(Large (instr.address + instr.length + (signed_word large) - 2))]
-          | _ -> instr.operands in
-        if is_special_store instr.opcode then munge_store_operands()
-        else if is_call ver instr.opcode then munge_call_operands()
-        else if instr.opcode = OP1_140 then munge_jump_operands()
-        else instr.operands in
-
-    (* Helper methods are done. Start decoding *)
-
-    (*  SPEC
-
-    4.3 Form and operand count
-
-    Each instruction has a form (long, short, extended or variable) and an
-    operand count (0OP, 1OP, 2OP or VAR). If the top two bits of the opcode
-    are $$11 the form is variable; if $$10, the form is short. If the opcode
-    is 190 ($BE in hexadecimal) and the version is 5 or later, the form is
-    "extended". Otherwise, the form is "long".
-
-    4.3.1
-
-    In short form, bits 4 and 5 of the opcode byte give an operand type as
-    above. If this is $11 then the operand count is 0OP; otherwise, 1OP. In
-    either case the opcode number is given in the bottom 4 bits.
-
-    4.3.2
-
-    In long form the operand count is always 2OP. The opcode number is
-    given in the bottom 5 bits.
-
-    4.3.3
-
-    In variable form, if bit 5 is 0 then the count is 2OP; if it is 1,
-    then the count is VAR. The opcode number is given in the bottom 5 bits.
-
-    4.3.4
-
-    In extended form, the operand count is VAR. The opcode number is
-    given in a second opcode byte.
-
-    *)
-
-    let b = byte_reader address in
-
-    let form = match fetch_bits 7 2 b with
-    | 3 -> Variable_form
-    | 2 -> if b = 190 then Extended_form else Short_form
-    | _ -> Long_form in
-
-    let op_count = match form with
-    | Extended_form -> VAR
-    | Variable_form -> if fetch_bit 5 b then VAR else OP2
-    | Long_form -> OP2
-    | Short_form -> if fetch_bits 5 2 b = 3 then OP0 else OP1 in
-
-    let (opcode, opcode_length) =
-      match (form, op_count) with
-      | (_, OP0) -> (zero_operand_bytecodes.(fetch_bits 3 4 b), 1)
-      | (_, OP1) -> (one_operand_bytecodes.(fetch_bits 3 4 b), 1)
-      | (_, OP2) -> (two_operand_bytecodes.(fetch_bits 4 5 b), 1)
-      | (Variable_form, VAR) -> (var_operand_bytecodes.(fetch_bits 4 5 b), 1)
-      | _ ->
-        let ext = byte_reader (address + 1) in
-        ((if ext > 29 then ILLEGAL else ext_bytecodes.(ext)), 2) in
-
-    (* SPEC
-
-    4.4 Specifying operand types
-
-    Next, the types of the operands are specified.
-
-    4.4.1
-
-    In short form, bits 4 and 5 of the opcode give the type.
-
-    4.4.2
-
-    In long form, bit 6 of the opcode gives the type of the first operand,
-    bit 5 of the second. A value of 0 means a small constant and 1 means a
-    variable. (If a 2OP instruction needs a large constant as operand, then
-    it should be assembled in variable rather than long form.)
-
-    4.4.3
-
-    In variable or extended forms, a byte of 4 operand types is given next.
-    This contains 4 2-bit fields: bits 6 and 7 are the first field, bits 0 and
-    1 the fourth. The values are operand types as above. Once one type has
-    been given as 'omitted', all subsequent ones must be. Example:
-    $$00101111 means large constant followed by variable (and no third or
-    fourth opcode).
-
-    *)
-
-    let operand_types = match (form, op_count, opcode) with
-    | (Short_form, OP0, _) -> []
-    | (Short_form, _, _) -> [decode_types (fetch_bits 5 2 b)]
-    | (Long_form, _, _) ->
-      (match fetch_bits 6 2 b with
-      | 0 -> [ Small_operand; Small_operand ]
-      | 1 -> [ Small_operand; Variable_operand ]
-      | 2 -> [ Variable_operand; Small_operand ]
-      | _ -> [ Variable_operand; Variable_operand ])
-    | (Variable_form, _, VAR_236)
-    | (Variable_form, _, VAR_250) ->
-      let type_byte_0 = byte_reader (address + opcode_length) in
-      let type_byte_1 = byte_reader (address + opcode_length + 1) in
-      (decode_variable_types type_byte_0) @ (decode_variable_types type_byte_1)
-    | _ ->
-      let type_byte = byte_reader (address + opcode_length) in
-      decode_variable_types type_byte in
-
-    let type_length =
-      match (form, opcode) with
-      | (Variable_form, VAR_236)
-      | (Variable_form, VAR_250) -> 2
-      | (Variable_form, _) -> 1
-      | _ -> 0 in
-    let operand_address = address + opcode_length + type_length in
-    let operands = decode_operands operand_address operand_types in
-    let operand_length = operand_size operand_types in
-    let store_address = operand_address + operand_length in
-    let store =
-      if has_store opcode then
-        let store_byte = byte_reader store_address in
-        Some (decode_variable store_byte)
-      else
-        None in
-    let store_length = if has_store opcode then 1 else 0 in
-    let branch_code_address = store_address + store_length in
-    let branch_length =
-      if has_branch opcode then branch_size branch_code_address
-      else 0 in
-    let text_address = branch_code_address + branch_length in
-    let text =
-      if has_text opcode then
-        Some (zstring_reader text_address)
-      else
-        None in
-    let text_length =
-      if has_text opcode then
-        zstring_length text_address
-      else
-        0 in
-    let length =
-      opcode_length + type_length + operand_length + store_length +
-      branch_length + text_length in
-    let branch =
-      if has_branch opcode then
-        Some (decode_branch branch_code_address length)
-      else
-        None in
-    let instr = { opcode; address; length; operands; store; branch; text } in
-    { instr with operands = munge_operands instr }
-    (* End of decode_instruction *)
-
+  let reader =
+    {
+      word_reader = read_word story;
+      byte_reader = read_byte story;
+      zstring_reader = read_zstring story;
+      zstring_length = zstring_length story;
+      decode_routine = decode_routine_packed_address story
+    } in
+  Instruction.decode reader address (version story)
 
 let display_instructions story address count =
   let rec aux acc addr c =
@@ -1073,36 +796,9 @@ let display_instructions story address count =
       aux (acc  ^ s) (addr + instr.length) (c - 1) in
   aux "" address count
 
-let continues_to_following opcode =
-  match opcode with
-  | OP2_28 (* throw *)
-  | OP1_139 (* ret *)
-  | OP1_140 (* jump *)
-  | OP0_176 (* rtrue *)
-  | OP0_177 (* rfalse *)
-  | OP0_179 (* print_ret *)
-  | OP0_183 (* restart *)
-  | OP0_184 (* ret_popped *)
-  | OP0_186 (* quit *) -> false
-  | _ -> true
 
-(* Suppose an instruction either has a branch portion to an address,
-or a jump to an address. What is that address? *)
-let branch_target instr =
-  let br_target =
-    match instr.branch with
-    | None -> None
-    | Some (_, Return_false) -> None
-    | Some (_, Return_true) -> None
-    | Some (_, Branch_address address) -> Some address in
-  let jump_target =
-    match (instr.opcode, instr.operands) with
-    | (OP1_140, [Large address]) -> Some address
-    | _ -> None in
-  match (br_target, jump_target) with
-  | (Some b, _) -> Some b
-  | (_, Some j) -> Some j
-  | _ -> None
+
+
 
 (* Any given instruction in a routine either goes on to the next instruction,
 when it is done, or branches to another instruction when it is done, or terminates
