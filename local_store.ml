@@ -17,6 +17,9 @@ type t =
 let make locals count arguments_supplied =
   { locals; count; arguments_supplied }
 
+let empty =
+  { locals = IntMap.empty; count = 0; arguments_supplied = 0 }
+
 let maximum_local = 15
 
 let write_local local_store local value =

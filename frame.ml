@@ -4,7 +4,7 @@ open Story
 
 type t =
 {
-  stack : int list;
+  stack : Evaluation_stack.t;
   local_store : Local_store.t;
   called : int;
   resume_at : int;
@@ -13,26 +13,21 @@ type t =
 
 let make pc =
 {
-  stack = [];
-  local_store = Local_store.make IntMap.empty 0 0;
+  stack = Evaluation_stack.empty;
+  local_store = Local_store.empty;
   called = pc;
   resume_at = 0;
   store = None
 }
 
 let peek_stack frame =
-  match frame.stack with
-  | [] -> failwith "peek_stack peeking an empty stack"
-  | h :: _ -> h
+  Evaluation_stack.peek frame.stack
 
 let pop_stack frame =
-  match frame.stack with
-  | [] -> failwith "pop_stack popping empty stack"
-  | _ :: t -> { frame with stack = t }
+  { frame with stack = Evaluation_stack.pop frame.stack }
 
 let push_stack frame value =
-  let value = unsigned_word value in
-  { frame with stack = value :: frame.stack }
+  { frame with stack = Evaluation_stack.push frame.stack value }
 
 let write_local frame local value =
   { frame with local_store = Local_store.write_local frame.local_store local value }
@@ -42,27 +37,18 @@ let read_local frame local =
 
 (* Handy debugging methods *)
 
-let display_stack frame =
-  let to_string stack_value =
-    Printf.sprintf " %04x" stack_value in
-  let folder acc stack_value =
-    acc ^ (to_string stack_value) in
-  let stack =  frame.stack in
-  List.fold_left folder "" stack
-
 let display_frame frame =
   Printf.sprintf "Locals %s\nStack %s\nResume at:%04x\nCurrent Routine: %04x\n"
-    (Local_store.display_locals frame.local_store) (display_stack frame) frame.resume_at frame.called
+    (Local_store.display_locals frame.local_store)
+    (Evaluation_stack.display_stack frame.stack)
+    frame.resume_at
+    frame.called
 
 let make_frame_record frame =
   let locals = Local_store.make_locals_record frame.local_store in
-  let rec make_stack acc st =
-    match st with
-    | [] -> acc
-    | h :: t ->
-      make_stack ((Integer16 (Some (h))) :: acc) t in
-  let stack = List.rev (make_stack [] frame.stack) in (* TODO: Be smarter *)
+  let stack = Evaluation_stack.make_stack_records frame.stack in
   let arguments_byte = (1 lsl frame.local_store.Local_store.arguments_supplied) - 1 in
+(* TODO Put this somewhere better *)
   let (discard_value, target_variable) =
     match frame.store with
     | None -> (true, 0)
@@ -84,9 +70,9 @@ let make_frame_record frame =
       Bit (4, Some (fetch_bit 4 arguments_byte));
       Bit (5, Some (fetch_bit 5 arguments_byte));
       Bit (6, Some (fetch_bit 6 arguments_byte))];
-    Integer16 (Some (List.length frame.stack));
+    Integer16 (Some (Evaluation_stack.length frame.stack));
     SizedList (Integer8 (Some (List.length locals)), locals );
-    SizedList (Integer8 (Some (List.length frame.stack)) , stack)]
+    SizedList (Integer8 (Some (Evaluation_stack.length frame.stack)) , stack)]
 
 let make_frame_from_record frame_record =
   let (ret_addr, locals_list, eval_stack,
@@ -126,11 +112,7 @@ let make_frame_from_record frame_record =
       (ret_addr, locals_list, eval_stack,
         store, arg_count, locals_count)
     | _ -> failwith "TODO handle failure reading frame" in
-  let decode_int16 form =
-    match form with
-    | (Integer16 (Some v)) -> v
-    | _ -> failwith "TODO handle failure reading evaluation stack / locals" in
-  let stack = List.rev (List.map decode_int16 eval_stack) in
+  let stack = Evaluation_stack.make_stack_from_record eval_stack in
   let local_store = Local_store.make_locals_from_record arg_count locals_list in
   { stack;
     local_store;

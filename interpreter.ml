@@ -1426,9 +1426,8 @@ let step_instruction interpreter =
         first_instruction locals_interpreter.story routine_address in
       let frame = (* TODO: put this construction logic in the frame module *)
       {
-        Frame.stack = [];
-        (* TODO: Be smarter *)
-        Frame.local_store = Local_store.make locals count (List.length routine_operands);
+        Frame.stack = Evaluation_stack.empty;
+        Frame.local_store = Local_store.make locals count (List.length routine_operands); (*TODO: be smarter*)
         Frame.called = first_instruction;
         Frame.resume_at = instruction.address + instruction.length ;
         Frame.store = instruction.store
