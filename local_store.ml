@@ -21,14 +21,14 @@ let maximum_local = 15
 
 let write_local local_store local value =
   if local < 0 || local > local_store.count then
-    failwith "local invalid"
+    failwith (Printf.sprintf "write_local: local %d invalid; count is %d" local local_store.count)
   else
     let value = unsigned_word value in
     { local_store with locals = IntMap.add local value local_store.locals }
 
 let read_local local_store local =
   if local < 0 || local > local_store.count then
-    failwith "local invalid"
+    failwith (Printf.sprintf "read_local: local %d invalid; count is %d" local local_store.count)
   else
     IntMap.find local local_store.locals
 

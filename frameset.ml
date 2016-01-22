@@ -51,7 +51,7 @@ let display_frames frameset =
 let make_frameset_record frameset =
   let head = Frame.make_frame_record frameset.initial_frame in
   let tail = List.rev (List.map Frame.make_frame_record frameset.frames) in
-  head :: tail
+  List.rev (head :: tail)
 
 let make_frameset_from_records frame_records =
   (* TODO: Handle the error case where there is no initial record. *)
