@@ -302,7 +302,7 @@ let halt debugger =
   let draw_routine_listing debugger =
     let current_instruction = debugger.interpreter.program_counter in
     (* This can be zero if we were restored from a save game *)
-    let frame_instruction = (current_frame debugger.interpreter).called in
+    let frame_instruction = (current_frame debugger.interpreter).Frame.called in
     let first_instruction =
       if frame_instruction = 0 then current_instruction
       else frame_instruction in

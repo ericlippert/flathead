@@ -48,24 +48,12 @@ type state =
   | Waiting_for_input
   | Halted
 
-type frame =
-{
-  stack : int list;
-  locals : int IntMap.t;
-  locals_count : int;
-  called : int;
-  resume_at : int;
-  arguments_supplied : int;
-  discard_value : bool;
-  target_variable : int
-}
-
 (* The state of the interpreter *)
 type t =
 {
   story : Story.t;
   program_counter : int;
-  frames : frame list;
+  frames : Frame.t list;
   random_w : Int32.t;
   random_x : Int32.t;
   random_y : Int32.t;
@@ -95,22 +83,11 @@ type t =
 
 let make story screen =
   (* TODO: Restore these after a restart / restore *)
-
   let story = set_screen_width story screen.width in
   let story = set_screen_height story screen.height in
   let story = set_supports_multiple_windows story true in
   let pc = initial_program_counter story in
-  let initial_frame =
-  {
-    stack = [];
-    locals = IntMap.empty;
-    locals_count = 0;
-    called = pc;
-    resume_at = 0;
-    arguments_supplied = 0;
-    discard_value = false;
-    target_variable = 0
-  } in
+  let initial_frame = Frame.make pc in
   {
     story = story;
     program_counter = pc;
@@ -145,22 +122,19 @@ let remove_frame interpreter =
   { interpreter with frames = List.tl (interpreter.frames) }
 
 let peek_stack interpreter =
-  List.hd (current_frame interpreter).stack;;
+  Frame.peek_stack (current_frame interpreter)
 
 let pop_stack interpreter =
   match interpreter.frames with
   | current_frame :: other_frames ->
-    let new_stack = List.tl current_frame.stack in
-    let new_frame = { current_frame with stack = new_stack } in
+    let new_frame = Frame.pop_stack current_frame in
     { interpreter with frames = new_frame :: other_frames }
   | _ -> failwith "frame set is empty"
 
 let push_stack interpreter value =
-  let value = unsigned_word value in
   match interpreter.frames with
   | current_frame :: other_frames ->
-    let new_stack = value :: current_frame.stack in
-    let new_frame = { current_frame with stack = new_stack } in
+    let new_frame = Frame.push_stack current_frame value in
     { interpreter with frames = new_frame :: other_frames }
   | _ -> failwith "frame set is empty"
 
@@ -168,7 +142,7 @@ let set_program_counter interpreter new_program_counter =
   { interpreter with program_counter = new_program_counter }
 
 let read_local interpreter local =
-  IntMap.find local (current_frame interpreter).locals
+  Frame.read_local (current_frame interpreter) local
 
 (* Reading operands can change the state of the interpreter, because it can
    pop the stack. *)
@@ -190,8 +164,7 @@ let write_local interpreter local value =
   let value = unsigned_word value in
   match interpreter.frames with
   | current_frame :: other_frames ->
-    let new_locals = IntMap.add local value current_frame.locals in
-    let new_frame = { current_frame with locals = new_locals } in
+    let new_frame = Frame.write_local current_frame local value in
     { interpreter with frames = new_frame :: other_frames }
   | _ -> failwith "frame set is empty"
 
@@ -225,10 +198,11 @@ let do_store interpreter variable value =
 *)
 
 let handle_return interpreter instruction value =
+(* TODO: Clean this up to not be so much reading from frame's members.  *)
  let frame = current_frame interpreter in
- let next_pc = frame.resume_at in
- let discard = frame.discard_value in
- let variable = decode_variable frame.target_variable in
+ let next_pc = frame.Frame.resume_at in
+ let discard = frame.Frame.discard_value in
+ let variable = decode_variable frame.Frame.target_variable in
  let pop_frame_interpreter = remove_frame interpreter in
  let result_interpreter = set_program_counter pop_frame_interpreter next_pc in
  let store_interpreter =
@@ -660,28 +634,8 @@ let handle_sread interpreter instruction =
       input_max = maximum_letters }
   (* end handle_sread *)
 
-let display_locals frame =
-  let to_string local value =
-    Printf.sprintf "local%01x=%04x " (local - 1) value in
-  let folder local value acc =
-    acc ^ (to_string local value) in
-  let locals = frame.locals in
-  IntMap.fold folder locals ""
-
-let display_stack frame =
-  let to_string stack_value =
-    Printf.sprintf " %04x" stack_value in
-  let folder acc stack_value =
-    acc ^ (to_string stack_value) in
-  let stack =  frame.stack in
-  List.fold_left folder "" stack
-
-let display_frame frame =
-  Printf.sprintf "Locals %s\nStack %s\nResume at:%04x\nCurrent Routine: %04x\n"
-    (display_locals frame) (display_stack frame) frame.resume_at frame.called
-
 let display_frames frames =
-  let folder acc f =acc ^ (display_frame f) in
+  let folder acc f =acc ^ (Frame.display_frame f) in
   List.fold_left folder "" frames
 
 let display_interpreter interpreter =
@@ -917,38 +871,7 @@ let step_instruction interpreter =
           compress_memory (acc ^ encoded) (i + 1) 0 in
     let compressed = compress_memory "" 0 0 in
 
-    let make_frame_record frame =
-      let rec make_locals acc n =
-        if n = 0 then
-          acc
-        else
-          make_locals ((Integer16 (Some (IntMap.find n frame.locals))) :: acc) (n - 1) in
-      let locals = make_locals [] frame.locals_count in
-      let rec make_stack acc st =
-        match st with
-        | [] -> acc
-        | h :: t ->
-          make_stack ((Integer16 (Some (h))) :: acc) t in
-      let stack = List.rev (make_stack [] frame.stack) in
-      let arguments_byte = (1 lsl frame.arguments_supplied) - 1 in
-      Record [
-        Integer24 (Some frame.resume_at);
-        BitField [
-          Integer4 (Some frame.locals_count);
-          Bit (4, Some frame.discard_value)];
-        Integer8 (Some frame.target_variable);
-        BitField [
-          Bit (0, Some (fetch_bit 0 arguments_byte));
-          Bit (1, Some (fetch_bit 1 arguments_byte));
-          Bit (2, Some (fetch_bit 2 arguments_byte));
-          Bit (3, Some (fetch_bit 3 arguments_byte));
-          Bit (4, Some (fetch_bit 4 arguments_byte));
-          Bit (5, Some (fetch_bit 5 arguments_byte));
-          Bit (6, Some (fetch_bit 6 arguments_byte))];
-        Integer16 (Some (List.length frame.stack));
-        SizedList (Integer8 (Some frame.locals_count), locals );
-        SizedList (Integer8 (Some (List.length frame.stack)) , stack)] in
-    let frames = List.rev (List.map make_frame_record interp.frames) in
+    let frames = List.rev (List.map Frame.make_frame_record interp.frames) in
 
     (* TODO: The PC at present points to the save instruction. The convention,
     documented nowhere I have found thus far, is to save the PC + 1.  Why
@@ -1062,65 +985,11 @@ let step_instruction interpreter =
           UnsizedList items ] ) -> items
       | _ -> failwith "TODO handle failure reading stacks" in
 
-    let make_frame frame_record =
-      let (ret_addr, locals_list, eval_stack,
-          target_variable, discard_value, arg_count, locals_count) =
-        match frame_record with
-        | Record [
-          Integer24 (Some ret_addr);
-          BitField [
-            Integer4 (Some locals_count);
-            Bit (4, Some discard_value)];
-          Integer8 (Some target_variable);
-          BitField [
-            Bit (0, Some a0);
-            Bit (1, Some a1);
-            Bit (2, Some a2);
-            Bit (3, Some a3);
-            Bit (4, Some a4);
-            Bit (5, Some a5);
-            Bit (6, Some a6)];
-          Integer16 (Some _); (* size of evaluation stack in words *)
-          SizedList (_, locals_list);
-          SizedList (_, eval_stack)] ->
-          let rec find_false n items =
-            match items with
-            | false :: _ -> n
-            | true :: tail -> find_false (n + 1) tail
-            | [] -> failwith "impossible" in
-          let arg_count =
-            find_false 0 [a0; a1; a2; a3; a4; a5; a6; false] in
-          (ret_addr, locals_list, eval_stack,
-            target_variable, discard_value, arg_count, locals_count)
-        | _ -> failwith "TODO handle failure reading frame" in
-      let decode_int16 form =
-        match form with
-        | (Integer16 (Some v)) -> v
-        | _ -> failwith "TODO handle failure reading evaluation stack / locals" in
-      let stack = List.rev (List.map decode_int16 eval_stack) in
-      let rec make_locals map i locs =
-        match locs with
-        | [] -> map
-        | h :: t ->
-          let v = decode_int16 h in
-          let new_map = IntMap.add i v map in
-          make_locals new_map (i + 1) t in
-      let locals = make_locals IntMap.empty 1 locals_list in
-      { stack;
-        locals;
-        locals_count;
-        called = 0;
-        resume_at = ret_addr ;
-        arguments_supplied = arg_count;
-        discard_value;
-        target_variable
-        } in
-
     let rec make_frames records frames =
       match records with
       | [] -> frames
       | h :: t ->
-        let frame = make_frame h in
+        let frame = Frame.make_frame_from_record h in
         make_frames t (frame :: frames) in
 
     (* TODO: Deal with memory size mismatch. *)
@@ -1584,14 +1453,14 @@ let step_instruction interpreter =
 
       let frame =
       {
-        stack = [];
-        locals;
-        locals_count = count;
-        called = first_instruction;
-        resume_at = instruction.address + instruction.length ;
-        arguments_supplied = List.length routine_operands;
-        discard_value;
-        target_variable
+        Frame.stack = [];
+        Frame.locals = locals;
+        Frame.locals_count = count;
+        Frame.called = first_instruction;
+        Frame.resume_at = instruction.address + instruction.length ;
+        Frame.arguments_supplied = List.length routine_operands;
+        Frame.discard_value = discard_value;
+        Frame.target_variable = target_variable
       } in
       set_program_counter (add_frame locals_interpreter frame) first_instruction in
     (* End handle_call *)
