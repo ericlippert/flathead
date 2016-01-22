@@ -325,8 +325,7 @@ let opcode_name opcode ver =
   | EXT_28  -> "picture_table"
   | EXT_29  -> "buffer_screen"
 
-let display_instruction instr ver =
-
+let display instr ver =
   let display_operands () =
     let to_string operand =
       match operand with
@@ -357,7 +356,7 @@ let display_instruction instr ver =
 
   let start_addr = instr.address in
   let name = opcode_name instr.opcode ver in
-  let operands = display_operands () in
+  let operands = display_operands() in
   let store = display_store() in
   let branch = display_branch() in
   let text = display_text() in
@@ -552,7 +551,6 @@ let decode reader address ver =
       (Large w) :: tail
     | Small_operand :: remaining_types ->
       let b = byte_reader operand_address in
-      let head = Small b in
       let tail = decode_operands (operand_address + 1) remaining_types in
       (Small b) :: tail
     | Variable_operand :: remaining_types ->
@@ -687,7 +685,7 @@ let decode reader address ver =
         of a global variable lookup? The interpreter does not handle that
         case correctly. Revisit this decision. It may be better to keep
         this a relative offset here and make the display and reachability
-        code understand that it is relative. *) 
+        code understand that it is relative. *)
 
 
         match instr.operands with

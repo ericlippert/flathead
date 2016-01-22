@@ -615,8 +615,6 @@ let handle_sread interpreter instruction =
       input_max = maximum_letters }
   (* end handle_sread *)
 
-
-
 let display_interpreter interpreter =
   let pc = interpreter.program_counter in
   let frames = Frameset.display_frames interpreter.frames in
@@ -647,7 +645,7 @@ let step_instruction interpreter =
       let (x, operand_interpreter) = read_operand interpreter x_operand in
       let (result, result_interpreter) = compute_result x operand_interpreter in
       handle_store_and_branch result_interpreter instruction result
-   | _ -> failwith (Printf.sprintf "instruction %s must have one operand" (display_instruction instruction (version interpreter.story) ) ) in
+   | _ -> failwith (Printf.sprintf "instruction %s must have one operand" (Instruction.display instruction (version interpreter.story) ) ) in
 
   let handle_op1_effect compute_effect =
     handle_op1 (fun x i -> (0, compute_effect x i)) in

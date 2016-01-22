@@ -770,11 +770,6 @@ let display_dictionary story =
 (* Bytecode *)
 (* *)
 
-
-
-
-
-
 let decode_instruction story address =
   let reader =
     {
@@ -792,13 +787,9 @@ let display_instructions story address count =
       acc
     else
       let instr = decode_instruction story addr in
-      let s = display_instruction instr (version story)  in
+      let s = Instruction.display instr (version story)  in
       aux (acc  ^ s) (addr + instr.length) (c - 1) in
   aux "" address count
-
-
-
-
 
 (* Any given instruction in a routine either goes on to the next instruction,
 when it is done, or branches to another instruction when it is done, or terminates
@@ -823,7 +814,7 @@ let display_reachable_instructions story address =
   let sorted = List.sort compare reachable in
   let to_string addr =
     let instr = decode_instruction story addr in
-    display_instruction instr (version story)  in
+    Instruction.display instr (version story)  in
   accumulate_strings to_string sorted
 
 let maximum_local = 15
@@ -879,6 +870,10 @@ let display_all_routines story =
     (display_routine story r) ^ "\n\n" in
   accumulate_strings to_string routines
 
+(* *)
+(* Globals *)
+(* *)
+
 let first_global = 16
 let current_object_global = 16
 let current_score_global = 17
@@ -898,7 +893,7 @@ let read_global story global_number =
 
 let display_globals story =
   let to_string g =
-    Printf.sprintf "%02x %04x\n" (g - 16) (read_global story g) in
+    Printf.sprintf "%02x %04x\n" (g - first_global) (read_global story g) in
   accumulate_strings_loop to_string 16 256
 
 let write_global story global_number value =
