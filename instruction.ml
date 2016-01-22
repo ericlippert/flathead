@@ -377,9 +377,9 @@ type instruction_reader =
 }
 
 (* Takes the address of an instruction and produces the instruction *)
-let decode reader address ver =
-  let { word_reader; byte_reader;
-    zstring_reader; zstring_length; decode_routine } = reader in
+let decode
+  { word_reader; byte_reader; zstring_reader; zstring_length; decode_routine }
+  address ver =
 
   (* Spec 4.3:
 
@@ -391,7 +391,7 @@ let decode reader address ver =
 
   let decode_form address =
     let b = byte_reader address in
-    match fetch_bits 7 2 b with
+    match fetch_bits bit7 size2 b with
     | 3 -> Variable_form
     | 2 -> if b = 190 then Extended_form else Short_form
     | _ -> Long_form in
@@ -408,9 +408,9 @@ let decode reader address ver =
   let decode_op_count address form =
     let b = byte_reader address in
     match form with
-    | Short_form -> if fetch_bits 5 2 b = 3 then OP0 else OP1
+    | Short_form -> if fetch_bits bit5 size2 b = 3 then OP0 else OP1
     | Long_form -> OP2
-    | Variable_form -> if fetch_bit 5 b then VAR else OP2
+    | Variable_form -> if fetch_bit bit5 b then VAR else OP2
     | Extended_form -> VAR in
 
   (* Spec :
@@ -444,10 +444,10 @@ let decode reader address ver =
       let maximum_extended = 29 in
       let ext = byte_reader (address + 1) in
       if ext > maximum_extended then ILLEGAL else ext_bytecodes.(ext)
-    | (_, OP0) -> zero_operand_bytecodes.(fetch_bits 3 4 b)
-    | (_, OP1) -> one_operand_bytecodes.(fetch_bits 3 4 b)
-    | (_, OP2) -> two_operand_bytecodes.(fetch_bits 4 5 b)
-    | (_, VAR) -> var_operand_bytecodes.(fetch_bits 4 5 b) in
+    | (_, OP0) -> zero_operand_bytecodes.(fetch_bits bit3 size4 b)
+    | (_, OP1) -> one_operand_bytecodes.(fetch_bits bit3 size4 b)
+    | (_, OP2) -> two_operand_bytecodes.(fetch_bits bit4 size5 b)
+    | (_, VAR) -> var_operand_bytecodes.(fetch_bits bit4 size5 b) in
 
   let get_opcode_length form =
     match form with
@@ -499,7 +499,7 @@ let decode reader address ver =
       if i > 3 then
         acc
       else
-        let type_bits = fetch_bits (i * 2 + 1) 2 type_byte in
+        let type_bits = fetch_bits (Bit_number (i * 2 + 1)) size2 type_byte in
         match decode_types type_bits with
         | Omitted -> aux (i + 1) acc
         | x -> aux (i + 1) (x :: acc) in
@@ -510,10 +510,10 @@ let decode reader address ver =
     | (_, OP0, _) -> []
     | (_, OP1, _) ->
       let b = byte_reader address in
-      [decode_types (fetch_bits 5 2 b)]
+      [decode_types (fetch_bits bit5 size2 b)]
     | (Long_form, _, _) ->
       let b = byte_reader address in
-      (match fetch_bits 6 2 b with
+      (match fetch_bits bit6 size2 b with
       | 0 -> [ Small_operand; Small_operand ]
       | 1 -> [ Small_operand; Variable_operand ]
       | 2 -> [ Variable_operand; Small_operand ]
@@ -606,10 +606,10 @@ let decode reader address ver =
   let decode_branch branch_code_address opcode ver  =
     if has_branch opcode ver then
       let high = byte_reader branch_code_address in
-      let sense = fetch_bit 7 high in
-      let bottom6 = fetch_bits 5 6 high in
+      let sense = fetch_bit bit7 high in
+      let bottom6 = fetch_bits bit5 size6 high in
       let offset =
-        if fetch_bit 6 high then
+        if fetch_bit bit6 high then
           bottom6
         else
           let low = byte_reader (branch_code_address + 1) in
@@ -620,7 +620,7 @@ let decode reader address ver =
         | 0 -> (sense, Return_false)
         | 1 -> (sense, Return_true)
         | _ ->
-          let branch_length = if fetch_bit 6 high then 1 else 2 in
+          let branch_length = if fetch_bit bit6 high then 1 else 2 in
           let address_after = branch_code_address + branch_length in
           let branch_target = address_after + offset - 2 in
           (sense, Branch_address branch_target) in
@@ -631,7 +631,7 @@ let decode reader address ver =
   let get_branch_length branch_code_address opcode ver =
     if has_branch opcode ver then
       let b = byte_reader branch_code_address in
-      if fetch_bit 6 b then 1 else 2
+      if fetch_bit bit6 b then 1 else 2
     else 0 in
 
   (* Spec:

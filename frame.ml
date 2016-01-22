@@ -64,13 +64,13 @@ let make_frame_record frame =
       Bit (4, Some discard_value)];
     Integer8 (Some target_variable);
     BitField [
-      Bit (0, Some (fetch_bit 0 arguments_byte));
-      Bit (1, Some (fetch_bit 1 arguments_byte));
-      Bit (2, Some (fetch_bit 2 arguments_byte));
-      Bit (3, Some (fetch_bit 3 arguments_byte));
-      Bit (4, Some (fetch_bit 4 arguments_byte));
-      Bit (5, Some (fetch_bit 5 arguments_byte));
-      Bit (6, Some (fetch_bit 6 arguments_byte))];
+      Bit (0, Some (fetch_bit (Bit_number 0) arguments_byte));
+      Bit (1, Some (fetch_bit (Bit_number 1) arguments_byte));
+      Bit (2, Some (fetch_bit (Bit_number 2) arguments_byte));
+      Bit (3, Some (fetch_bit (Bit_number 3) arguments_byte));
+      Bit (4, Some (fetch_bit (Bit_number 4) arguments_byte));
+      Bit (5, Some (fetch_bit (Bit_number 5) arguments_byte));
+      Bit (6, Some (fetch_bit (Bit_number 6) arguments_byte))];
     Integer16 (Some (Evaluation_stack.length frame.stack));
     SizedList (Integer8 (Some (List.length locals)), locals );
     SizedList (Integer8 (Some (Evaluation_stack.length frame.stack)) , stack)]

@@ -17,7 +17,7 @@ let alphabet_table = [|
 (* gives the length in bytes of the encoded zstring, not the decoded string *)
 let length word_reader address =
   let rec aux len current =
-    if fetch_bit 15 (word_reader current) then len + 2
+    if fetch_bit bit15 (word_reader current) then len + 2
     else aux (len + 2) (current + 2) in
   aux 0 address
 
@@ -56,12 +56,12 @@ let rec read word_reader abbrv_reader address =
       (s, Alphabet 0) in
 
   let rec aux acc mode1 current_address =
-    let zchar_bit_size = 5 in
+    let zchar_bit_size = size5 in
     let word = word_reader current_address in
-    let is_end = fetch_bit 15 word in
-    let zchar1 = fetch_bits 14 zchar_bit_size word in
-    let zchar2 = fetch_bits 9 zchar_bit_size word in
-    let zchar3 = fetch_bits 4 zchar_bit_size word in
+    let is_end = fetch_bit bit15 word in
+    let zchar1 = fetch_bits bit14 zchar_bit_size word in
+    let zchar2 = fetch_bits bit9 zchar_bit_size word in
+    let zchar3 = fetch_bits bit4 zchar_bit_size word in
     let (text1, mode2) = process_zchar zchar1 mode1 in
     let (text2, mode3) = process_zchar zchar2 mode2 in
     let (text3, mode_next) = process_zchar zchar3 mode3 in
@@ -78,10 +78,10 @@ let display_bytes word_reader offset length =
     if i > length then acc
     else (
       let word = word_reader (offset + i) in
-      let is_end = fetch_bits 15 1 word in
-      let zchar1 = fetch_bits 14 5 word in
-      let zchar2 = fetch_bits 9 5 word in
-      let zchar3 = fetch_bits 4 5 word in
+      let is_end = fetch_bits bit15 size1 word in
+      let zchar1 = fetch_bits bit14 size5 word in
+      let zchar2 = fetch_bits bit9 size5 word in
+      let zchar3 = fetch_bits bit4 size5 word in
       let s = Printf.sprintf "%04x(%01x %02x %02x %02x) " word is_end zchar1 zchar2 zchar3 in
       aux (i + 2) (acc ^ s)) in
     aux 0 ""

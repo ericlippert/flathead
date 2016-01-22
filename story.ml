@@ -10,7 +10,6 @@ type t =
   memory : Memory.t
 }
 
-
 (* *)
 (* Dealing with memory *)
 (* *)
@@ -83,7 +82,7 @@ type status_line_kind_type =
   | TimeStatus
 
 let status_line_kind story =
-  match (version story, fetch_bit 1 (flags1 story))  with
+  match (version story, fetch_bit bit1 (flags1 story))  with
   | (1, _)
   | (2, _)
   | (3, false) -> ScoreStatus
@@ -91,12 +90,12 @@ let status_line_kind story =
   | _ -> NoStatus
 
 let supports_multiple_windows story =
-  let windows_supported_bit = 5 in
+  let windows_supported_bit = bit5 in
   fetch_bit windows_supported_bit (flags1 story)
 
 let set_supports_multiple_windows story value =
   let flags1_offset = 1 in
-  let windows_supported_bit = 5 in
+  let windows_supported_bit = bit5 in
   let new_flags1 = (set_bit_to windows_supported_bit (flags1 story) value) in
   write_byte story flags1_offset new_flags1
 
@@ -135,23 +134,23 @@ let flags2 story =
   read_byte story flags2_offset
 
 let get_transcript_flag story =
-  let transcript_bit = 0 in
+  let transcript_bit = bit0 in
   fetch_bit transcript_bit (flags2 story)
 
 let set_transcript_flag story value =
   let flags2_offset = 16 in
-  let transcript_bit = 0 in
+  let transcript_bit = bit0 in
   let new_flags2 = (set_bit_to transcript_bit (flags2 story) value) in
   write_byte story flags2_offset new_flags2
 
 let get_sound_effects_flag story =
-  let sfx_bit = 7 in
+  let sfx_bit = bit7 in
   fetch_bit sfx_bit (flags2 story)
 
 (* TODO: Turn this off when starting / restoring *)
 let set_sound_effects_flag story value =
   let flags2_offset = 16 in
-  let sfx_bit = 0 in
+  let sfx_bit = bit0 in
   let new_flags2 = (set_bit_to sfx_bit (flags2 story) value) in
   write_byte story flags2_offset new_flags2
 
@@ -376,7 +375,7 @@ let object_attribute_address story object_number attribute_number =
   else
     let offset = attribute_number / 8 in
     let address = (object_address story object_number) + offset in
-    let bit = 7 - (attribute_number mod 8) in
+    let bit = Bit_number (7 - (attribute_number mod 8)) in
     (address, bit)
 
 let object_attribute story object_number attribute_number =
@@ -524,10 +523,10 @@ let decode_property_data story address =
     (* In version 3 it's easy. The number of bytes of property data
     is indicated by the top 3 bits; the property number is indicated
     by the bottom 5 bits, and the header is one byte. *)
-    (1, (fetch_bits 7 3 b) + 1, (fetch_bits 4 5 b))
+    (1, (fetch_bits bit7 size3 b) + 1, (fetch_bits bit4 size5 b))
   else
     (* In version 4 the property number is the bottom 6 bits. *)
-    let property_number = fetch_bits 5 6 b in
+    let property_number = fetch_bits bit5 size6 b in
     (* If the high bit of the first byte is set then the length is
       indicated by the bottom six bits of the *following* byte.
       The following byte needs to have its high bit set as well.
@@ -535,11 +534,11 @@ let decode_property_data story address =
 
       If the high bit is not set then the length is indicated by
       the sixth bit. *)
-    if fetch_bit 7 b then
-      let len = fetch_bits 5 6 (read_byte story (address + 1)) in
+    if fetch_bit bit7 b then
+      let len = fetch_bits bit5 size6 (read_byte story (address + 1)) in
       (2, (if len = 0 then 64 else len), property_number)
     else
-      (1, (if fetch_bit 6 b then 2 else 1), property_number)
+      (1, (if fetch_bit bit6 b then 2 else 1), property_number)
 
 (* This method produces a list of (number, data_length, data_address) tuples *)
 let property_addresses story object_number =
@@ -570,13 +569,13 @@ let property_length_from_address story address =
   else
     let b = read_byte story (address - 1) in
     if (version story) <= 3 then
-      1 + (fetch_bits 7 3 b)
+      1 + (fetch_bits bit7 size3 b)
     else
-      if fetch_bit 7 b then
-        let len = fetch_bits 5 6 b in
+      if fetch_bit bit7 b then
+        let len = fetch_bits bit5 size6 b in
         if len = 0 then 64 else len
       else
-        if fetch_bit 6 b then 2 else 1
+        if fetch_bit bit6 b then 2 else 1
 
 (* Given an object and property number, what is the address
    of the associated property block? Or zero if there is none. *)
