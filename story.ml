@@ -865,8 +865,7 @@ type instruction =
   text : string option;
 }
 
-let is_call story opcode =
-  let ver = version story in
+let is_call ver opcode =
   match opcode with
   | OP1_143 (* call_1n in v5, logical not in v1-4 *)
     -> ver >= 5
@@ -889,6 +888,8 @@ let decode_instruction story address =
   let ver = version story in
   let word_reader = read_word story in
   let byte_reader = read_byte story in
+  let zstring_reader = read_zstring story in
+  let zstring_length = zstring_length story in
   (* Helper methods for decoding *)
   let has_branch opcode =
     match opcode with
@@ -1018,7 +1019,7 @@ let decode_instruction story address =
             [(Large (instr.address + instr.length + (signed_word large) - 2))]
           | _ -> instr.operands in
         if is_special_store instr.opcode then munge_store_operands()
-        else if is_call story instr.opcode then munge_call_operands()
+        else if is_call ver instr.opcode then munge_call_operands()
         else if instr.opcode = OP1_140 then munge_jump_operands()
         else instr.operands in
 
@@ -1150,12 +1151,12 @@ let decode_instruction story address =
     let text_address = branch_code_address + branch_length in
     let text =
       if has_text opcode then
-        Some (read_zstring story text_address)
+        Some (zstring_reader text_address)
       else
         None in
     let text_length =
       if has_text opcode then
-        zstring_length story text_address
+        zstring_length text_address
       else
         0 in
     let length =
@@ -1170,8 +1171,7 @@ let decode_instruction story address =
     { instr with operands = munge_operands instr }
     (* End of decode_instruction *)
 
-let display_instruction story instr =
-  let ver = version story in
+let display_instruction instr ver =
   (* We match Inform's convention of numbering the locals and globals from zero *)
   let display_variable variable =
     match variable with
@@ -1348,7 +1348,7 @@ let display_instructions story address count =
       acc
     else
       let instr = decode_instruction story addr in
-      let s = display_instruction story instr in
+      let s = display_instruction instr (version story)  in
       aux (acc  ^ s) (addr + instr.length) (c - 1) in
   aux "" address count
 
@@ -1406,7 +1406,7 @@ let display_reachable_instructions story address =
   let sorted = List.sort compare reachable in
   let to_string addr =
     let instr = decode_instruction story addr in
-    display_instruction story instr in
+    display_instruction instr (version story)  in
   accumulate_strings to_string sorted
 
 let maximum_local = 15
@@ -1429,8 +1429,8 @@ let display_routine story routine_address =
   let first = first_instruction story routine_address in
   display_reachable_instructions story first
 
-let call_address story instr =
-  if is_call story instr.opcode then
+let call_address ver instr =
+  if is_call ver instr.opcode then
     match instr.operands with
     | (Large address) :: _ -> Some address
     | _ -> None
@@ -1443,7 +1443,7 @@ let call_address story instr =
 let reachable_routines_in_routine story instr_address =
   let reachable_instrs = all_reachable_addresses_in_routine story instr_address in
   let option_fold routines instr_addr =
-    match call_address story (decode_instruction story instr_addr) with
+    match call_address (version story) (decode_instruction story instr_addr) with
     | None -> routines
     | Some routine_address -> routine_address :: routines in
   List.fold_left option_fold [] reachable_instrs
