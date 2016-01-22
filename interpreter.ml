@@ -54,10 +54,7 @@ type t =
   story : Story.t;
   program_counter : int;
   frames : Frameset.t;
-  random_w : Int32.t;
-  random_x : Int32.t;
-  random_y : Int32.t;
-  random_z : Int32.t;
+  random : Randomness.t;
   state : state;
 
   (* output stream 1 *)
@@ -92,12 +89,7 @@ let make story screen =
     story = story;
     program_counter = pc;
     frames = Frameset.make initial_frame;
-    (* TODO: Seed these randomly *)
-    (* TODO: Move randomness into own module *)
-    random_w = Int32.of_int 123;
-    random_x = Int32.of_int 123;
-    random_y = Int32.of_int 123;
-    random_z = Int32.of_int 123;
+    random = Randomness.make_random();
     state = Running;
     screen = screen;
     has_new_output = false;
@@ -1259,23 +1251,14 @@ let step_instruction interpreter =
     (* TODO: Stub for set_color. Note that this is variadic in v6 *)
     interp in
 
-  (* TODO: This could use some cleanup *)
-  let handle_random n interp =
-    let random_next () =
-      (* See wikipedia article on xorshift *)
-      let t = Int32.logxor interp.random_x (Int32.shift_left interp.random_x 11) in
-      let new_x = interp.random_y in
-      let new_y = interp.random_z in
-      let new_z = interp.random_w in
-      let new_w = Int32.logxor (Int32.logxor (Int32.logxor interp.random_w (Int32.shift_right_logical interp.random_w 19)) t) (Int32.shift_right_logical t 8) in
-      let result = 1 + (Int32.to_int (Int32.rem new_w (Int32.of_int n)) + n) mod n in
-      (result, { interp with random_w = new_w; random_x = new_x; random_y = new_y; random_z = new_z }) in
+  let handle_random n interpreter =
     if n = 0 then
-      (0, { interp with random_w = (Random.self_init(); Random.int32 (Int32.of_int 1000000)) })
+      (0, { interpreter with random = Randomness.make_random()})
     else if n < 0 then
-      (0, { interp with random_w = Int32.of_int n; random_x = Int32.of_int 123; random_y = Int32.of_int 123; random_z = Int32.of_int 123 })
+      (0, { interpreter with random = Randomness.make_seeded n })
     else
-      random_next() in
+      let (result, random) = Randomness.next interpreter.random n in
+      (result, { interpreter with random }) in
 
   (* Some helpers for instructions that are a bit unusual, like returns *)
 
