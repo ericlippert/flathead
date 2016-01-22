@@ -53,7 +53,7 @@ type t =
 {
   story : Story.t;
   program_counter : int;
-  frames : Frame.t list;
+  frames : Frameset.t;
   random_w : Int32.t;
   random_x : Int32.t;
   random_y : Int32.t;
@@ -91,8 +91,9 @@ let make story screen =
   {
     story = story;
     program_counter = pc;
-    frames = [ initial_frame ];
+    frames = Frameset.make initial_frame;
     (* TODO: Seed these randomly *)
+    (* TODO: Move randomness into own module *)
     random_w = Int32.of_int 123;
     random_x = Int32.of_int 123;
     random_y = Int32.of_int 123;
@@ -111,38 +112,29 @@ let make story screen =
     input_max = 0
 }
 
-(* There is always at least one frame *)
 let current_frame interpreter =
-  List.hd interpreter.frames
+  Frameset.current_frame interpreter.frames
 
 let add_frame interpreter frame =
-  { interpreter with frames = frame :: interpreter.frames }
+  { interpreter with frames = Frameset.add_frame interpreter.frames frame }
 
 let remove_frame interpreter =
-  { interpreter with frames = List.tl (interpreter.frames) }
+  { interpreter with frames = Frameset.remove_frame interpreter.frames }
 
 let peek_stack interpreter =
-  Frame.peek_stack (current_frame interpreter)
+  Frameset.peek_stack interpreter.frames
 
 let pop_stack interpreter =
-  match interpreter.frames with
-  | current_frame :: other_frames ->
-    let new_frame = Frame.pop_stack current_frame in
-    { interpreter with frames = new_frame :: other_frames }
-  | _ -> failwith "frame set is empty"
+  { interpreter with frames = Frameset.pop_stack interpreter.frames }
 
 let push_stack interpreter value =
-  match interpreter.frames with
-  | current_frame :: other_frames ->
-    let new_frame = Frame.push_stack current_frame value in
-    { interpreter with frames = new_frame :: other_frames }
-  | _ -> failwith "frame set is empty"
+{ interpreter with frames = Frameset.push_stack interpreter.frames value }
 
 let set_program_counter interpreter new_program_counter =
   { interpreter with program_counter = new_program_counter }
 
 let read_local interpreter local =
-  Frame.read_local (current_frame interpreter) local
+  Frameset.read_local interpreter.frames local
 
 (* Reading operands can change the state of the interpreter, because it can
    pop the stack. *)
@@ -161,12 +153,7 @@ let read_operand interpreter operand =
   | _ -> (value, interpreter)
 
 let write_local interpreter local value =
-  let value = unsigned_word value in
-  match interpreter.frames with
-  | current_frame :: other_frames ->
-    let new_frame = Frame.write_local current_frame local value in
-    { interpreter with frames = new_frame :: other_frames }
-  | _ -> failwith "frame set is empty"
+  { interpreter with frames = Frameset.write_local interpreter.frames local value }
 
 let write_global interpreter global value =
   { interpreter with story = write_global interpreter.story global value }
@@ -635,13 +622,11 @@ let handle_sread interpreter instruction =
       input_max = maximum_letters }
   (* end handle_sread *)
 
-let display_frames frames =
-  let folder acc f =acc ^ (Frame.display_frame f) in
-  List.fold_left folder "" frames
+
 
 let display_interpreter interpreter =
   let pc = interpreter.program_counter in
-  let frames = display_frames interpreter.frames in
+  let frames = Frameset.display_frames interpreter.frames in
   let instr = display_instructions interpreter.story interpreter.program_counter 1 in
   Printf.sprintf "\nPC:%04x\n%s\n%s\n" pc frames instr
 
@@ -872,7 +857,7 @@ let step_instruction interpreter =
           compress_memory (acc ^ encoded) (i + 1) 0 in
     let compressed = compress_memory "" 0 0 in
 
-    let frames = List.rev (List.map Frame.make_frame_record interp.frames) in
+    let frames = Frameset.make_frameset_record interp.frames in
 
     (* TODO: The PC at present points to the save instruction. The convention,
     documented nowhere I have found thus far, is to save the PC + 1.  Why
@@ -986,15 +971,9 @@ let step_instruction interpreter =
           UnsizedList items ] ) -> items
       | _ -> failwith "TODO handle failure reading stacks" in
 
-    let rec make_frames records frames =
-      match records with
-      | [] -> frames
-      | h :: t ->
-        let frame = Frame.make_frame_from_record h in
-        make_frames t (frame :: frames) in
-
     (* TODO: Deal with memory size mismatch. *)
-    let frames = make_frames frame_records [] in
+    let frames = Frameset.make_frameset_from_records frame_records in
+
     let original_story = original interpreter.story in
     let new_story =
       match (umem_chunk, cmem_chunk) with
