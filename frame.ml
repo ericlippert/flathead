@@ -54,9 +54,10 @@ let make_frame_record frame =
     match frame.store with
     | None -> (true, 0)
     | Some Stack -> (false, 0)
-    | Some (Local n) -> (false, n)
-    | Some (Global n) -> (false, n) in
+    | Some Local_variable Local n -> (false, n)
+    | Some Global_variable n -> (false, n) in
 
+(* TODO: Bit_number could take a bit number, not an integer *)
   Record [
     Integer24 (Some frame.resume_at);
     BitField [
@@ -108,7 +109,7 @@ let make_frame_from_record frame_record =
         match (discard_value, target_variable) with
         | (true, _) -> None
         | (false, 0) -> Some Stack
-        | (false, n) -> if n <= maximum_local then Some (Local n) else Some (Global n) in
+        | (false, n) -> if n <= maximum_local then Some (Local_variable (Local n)) else Some (Global_variable n) in
 
       (ret_addr, locals_list, eval_stack,
         store, arg_count, locals_count)

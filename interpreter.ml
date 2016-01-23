@@ -97,8 +97,8 @@ let read_operand_no_pop interpreter operand =
   | Large large -> large
   | Small small -> small
   | Variable Stack -> peek_stack interpreter
-  | Variable Local local -> read_local interpreter local
-  | Variable Global global -> read_global interpreter.story global
+  | Variable Local_variable local -> read_local interpreter local
+  | Variable Global_variable global -> read_global interpreter.story global
 
 let read_operand interpreter operand =
   let value = read_operand_no_pop interpreter operand in
@@ -114,8 +114,8 @@ let write_global interpreter global value =
 
 let do_store interpreter variable value =
   match variable with
-  | Local local -> write_local interpreter local value
-  | Global global -> write_global interpreter global value
+  | Local_variable local -> write_local interpreter local value
+  | Global_variable global -> write_global interpreter global value
   | Stack -> push_stack interpreter value
 
 (*
@@ -192,8 +192,8 @@ with both cases. *)
 
 let do_store_in_place interpreter variable value =
   match variable with
-  | Local local -> write_local interpreter local value
-  | Global global -> write_global interpreter global value
+  | Local_variable local -> write_local interpreter local value
+  | Global_variable global -> write_global interpreter global value
   | Stack -> push_stack (pop_stack interpreter) value
 
 let handle_store interpreter instruction =
@@ -1252,11 +1252,11 @@ let step_instruction interpreter =
         let packed_addr = peek_stack interpreter in
         let addr = decode_routine_packed_address interpreter.story packed_addr in
         (addr, pop_stack interpreter)
-      | Variable Local local ->
+      | Variable Local_variable local ->
         let packed_addr = read_local interpreter local in
         let addr = decode_routine_packed_address interpreter.story packed_addr in
         (addr, interpreter)
-      | Variable Global global ->
+      | Variable Global_variable global ->
         let packed_addr = read_global interpreter.story global in
         let addr = decode_routine_packed_address interpreter.story packed_addr in
         (addr, interpreter) in

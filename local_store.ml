@@ -5,6 +5,7 @@
 
 open Utility
 open Iff
+open Instruction
 
 type t =
 {
@@ -22,14 +23,14 @@ let empty =
 
 let maximum_local = 15
 
-let write_local local_store local value =
+let write_local local_store (Local local) value =
   if local < 0 || local > local_store.count then
     failwith (Printf.sprintf "write_local: local %d invalid; count is %d" local local_store.count)
   else
     let value = unsigned_word value in
     { local_store with locals = IntMap.add local value local_store.locals }
 
-let read_local local_store local =
+let read_local local_store (Local local) =
   if local < 0 || local > local_store.count then
     failwith (Printf.sprintf "read_local: local %d invalid; count is %d" local local_store.count)
   else
@@ -49,7 +50,8 @@ let make_locals_record local_store =
     if n = 0 then
       acc
     else
-      aux ((Integer16 (Some (read_local local_store n))) :: acc) (n - 1) in
+      let local_value = read_local local_store (Local n) in
+      aux ((Integer16 (Some local_value)) :: acc) (n - 1) in
   aux [] local_store.count
 
 let make_locals_from_record arguments_supplied locals_list =
