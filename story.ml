@@ -10,6 +10,11 @@ type t =
   memory : Memory.t
 }
 
+type object_number =
+  Object of int
+
+let invalid_object = Object 0
+
 (* *)
 (* Dealing with memory *)
 (* *)
@@ -321,7 +326,7 @@ let default_property_table_size story =
 
 let default_property_table_entry_size = 2
 
-let default_property_table_base = object_table_base;;
+let default_property_table_base = object_table_base
 
 let default_property_value story n =
   if n < 1 || n > (default_property_table_size story) then
@@ -346,7 +351,7 @@ let object_tree_base story =
 let object_table_entry_size story =
   if (version story) <= 3 then 9 else 14
 
-let object_address story object_number =
+let object_address story (Object object_number) =
   let tree_base = object_tree_base story in
   let entry_size = object_table_entry_size story in
   tree_base + (object_number - 1) * entry_size
@@ -397,11 +402,11 @@ let clear_object_attribute story object_number attribute_number =
 let object_parent story object_number =
   let obj_addr = object_address story object_number in
   if (version story) <= 3 then
-    read_byte story (obj_addr + 4)
+    Object (read_byte story (obj_addr + 4))
   else
-    read_word story (obj_addr + 6)
+    Object (read_word story (obj_addr + 6))
 
-let set_object_parent story object_number new_parent =
+let set_object_parent story object_number (Object new_parent) =
   let obj_addr = object_address story object_number in
   if (version story) <= 3 then
     write_byte story (obj_addr + 4) new_parent
@@ -411,11 +416,11 @@ let set_object_parent story object_number new_parent =
 let object_sibling story object_number =
   let obj_addr = object_address story object_number in
   if (version story) <= 3 then
-    read_byte story (obj_addr + 5)
+    Object (read_byte story (obj_addr + 5))
   else
-    read_word story (obj_addr + 8)
+    Object (read_word story (obj_addr + 8))
 
-let set_object_sibling story object_number new_sibling =
+let set_object_sibling story object_number (Object new_sibling) =
   let obj_addr = object_address story object_number in
   if (version story) <= 3 then
     write_byte story (obj_addr + 5) new_sibling
@@ -428,11 +433,11 @@ let object_child_offset story =
 let object_child story object_number =
   let obj_addr = object_address story object_number in
   if (version story) <= 3 then
-    read_byte story (obj_addr + 6)
+    Object (read_byte story (obj_addr + 6))
   else
-    read_word story (obj_addr + 10)
+    Object (read_word story (obj_addr + 10))
 
-let set_object_child story object_number new_child =
+let set_object_child story object_number (Object new_child) =
   let obj_addr = object_address story object_number in
   if (version story) <= 3 then
     write_byte story (obj_addr + 6) new_child
@@ -451,7 +456,7 @@ let object_property_address story object_number =
    the bottom of the object tree table. *)
 let object_count story =
   let table_start = object_tree_base story in
-  let table_end = object_property_address story 1 in
+  let table_end = object_property_address story (Object 1) in
   let entry_size = object_table_entry_size story in
   (table_end - table_start) / entry_size
 
@@ -470,8 +475,6 @@ let find_previous_sibling story child =
   let parent = object_parent story child in
   let first_child = object_child story parent in
   aux first_child
-
-let invalid_object = 0
 
 (* Takes a child object and detatches it from its parent *)
 
@@ -606,7 +609,8 @@ let object_property story object_number property_number =
         else if length = 2 then
           read_word story address
         else
-          failwith (Printf.sprintf "object %d property %d length %d bad property length" object_number property_number length))
+          let (Object n) = object_number in
+          failwith (Printf.sprintf "object %d property %d length %d bad property length" n property_number length))
       else
         aux tail in
   aux (property_addresses story object_number)
@@ -657,28 +661,30 @@ let display_properties story object_number =
 let display_object_table story =
   let count = object_count story in
   let to_string i =
-    let flags1 = object_attributes_word_1 story i in
-    let flags2 = object_attributes_word_2 story i in
-    let flags3 = object_attributes_word_3 story i in
-    let parent = object_parent story i in
-    let sibling = object_sibling story i in
-    let child = object_child story i in
-    let properties = object_property_address story i in
-    let name = object_name story i in
+    let current = Object i in
+    let flags1 = object_attributes_word_1 story current in
+    let flags2 = object_attributes_word_2 story current in
+    let flags3 = object_attributes_word_3 story current in
+    let (Object parent) = object_parent story current in
+    let (Object sibling) = object_sibling story current in
+    let (Object child) = object_child story current in
+    let properties = object_property_address story current in
+    let name = object_name story current in
     let object_text =
       Printf.sprintf "%04d: %04x%04x%04x %04x %04x %04x %04x %s "
       i flags1 flags2 flags3 parent sibling child properties name in
-    let properties_text = display_properties story i in
+    let properties_text = display_properties story current in
     object_text ^ properties_text ^ "\n" in
   accumulate_strings_loop to_string 1 (count + 1)
 
 (* Count down all the objects in the object table and record which ones have no parent. *)
 let object_roots story =
   let rec aux object_number acc =
-    if object_number = invalid_object then
+    let current = Object object_number in
+    if current = invalid_object then
       acc
-    else if (object_parent story object_number) = invalid_object then
-      aux (object_number - 1) (object_number :: acc)
+    else if (object_parent story current) = invalid_object then
+      aux (object_number - 1) (current :: acc)
     else
       aux (object_number - 1) acc in
   aux (object_count story) []
@@ -691,8 +697,9 @@ let display_object_tree story =
       let name = object_name story object_number in
       let child = object_child story object_number in
       let sibling = object_sibling story object_number in
+      let (Object n) = object_number in
       let object_text =
-        Printf.sprintf "%s%04d %s\n" indent object_number name in
+        Printf.sprintf "%s%04d %s\n" indent n name in
       let with_object = acc ^ object_text in
       let new_indent = "    " ^ indent in
       let with_children = aux with_object new_indent child in
@@ -905,7 +912,7 @@ let write_global story (Global global_number) value =
     write_word story (base + offset) value
 
 let current_object_name story =
-  let current_object = read_global story current_object_global in
+  let current_object = Object (read_global story current_object_global) in
   if current_object = invalid_object then ""
   else object_name story current_object
 

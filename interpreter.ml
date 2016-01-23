@@ -661,7 +661,7 @@ let step_instruction interpreter =
     if (signed_word x) > (signed_word y) then 1 else 0 in
 
   let handle_jin x y interp =
-    if (object_parent interp.story x) = y then 1 else 0 in
+    if (object_parent interp.story (Object x)) = (Object y) then 1 else 0 in
 
   let handle_test x y interp =
     let x = unsigned_word x in
@@ -675,16 +675,16 @@ let step_instruction interpreter =
     (unsigned_word x) land (unsigned_word y) in
 
   let handle_test_attr obj attr interp =
-    if object_attribute interp.story obj attr then 1 else 0 in
+    if object_attribute interp.story (Object obj) attr then 1 else 0 in
 
   let handle_set_attr obj attr interp =
-    { interp with story = set_object_attribute interp.story obj attr } in
+    { interp with story = set_object_attribute interp.story (Object obj) attr } in
 
   let handle_clear_attr obj attr interp =
-    { interp with story = clear_object_attribute interp.story obj attr } in
+    { interp with story = clear_object_attribute interp.story (Object obj) attr } in
 
   let handle_insert_obj child parent interp =
-    { interp with story = insert_object interp.story child parent } in
+    { interp with story = insert_object interp.story (Object child) (Object parent) } in
 
   let handle_loadw arr ind interp =
     read_word interp.story (arr + ind * 2) in
@@ -693,13 +693,13 @@ let step_instruction interpreter =
     read_byte interp.story (arr + ind) in
 
   let handle_get_prop obj prop interp =
-    object_property interp.story obj prop in
+    object_property interp.story (Object obj) prop in
 
   let handle_get_prop_addr obj prop interp =
-    property_address interp.story obj prop in
+    property_address interp.story (Object obj) prop in
 
   let handle_get_next_prop obj prop interp =
-    get_next_property interp.story obj prop in
+    get_next_property interp.story (Object obj) prop in
 
   let handle_add x y interp =
     signed_word (x + y)  in
@@ -720,13 +720,16 @@ let step_instruction interpreter =
     if x = 0 then 1 else 0 in
 
   let handle_get_sibling obj interp =
-    object_sibling interp.story obj in
+    let (Object sibling) = object_sibling interp.story (Object obj) in
+    sibling in
 
   let handle_get_child obj interp =
-    object_child interp.story obj in
+    let (Object child) = object_child interp.story (Object obj) in
+    child in
 
   let handle_get_parent obj interp =
-    object_parent interp.story obj in
+    let (Object parent) = object_parent interp.story (Object obj) in
+    parent in
 
   let handle_get_prop_len x interp =
     property_length_from_address interp.story x in
@@ -735,10 +738,10 @@ let step_instruction interpreter =
     interpreter_print interp (read_zstring interp.story x) in
 
   let handle_remove_obj x interp =
-    { interp with story = remove_object interp.story x} in
+    { interp with story = remove_object interp.story (Object x)} in
 
   let handle_print_obj x interp =
-    interpreter_print interp (object_name interp.story x) in
+    interpreter_print interp (object_name interp.story (Object x)) in
 
   let handle_print_paddr paddr interp =
     let addr = decode_string_packed_address interp.story paddr in
@@ -944,7 +947,7 @@ let step_instruction interpreter =
     { interp with story = write_byte interp.story (arr + ind) value } in
 
   let handle_putprop obj prop value interp =
-    { interp with story = write_property interp.story obj prop value } in
+    { interp with story = write_property interp.story (Object obj) prop value } in
 
   let handle_print_char x interp =
     interpreter_print interp (Printf.sprintf "%c" (char_of_int x)) in
