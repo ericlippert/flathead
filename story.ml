@@ -20,6 +20,10 @@ type property_number =
 
 let invalid_property = Property 0
 
+type dictionary_number =
+  Dictionary of int
+
+
 (* *)
 (* Dealing with memory *)
 (* *)
@@ -747,7 +751,7 @@ let dictionary_table_base story =
   let separators = word_separators_count story in
   base + separators + 4
 
-let dictionary_entry_address story dictionary_number =
+let dictionary_entry_address story (Dictionary dictionary_number) =
   let table_base = dictionary_table_base story in
   let entry_length = dictionary_entry_length story in
   table_base + dictionary_number * entry_length
@@ -760,14 +764,18 @@ let dictionary_entry story dictionary_number =
   in the dictionary *)
 (* Note this computes the address of the dictionary string, not the dictionary
   entry number. *)
+
+(* This returns zero if the string cannot be found. Of course zero is a valid
+address in the Z-machine; it's the location of the version number. But it
+is conventionally used here as an invalid address. *)
 let dictionary_lookup story text =
   let count = dictionary_entry_count story in
   let max = dictionary_max_word_length story in
   let truncated = truncate text max in
-  let compare i = String.compare (dictionary_entry story i) truncated in
+  let compare i = String.compare (dictionary_entry story (Dictionary i)) truncated in
   match binary_search 0 count compare with
   | None -> 0
-  | Some entry_index -> dictionary_entry_address story entry_index
+  | Some entry_index -> dictionary_entry_address story (Dictionary entry_index)
 
 let display_dictionary story =
   let entry_count = dictionary_entry_count story in
@@ -776,7 +784,7 @@ let display_dictionary story =
     (Printf.sprintf "Entry length:    %d\n" (dictionary_entry_length story)) ^
     (Printf.sprintf "Entry count:     %d\n" entry_count) in
   let to_string i =
-    Printf.sprintf "%04x: %s\n" i (dictionary_entry story i) in
+    Printf.sprintf "%04x: %s\n" i (dictionary_entry story (Dictionary i)) in
   header ^ (accumulate_strings_loop to_string 0 entry_count)
 
 (* *)
