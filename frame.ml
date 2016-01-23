@@ -55,7 +55,7 @@ let make_frame_record frame =
     | None -> (true, 0)
     | Some Stack -> (false, 0)
     | Some Local_variable Local n -> (false, n)
-    | Some Global_variable n -> (false, n) in
+    | Some Global_variable Global n -> (false, n) in
 
 (* TODO: Bit_number could take a bit number, not an integer *)
   Record [
@@ -104,12 +104,10 @@ let make_frame_from_record frame_record =
         | [] -> failwith "impossible" in
       let arg_count =
         find_false 0 [a0; a1; a2; a3; a4; a5; a6; false] in
-      let maximum_local = 15 in (* TODO: Put this all somewhere more sensible *)
       let store = (* TODO: Use decode_variable *)
         match (discard_value, target_variable) with
         | (true, _) -> None
-        | (false, 0) -> Some Stack
-        | (false, n) -> if n <= maximum_local then Some (Local_variable (Local n)) else Some (Global_variable n) in
+        | (false, n) -> Some (decode_variable n) in
 
       (ret_addr, locals_list, eval_stack,
         store, arg_count, locals_count)

@@ -15,29 +15,32 @@ type operand_count =
 type local_variable =
   Local of int
 
+type global_variable =
+  Global of int
+
 type variable_location =
   | Stack
   | Local_variable of local_variable
-  | Global_variable of int
+  | Global_variable of global_variable
 
 let decode_variable n =
   let maximum_local = 15 in
   if n = 0 then Stack
   else if n <= maximum_local then Local_variable (Local n)
-  else Global_variable n
+  else Global_variable (Global n)
 
 let encode_variable variable =
   match variable with
   | Stack -> 0
   | Local_variable Local n -> n
-  | Global_variable n -> n
+  | Global_variable Global n -> n
 
 (* We match Inform's convention of numbering the locals and globals from zero *)
 let display_variable variable =
   match variable with
   | Stack -> "sp"
   | Local_variable Local local -> Printf.sprintf "local%d" (local - 1)
-  | Global_variable global -> Printf.sprintf "g%02x" (global - 16)
+  | Global_variable Global global -> Printf.sprintf "g%02x" (global - 16)
 
 type operand_type =
   | Large_operand
