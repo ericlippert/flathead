@@ -1,10 +1,17 @@
 open Utility
 
+type abbreviation_number =
+  Abbreviation of int
+
 type string_mode =
   | Alphabet of int
-  | Abbreviation of int
+  | Abbrev of abbreviation_number
   | Leading
   | Trailing of int
+
+let abbrev0 = Abbrev (Abbreviation 0)
+let abbrev32 = Abbrev (Abbreviation 32)
+let abbrev64 = Abbrev (Abbreviation 64)
 
 let alphabet_table = [|
   " "; "?"; "?"; "?"; "?"; "?"; "a"; "b"; "c"; "d"; "e"; "f"; "g"; "h"; "i"; "j";
@@ -42,14 +49,14 @@ let rec read word_reader abbrv_reader address =
   let process_zchar zchar mode =
     match (mode, zchar) with
     | (Alphabet _, 0) -> (" ", mode)
-    | (Alphabet _, 1) -> ("", Abbreviation 0)
-    | (Alphabet _, 2) -> ("", Abbreviation 32)
-    | (Alphabet _, 3) -> ("", Abbreviation 64)
+    | (Alphabet _, 1) -> ("", abbrev0)
+    | (Alphabet _, 2) -> ("", abbrev32)
+    | (Alphabet _, 3) -> ("", abbrev64)
     | (Alphabet _, 4) -> ("", Alphabet 1)
     | (Alphabet _, 5) -> ("", Alphabet 2)
     | (Alphabet 2, 6) -> ("", Leading)
     | (Alphabet a, _) -> (alphabet_table.(a * 32 + zchar), Alphabet 0)
-    | (Abbreviation a, _) -> (abbrv_reader (a + zchar), Alphabet 0)
+    | (Abbrev Abbreviation a, _) -> (abbrv_reader (Abbreviation (a + zchar)), Alphabet 0)
     | (Leading, _) -> ("", (Trailing zchar))
     | (Trailing high, _) ->
       let s = string_of_char (Char.chr (high * 32 + zchar)) in

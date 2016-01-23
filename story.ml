@@ -295,7 +295,7 @@ let load_story filename =
 
 let abbreviation_table_length = 96
 
-let abbreviation_address story n =
+let abbreviation_address story (Zstring.Abbreviation n) =
   if n < 0 || n >= abbreviation_table_length then
     failwith "bad offset into abbreviation table"
   else
@@ -320,7 +320,7 @@ let display_zchar_bytes story offset length =
 (* Debugging helper *)
 let display_abbreviation_table story =
   let to_string i =
-    let address = abbreviation_address story i in
+    let address = abbreviation_address story (Zstring.Abbreviation i) in
     let value = read_zstring story address in
     Printf.sprintf "%02x: %04x  %s\n" i address value in
   accumulate_strings_loop to_string 0 abbreviation_table_length
