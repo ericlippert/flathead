@@ -693,13 +693,14 @@ let step_instruction interpreter =
     read_byte interp.story (arr + ind) in
 
   let handle_get_prop obj prop interp =
-    object_property interp.story (Object obj) prop in
+    object_property interp.story (Object obj) (Property prop) in
 
   let handle_get_prop_addr obj prop interp =
-    property_address interp.story (Object obj) prop in
+    property_address interp.story (Object obj) (Property prop) in
 
   let handle_get_next_prop obj prop interp =
-    get_next_property interp.story (Object obj) prop in
+    let (Property next) = get_next_property interp.story (Object obj) (Property prop) in
+    next in
 
   let handle_add x y interp =
     signed_word (x + y)  in
@@ -947,7 +948,7 @@ let step_instruction interpreter =
     { interp with story = write_byte interp.story (arr + ind) value } in
 
   let handle_putprop obj prop value interp =
-    { interp with story = write_property interp.story (Object obj) prop value } in
+    { interp with story = write_property interp.story (Object obj) (Property prop) value } in
 
   let handle_print_char x interp =
     interpreter_print interp (Printf.sprintf "%c" (char_of_int x)) in

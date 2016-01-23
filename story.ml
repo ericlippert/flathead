@@ -15,13 +15,17 @@ type object_number =
 
 let invalid_object = Object 0
 
+type property_number =
+  Property of int
+
+let invalid_property = Property 0
+
 (* *)
 (* Dealing with memory *)
 (* *)
 
 let original story =
   { memory = Memory.original story.memory }
-
 
 (* A "word address" is only used in the abbreviation table, and is always
 just half the real address. A "packed address" is used in calls and fetching
@@ -328,7 +332,7 @@ let default_property_table_entry_size = 2
 
 let default_property_table_base = object_table_base
 
-let default_property_value story n =
+let default_property_value story (Property n) =
   if n < 1 || n > (default_property_table_size story) then
     failwith "invalid index into default property table"
   else
@@ -339,7 +343,7 @@ let default_property_value story n =
 (* A debugging method for looking at the default property table *)
 let display_default_property_table story =
   let to_string i =
-    let value = default_property_value story i in
+    let value = default_property_value story (Property i) in
     Printf.sprintf "%02x: %04x\n" i value in
   accumulate_strings_loop to_string 1 ((default_property_table_size story) + 1)
 
@@ -522,15 +526,15 @@ property number. *)
 let decode_property_data story address =
   let b = read_byte story address in
   if b = 0 then
-    (0, 0, 0)
+    (0, 0, invalid_property)
   else if (version story) <= 3 then
     (* In version 3 it's easy. The number of bytes of property data
     is indicated by the top 3 bits; the property number is indicated
     by the bottom 5 bits, and the header is one byte. *)
-    (1, (fetch_bits bit7 size3 b) + 1, (fetch_bits bit4 size5 b))
+    (1, (fetch_bits bit7 size3 b) + 1, Property (fetch_bits bit4 size5 b))
   else
     (* In version 4 the property number is the bottom 6 bits. *)
-    let property_number = fetch_bits bit5 size6 b in
+    let property_number = Property (fetch_bits bit5 size6 b) in
     (* If the high bit of the first byte is set then the length is
       indicated by the bottom six bits of the *following* byte.
       The following byte needs to have its high bit set as well.
@@ -610,7 +614,8 @@ let object_property story object_number property_number =
           read_word story address
         else
           let (Object n) = object_number in
-          failwith (Printf.sprintf "object %d property %d length %d bad property length" n property_number length))
+          let (Property p) = property_number in
+          failwith (Printf.sprintf "object %d property %d length %d bad property length" n p length))
       else
         aux tail in
   aux (property_addresses story object_number)
@@ -618,12 +623,12 @@ let object_property story object_number property_number =
 (* Given a property number, find the first property of an object
 greater than it. Note that this assumes that properties are enumerated in
 order by property_addresses. Returns zero if there is no such property. *)
-let get_next_property story object_number property_number =
+let get_next_property story object_number (Property property_number) =
   let rec aux addrs =
     match addrs with
-    | [] -> 0
-    | (number, _, _) :: tail ->
-      if number > property_number then number
+    | [] -> invalid_property
+    | (Property number, _, _) :: tail ->
+      if number > property_number then Property number
       else aux tail in
   aux (property_addresses story object_number)
 
@@ -647,7 +652,8 @@ let write_property story object_number property_number value =
    values for a given object *)
 let display_properties story object_number =
   let to_string (property_number, length, address) =
-    let prop_number_text = Printf.sprintf "%02x" property_number in
+    let (Property p) = property_number in
+    let prop_number_text = Printf.sprintf "%02x" p in
     let prop_value_text =
       if length = 1 || length = 2 then
         let prop_value = object_property story object_number property_number in
@@ -911,10 +917,13 @@ let write_global story (Global global_number) value =
     let offset = (global_number - first_global) * 2 in
     write_word story (base + offset) value
 
+let current_object story =
+  Object (read_global story current_object_global)
+
 let current_object_name story =
-  let current_object = Object (read_global story current_object_global) in
-  if current_object = invalid_object then ""
-  else object_name story current_object
+  let c = current_object story in
+  if c = invalid_object then ""
+  else object_name story c
 
 let status_globals story =
   let score = signed_word (read_global story current_score_global) in
