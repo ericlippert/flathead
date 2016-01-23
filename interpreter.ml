@@ -300,39 +300,10 @@ let interpreter_print interpreter text =
       screen = new_screen;
       has_new_output = interpreter.screen_selected }
 
-(* TODO: This code could use some cleanup *)
 let set_status_line interpreter =
-  let object_name () =
-    current_object_name interpreter.story in
-  let build_status_line right =
-    let right_length = String.length right in
-    let left = object_name() in
-    let left_length = String.length left in
-    let width = interpreter.screen.width in
-    let left_trimmed =
-      if left_length + right_length < width then left
-      else String.sub left 0 (width - right_length - 1) in (* TODO: Assumes that width >= right_length *)
-    let space_count = width - right_length - (String.length left_trimmed) in
-    let spaces = String.make space_count ' ' in
-    left_trimmed ^ spaces ^ right in
-  let time_status () =
-    let (hours, minutes) = status_globals interpreter.story in
-    let suffix = if hours >= 12 then "PM" else "AM" in
-    let adjusted_hours = (hours mod 12) + 12 in
-    let text = Printf.sprintf "%d:%02d%s" adjusted_hours minutes suffix in
-    build_status_line text in
-  let score_status () =
-    let (score, turns) = status_globals interpreter.story in
-    let text = Printf.sprintf "%d/%d" score turns in
-    build_status_line text in
-  match status_line_kind interpreter.story with
-  | NoStatus -> interpreter
-  | TimeStatus ->
-    let screen = { interpreter.screen with status = Some (time_status()) } in
-    { interpreter with has_new_output = true; screen }
-  | ScoreStatus ->
-    let screen = { interpreter.screen with status = Some (score_status()) } in
-    { interpreter with has_new_output = true; screen }
+  let status = Status_line.make interpreter.story in
+  let screen = { interpreter.screen with status = status.Status_line.line } in
+  { interpreter with has_new_output = true; screen }
 
 let complete_sread interpreter instruction input =
   (* TODO: Get word separator list from story *)
