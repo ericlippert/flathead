@@ -6,7 +6,7 @@ type t =
   line : string option
 }
 
-let emtpt = { line = None }
+let emtpy = { line = None }
 
 let make story =
   let build_status_line right =
