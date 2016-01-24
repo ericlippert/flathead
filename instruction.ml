@@ -170,7 +170,9 @@ let branch_target instr =
     | Some (_, Branch_address address) -> Some address in
   let jump_target =
     match (instr.opcode, instr.operands) with
-    | (OP1_140, [Large address]) -> Some address
+    | (OP1_140, [Large relative_target]) ->
+      let absolute_target = instr.address + instr.length + (signed_word relative_target) - 2 in
+      Some absolute_target
     | _ -> None in
   match (br_target, jump_target) with
   | (Some b, _) -> Some b
@@ -333,12 +335,17 @@ let opcode_name opcode ver =
 
 let display instr ver =
   let display_operands () =
-    let to_string operand =
-      match operand with
-      | Large large -> Printf.sprintf "%04x " large
-      | Small small -> Printf.sprintf "%02x " small
-      | Variable variable -> (display_variable variable) ^ " " in
-    accumulate_strings to_string instr.operands in
+    match (instr.opcode, instr.operands) with
+    | (OP1_140, [Large target]) ->
+      (* For jumps, display the absolute target rather than the relative target. *)
+      Printf.sprintf "%04x " (instr.address + instr.length + (signed_word target) - 2)
+    | _ ->
+      let to_string operand =
+        match operand with
+        | Large large -> Printf.sprintf "%04x " large
+        | Small small -> Printf.sprintf "%02x " small
+        | Variable variable -> (display_variable variable) ^ " " in
+      accumulate_strings to_string instr.operands in
 
   let display_store () =
     match instr.store with
@@ -680,27 +687,8 @@ let decode
       | (Large large) :: tail ->
         (Large (decode_routine large)) :: tail
       | _ -> instr.operands in
-
-      let munge_jump_operands () =
-        (* The operand to a jump is relative to the current instruction
-        address. If the jump is a constant then we can turn that
-        into an absolute address easily enough.
-
-        TODO: This might not be quite right. The spec says that the operand
-        is always a two-byte signed quantity, but what if it is the result
-        of a global variable lookup? The interpreter does not handle that
-        case correctly. Revisit this decision. It may be better to keep
-        this a relative offset here and make the display and reachability
-        code understand that it is relative. *)
-
-
-        match instr.operands with
-        | [(Large large)] ->
-          [(Large (instr.address + instr.length + (signed_word large) - 2))]
-        | _ -> instr.operands in
       if is_special_store instr.opcode then munge_store_operands()
       else if is_call ver instr.opcode then munge_call_operands()
-      else if instr.opcode = OP1_140 then munge_jump_operands()
       else instr.operands in
 
     (* Helper methods are done. Start decoding *)

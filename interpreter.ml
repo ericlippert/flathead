@@ -1140,11 +1140,11 @@ let step_instruction interpreter =
 
   (* For an unconditional jump we might as well just evaluate the operand and branch directly. *)
   let handle_jump () =
-  (* TODO: Fix this up to more closely match the spec. *)
     match instruction.operands with
     | [target_operand] ->
-      let (target, target_interpreter) = read_operand interpreter target_operand in
-      set_program_counter target_interpreter target
+      let (relative_target, target_interpreter) = read_operand interpreter target_operand in
+      let absolute_target = instruction.address + instruction.length + (signed_word relative_target) - 2 in
+      set_program_counter target_interpreter absolute_target
     | _ -> failwith "instruction must have one operand" in
 
   (* je is interesting in that it is a 2OP that can take 2 to 4 operands. *)
