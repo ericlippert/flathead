@@ -1,6 +1,7 @@
 open Utility
 open Story
 open Instruction
+open Window
 open Screen
 open Iff
 open Quetzal
