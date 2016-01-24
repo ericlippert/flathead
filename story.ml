@@ -797,8 +797,7 @@ let decode_instruction story address =
       word_reader = read_word story;
       byte_reader = read_byte story;
       zstring_reader = read_zstring story;
-      zstring_length = zstring_length story;
-      decode_routine = decode_routine_packed_address story
+      zstring_length = zstring_length story
     } in
   Instruction.decode reader address (version story)
 
@@ -858,10 +857,12 @@ let display_routine story routine_address =
   let first = first_instruction story routine_address in
   display_reachable_instructions story first
 
-let call_address ver instr =
-  if is_call ver instr.opcode then
+let call_address story instr =
+  if is_call (version story) instr.opcode then
     match instr.operands with
-    | (Large address) :: _ -> Some address
+    | (Large packed_address) :: _ ->
+      let unpacked_address = decode_routine_packed_address story packed_address in
+      Some unpacked_address
     | _ -> None
   else
     None
@@ -872,7 +873,7 @@ let call_address ver instr =
 let reachable_routines_in_routine story instr_address =
   let reachable_instrs = all_reachable_addresses_in_routine story instr_address in
   let option_fold routines instr_addr =
-    match call_address (version story) (decode_instruction story instr_addr) with
+    match call_address story (decode_instruction story instr_addr) with
     | None -> routines
     | Some routine_address -> routine_address :: routines in
   List.fold_left option_fold [] reachable_instrs

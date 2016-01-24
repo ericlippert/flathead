@@ -1220,22 +1220,8 @@ let step_instruction interpreter =
     but not if the operand is a variable. *)
     let routine_address_operand = List.hd instruction.operands in
     let routine_operands = List.tl instruction.operands in
-    let (routine_address, routine_interpreter) =
-      match routine_address_operand with
-      | Large large -> (large, interpreter)
-      | Small small -> (small, interpreter)
-      | Variable Stack ->
-        let packed_addr = peek_stack interpreter in
-        let addr = decode_routine_packed_address interpreter.story packed_addr in
-        (addr, pop_stack interpreter)
-      | Variable Local_variable local ->
-        let packed_addr = read_local interpreter local in
-        let addr = decode_routine_packed_address interpreter.story packed_addr in
-        (addr, interpreter)
-      | Variable Global_variable global ->
-        let packed_addr = read_global interpreter.story global in
-        let addr = decode_routine_packed_address interpreter.story packed_addr in
-        (addr, interpreter) in
+    let (packed_address, routine_interpreter) = read_operand interpreter routine_address_operand in
+    let routine_address = decode_routine_packed_address interpreter.story packed_address in
 
     (* We now have the routine address and its operands. Operands must be copied to locals.
        Locals must be given their default values first, and then if there are corresponding operands

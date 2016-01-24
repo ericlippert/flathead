@@ -385,13 +385,12 @@ type instruction_reader =
   word_reader : int -> int;
   byte_reader : int -> int;
   zstring_reader : int -> string;
-  zstring_length : int -> int;
-  decode_routine : int -> int
+  zstring_length : int -> int
 }
 
 (* Takes the address of an instruction and produces the instruction *)
 let decode
-  { word_reader; byte_reader; zstring_reader; zstring_length; decode_routine }
+  { word_reader; byte_reader; zstring_reader; zstring_length }
   address ver =
 
   (* Spec 4.3:
@@ -675,20 +674,7 @@ let decode
       | (Small small) :: tail -> (Variable (decode_variable small)) :: tail
       | _ -> instr.operands in
 
-    let munge_call_operands () =
-      (* The first operand to a call is the address of the routine to call
-      but that address is two bytes; the story file could be much larger.
-      The address stored here is "packed"; the real address can be determined
-      by unpacking it.  A call's first operand can be a variable read, so the
-      interpreter will have to do the unpacking in that case. But the typical
-      case is that we have a large constant; we can simply do the unpacking
-      now and make the instruction easier to understand. *)
-      match instr.operands with
-      | (Large large) :: tail ->
-        (Large (decode_routine large)) :: tail
-      | _ -> instr.operands in
       if is_special_store instr.opcode then munge_store_operands()
-      else if is_call ver instr.opcode then munge_call_operands()
       else instr.operands in
 
     (* Helper methods are done. Start decoding *)
