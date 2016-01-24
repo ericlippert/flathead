@@ -1,12 +1,8 @@
 open Story
+open Screen
 open Utility
 
-type t =
-{
-  line : string option
-}
-
-let emtpy = { line = None }
+let empty = Status None
 
 let make story =
   let build_status_line right =
@@ -30,6 +26,6 @@ let make story =
     let text = Printf.sprintf "%d/%d" score turns in
     build_status_line text in
   match status_line_kind story with
-  | NoStatus -> { line = None }
-  | TimeStatus -> { line = Some (time_status()) }
-  | ScoreStatus -> { line = Some (score_status()) }
+  | NoStatus -> empty
+  | TimeStatus -> Status (Some (time_status ()) )
+  | ScoreStatus -> Status (Some (score_status ()) )

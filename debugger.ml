@@ -82,8 +82,8 @@ let draw_status screen =
   let (x, y, _, _) = screen_extent screen in
   let status_color = blue in
   match screen.status with
-  | None -> ()
-  | Some status -> (
+  | Status None  -> ()
+  | Status Some status -> (
     set_color status_color;
     draw_string_at status x (y + text_height * screen.height) )
 

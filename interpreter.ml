@@ -302,7 +302,7 @@ let interpreter_print interpreter text =
 
 let set_status_line interpreter =
   let status = Status_line.make interpreter.story in
-  let screen = { interpreter.screen with status = status.Status_line.line } in
+  let screen = { interpreter.screen with status } in
   { interpreter with has_new_output = true; screen }
 
 let complete_sread interpreter instruction input =
@@ -746,7 +746,7 @@ let step_instruction interpreter =
     { restarted_interpreter with transcript = transcript; commands = commands } in
 
   let filename = "FLATHEAD.SAV" in
-  let save_failed = 0 in
+  (* TODO let save_failed = 0 in *)
   let save_succeeded = 1 in
   let restore_succeeded = 2 in
 

@@ -214,13 +214,16 @@ let more_window window =
 let clear_more_window window =
   { window with scroll_count = 0; needs_more = false }
 
+type status_line =
+  Status of string option
+
 type window_selection =
   | Upper_window
   | Lower_window
 
 type t =
 {
-  status : string option;
+  status : status_line;
   upper_window : window;
   lower_window : window;
   height : int;
@@ -230,7 +233,7 @@ type t =
 
 let make height width =
   {
-    status = None;
+    status = Status None;
     upper_window = make_window 0 width 1 1 Word_wrap_disabled Scroll_disabled More_disabled;
     lower_window = make_window height width 1 height Word_wrap_enabled Scroll_enabled More_enabled;
     height;
