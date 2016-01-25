@@ -91,33 +91,34 @@ let set_program_counter interpreter new_program_counter =
 let read_local interpreter local =
   Frameset.read_local interpreter.frames local
 
-(* Reading operands can change the state of the interpreter, because it can
-   pop the stack. *)
-let read_operand_no_pop interpreter operand =
-  match operand with
-  | Large large -> large
-  | Small small -> small
-  | Variable Stack -> peek_stack interpreter
-  | Variable Local_variable local -> read_local interpreter local
-  | Variable Global_variable global -> read_global interpreter.story global
-
-let read_operand interpreter operand =
-  let value = read_operand_no_pop interpreter operand in
-  match operand with
-  | Variable Stack -> (value, pop_stack interpreter)
-  | _ -> (value, interpreter)
-
 let write_local interpreter local value =
   { interpreter with frames = Frameset.write_local interpreter.frames local value }
+
+let read_global interpreter global =
+  Story.read_global interpreter.story global
 
 let write_global interpreter global value =
   { interpreter with story = write_global interpreter.story global value }
 
-let do_store interpreter variable value =
+let read_variable interpreter variable =
   match variable with
+  | Stack -> (peek_stack interpreter, pop_stack interpreter)
+  | Local_variable local -> (read_local interpreter local, interpreter)
+  | Global_variable global -> (read_global interpreter global, interpreter)
+
+let write_variable interpreter variable value =
+  match variable with
+  | Stack -> push_stack interpreter value
   | Local_variable local -> write_local interpreter local value
   | Global_variable global -> write_global interpreter global value
-  | Stack -> push_stack interpreter value
+
+let read_operand interpreter operand =
+  match operand with
+  | Large large -> (large, interpreter)
+  | Small small -> (small, interpreter)
+  | Variable v -> read_variable interpreter v
+
+
 
 (*
    Z-machine instructions essentially have three parts. The first part evaluates the
@@ -149,7 +150,7 @@ let handle_return interpreter instruction value =
  let store_interpreter =
    match store with
    | None -> result_interpreter
-   | Some variable -> do_store result_interpreter variable value in
+   | Some variable -> write_variable result_interpreter variable value in
 
  (* A call never has a branch and we already know the next pc *)
  store_interpreter
@@ -174,7 +175,7 @@ let handle_store_and_branch interpreter instruction result =
   let store_interpreter =
     match instruction.store with
     | None -> interpreter
-    | Some variable -> do_store interpreter variable result in
+    | Some variable -> write_variable interpreter variable result in
   handle_branch store_interpreter instruction result
 
 
@@ -188,70 +189,85 @@ the argument. *)
 (* There can be more or fewer arguments than there are locals; we have to deal
 with both cases. *)
 
-(* TODO: These instructions treat variables as storage rather than values *)
-(* TODO: There may be a way to consolidate the code here *)
-
-let do_store_in_place interpreter variable value =
-  match variable with
-  | Local_variable local -> write_local interpreter local value
-  | Global_variable global -> write_global interpreter global value
-  | Stack -> push_stack (pop_stack interpreter) value
+(* The following six instructions have as their first argument a number that
+is interpreted as a variable. So if, for example, the operand is "local 1" and
+local 1 contains the number 128 then the store is to global 128. *)
 
 let handle_store interpreter instruction =
   match instruction.operands with
-  | [(Variable variable); value_operand] ->
-    let (value, value_interpreter) = read_operand interpreter value_operand in
-    let store_interpreter = do_store_in_place value_interpreter variable value in
+  | [variable_operand; value_operand] ->
+    let (variable, variable_interpreter) = read_operand interpreter variable_operand in
+    let (value, value_interpreter) = read_operand variable_interpreter value_operand in
+    let target = decode_variable variable in
+    let store_interpreter = write_variable value_interpreter target value in
     handle_branch store_interpreter instruction 0
   | _ -> failwith "store requires a variable and a value"
 
+(* TODO: Fix up Instruction.display code for these opcodes. *)
+(* TODO: read_operand is not very well named. Resolve_argument might be better. *)
 let handle_inc_chk interpreter instruction =
   match instruction.operands with
-  | [(Variable variable) as variable_operand ; test_operand] ->
-    let original = read_operand_no_pop interpreter variable_operand in
+  | [variable_operand ; test_operand] ->
+    (* Increments variable. Branches if new value is greater than test. *)
+    let (variable, variable_interpreter) = read_operand interpreter variable_operand in
+    let (test, test_interpreter) = read_operand variable_interpreter test_operand in
+    (* Increment logically happens in-place; if the variable is the sp then
+    logically we should neither push nor pop it. However, reading the sp value
+    by popping it followed by pushing the incremented result is logically the same
+    thing as an update in place. *)
+    let target = decode_variable variable in
+    let (original, read_interpreter) = read_variable variable_interpreter target in
     let incremented = signed_word (original + 1) in
-    let store_interpreter = do_store_in_place interpreter variable incremented in
-    let (test, test_interpreter) = read_operand store_interpreter test_operand in
+    let store_interpreter = write_variable read_interpreter target incremented in
     let result = if (signed_word incremented) > (signed_word test) then 1 else 0 in
-    handle_branch test_interpreter instruction result
+    handle_branch store_interpreter instruction result
+
   | _ -> failwith "inc_chk requires a variable and a value"
 
-let handle_dec_chk interpreter instruction =
-  match instruction.operands with
-  | [(Variable variable) as variable_operand ; test_operand] ->
-    let original = read_operand_no_pop interpreter variable_operand in
-    let incremented = signed_word (original - 1) in
-    let store_interpreter = do_store_in_place interpreter variable incremented in
-    let (test, test_interpreter) = read_operand store_interpreter test_operand in
-    let result = if (signed_word incremented) < (signed_word test) then 1 else 0 in
-    handle_branch test_interpreter instruction result
-  | _ -> failwith "dec_chk requires a variable and a value"
+  let handle_dec_chk interpreter instruction =
+    match instruction.operands with
+    | [variable_operand ; test_operand] ->
+      let (variable, variable_interpreter) = read_operand interpreter variable_operand in
+      let (test, test_interpreter) = read_operand variable_interpreter test_operand in
+      let target = decode_variable variable in
+      let (original, read_interpreter) = read_variable variable_interpreter target in
+      let decremented = signed_word (original - 1) in
+      let store_interpreter = write_variable read_interpreter target decremented in
+      let result = if (signed_word decremented) < (signed_word test) then 1 else 0 in
+      handle_branch store_interpreter instruction result
+    | _ -> failwith "dec_chk requires a variable and a value"
 
 let handle_inc interpreter instruction =
   match instruction.operands with
-  | [(Variable variable) as variable_operand] ->
-    let original = read_operand_no_pop interpreter variable_operand in
+  | [variable_operand] ->
+    let (variable, variable_interpreter) = read_operand interpreter variable_operand in
+    let target = decode_variable variable in
+    let (original, read_interpreter) = read_variable variable_interpreter target in
     let incremented = signed_word (original + 1) in
-    let store_interpreter = do_store_in_place interpreter variable incremented in
+    let store_interpreter = write_variable read_interpreter target incremented in
     handle_branch store_interpreter instruction 0
   | _ -> failwith "inc requires a variable"
 
 let handle_dec interpreter instruction =
   match instruction.operands with
-  | [(Variable variable) as variable_operand] ->
-    let original = read_operand_no_pop interpreter variable_operand in
-    let incremented = signed_word (original - 1) in
-    let store_interpreter = do_store_in_place interpreter variable incremented in
-    handle_branch store_interpreter instruction 0
+  | [variable_operand] ->
+  let (variable, variable_interpreter) = read_operand interpreter variable_operand in
+  let target = decode_variable variable in
+  let (original, read_interpreter) = read_variable variable_interpreter target in
+  let decremented = signed_word (original - 1) in
+  let store_interpreter = write_variable read_interpreter target decremented in
+  handle_branch store_interpreter instruction 0
   | _ -> failwith "dec requires a variable"
 
 let handle_pull interpreter instruction =
   (* TODO: Variadic in v6 *)
   match instruction.operands with
-  | [(Variable variable)] ->
-    let value = peek_stack interpreter in
+  | [variable_operand] ->
+    let (variable, variable_interpreter) = read_operand interpreter variable_operand in
+    let target = decode_variable variable in
+    let value = peek_stack variable_interpreter in
     let popped_interpreter = pop_stack interpreter in
-    let store_interpreter = do_store_in_place popped_interpreter variable value in
+    let store_interpreter = write_variable popped_interpreter target value in
     handle_branch store_interpreter instruction 0
   | _ -> failwith "pull requires a variable "
 
@@ -721,8 +737,14 @@ let step_instruction interpreter =
     let text = read_zstring interp.story addr in
     interpreter_print interp text in
 
-  let handle_load x interp =
-    x in
+  let handle_load variable_number interpreter =
+    (* The value of the operand is a number which represents the variable
+    to be read from. So, for example, if the operand is sp then the
+    value of the operand is the top of the stack, and the top of the stack
+    contains a number. That number is then interpreted as a variable, and
+    the value read from *that* variable is the result of the load. *)
+    let variable = decode_variable variable_number in
+    read_variable interpreter variable in
 
   let handle_not x interp =
     unsigned_word (lnot x) in
@@ -1328,7 +1350,7 @@ let step_instruction interpreter =
   | OP1_139 -> handle_ret ()
   | OP1_140 -> handle_jump ()
   | OP1_141 -> handle_op1_effect handle_print_paddr
-  | OP1_142 -> handle_op1_value handle_load
+  | OP1_142 -> handle_op1 handle_load
   | OP1_143 ->
     if (version interpreter.story) <= 4 then
       handle_op1_value handle_not

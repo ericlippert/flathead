@@ -661,45 +661,27 @@ let decode
     else
       0 in
 
-  (* That does it for decoding; after decoding though I want to make
-  a few tweaks to the instruction state to make less work later. Several
-  instructions encode things in an odd way that we can fix up now.*)
+  (* Helper methods are done. Start decoding *)
 
-  let munge_operands instr =
-    let munge_store_operands () =
-      (* The first operand must be a variable, but in several instructions,
-      compilers encode the operand type as small, rather than variable.
-      We can fix these up here. *)
-      match instr.operands with
-      | (Small small) :: tail -> (Variable (decode_variable small)) :: tail
-      | _ -> instr.operands in
-
-      if is_special_store instr.opcode then munge_store_operands()
-      else instr.operands in
-
-    (* Helper methods are done. Start decoding *)
-
-    let form = decode_form address in
-    let op_count = decode_op_count address form in
-    let opcode = decode_opcode address form op_count in
-    let opcode_length = get_opcode_length form in
-    let operand_types = decode_operand_types address form op_count opcode in
-    let type_length = get_type_length form opcode in
-    let operand_address = address + opcode_length + type_length in
-    let operands = decode_operands operand_address operand_types in
-    let operand_length = get_operand_length operand_types in
-    let store_address = operand_address + operand_length in
-    let store = decode_store store_address opcode ver in
-    let store_length = get_store_length opcode ver in
-    let branch_code_address = store_address + store_length in
-    let branch = decode_branch branch_code_address opcode ver in
-    let branch_length = get_branch_length branch_code_address opcode ver in
-    let text_address = branch_code_address + branch_length in
-    let text = decode_text text_address opcode in
-    let text_length = get_text_length text_address opcode in
-    let length =
-      opcode_length + type_length + operand_length + store_length +
-      branch_length + text_length in
-    let instr = { opcode; address; length; operands; store; branch; text } in
-    { instr with operands = munge_operands instr }
-    (* End of decode_instruction *)
+  let form = decode_form address in
+  let op_count = decode_op_count address form in
+  let opcode = decode_opcode address form op_count in
+  let opcode_length = get_opcode_length form in
+  let operand_types = decode_operand_types address form op_count opcode in
+  let type_length = get_type_length form opcode in
+  let operand_address = address + opcode_length + type_length in
+  let operands = decode_operands operand_address operand_types in
+  let operand_length = get_operand_length operand_types in
+  let store_address = operand_address + operand_length in
+  let store = decode_store store_address opcode ver in
+  let store_length = get_store_length opcode ver in
+  let branch_code_address = store_address + store_length in
+  let branch = decode_branch branch_code_address opcode ver in
+  let branch_length = get_branch_length branch_code_address opcode ver in
+  let text_address = branch_code_address + branch_length in
+  let text = decode_text text_address opcode in
+  let text_length = get_text_length text_address opcode in
+  let length =
+    opcode_length + type_length + operand_length + store_length +
+    branch_length + text_length in
+  { opcode; address; length; operands; store; branch; text }
