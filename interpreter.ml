@@ -11,6 +11,12 @@ type state =
   | Waiting_for_input
   | Halted
 
+type output_stream_kind =
+  | ScreenStream
+  | TranscriptStream
+  | MemoryStream
+  | CommandStream
+
 (* The state of the interpreter *)
 type t =
 {
@@ -118,6 +124,122 @@ let read_operand interpreter operand =
   | Small small -> (small, interpreter)
   | Variable v -> read_variable interpreter v
 
+(* Takes a list of operands, produces a list of arguments. *)
+let operands_to_arguments interpreter operands =
+  let rec aux (args, interp) ops =
+    match ops with
+    | [] -> (args, interp)
+    | h :: t ->
+      let (argument, new_interpreter) = read_operand interp h in
+      aux ((argument :: args), new_interpreter) t in
+  let (args_rev, final_interpreter) = aux ([], interpreter) operands in
+  ((List.rev args_rev), final_interpreter)
+
+let interpret_store interpreter instruction result =
+  match instruction.store with
+  | None -> interpreter
+  | Some variable -> write_variable interpreter variable result
+
+let interpret_return interpreter instruction value =
+(* TODO: Clean this up to not be so much reading from frame's members.  *)
+ let frame = current_frame interpreter in
+ let next_pc = frame.Frame.resume_at in
+ let store = frame.Frame.store in
+ let pop_frame_interpreter = remove_frame interpreter in
+ let result_interpreter = set_program_counter pop_frame_interpreter next_pc in
+ let store_interpreter =
+   match store with
+   | None -> result_interpreter
+   | Some variable -> write_variable result_interpreter variable value in
+ (* A call never has a branch and we already know the next pc *)
+ store_interpreter
+
+let interpret_branch interpreter instruction result =
+  let next_instruction () =
+    let addr = interpreter.program_counter + instruction.length in
+    set_program_counter interpreter addr in
+  match instruction.branch with
+  | None -> next_instruction ()
+  | Some (sense, Return_false) ->
+    if (result <> 0) = sense then interpret_return interpreter instruction 0
+    else next_instruction ()
+  | Some (sense, Return_true) ->
+    if (result <> 0) = sense then interpret_return interpreter instruction 1
+    else next_instruction ()
+  | Some (sense, Branch_address branch_target) ->
+    if (result <> 0) = sense then set_program_counter interpreter branch_target
+    else next_instruction ()
+
+let interpret_instruction interpreter instruction handler =
+  let (result, handler_interpreter) = handler interpreter instruction in
+  let store_interpreter = interpret_store handler_interpreter instruction result in
+  interpret_branch store_interpreter instruction result
+
+let interpret_value_instruction interpreter instruction handler =
+  let result = handler interpreter in
+  let store_interpreter = interpret_store interpreter instruction result in
+  interpret_branch store_interpreter instruction result
+
+let interpret_effect_instruction interpreter instruction handler =
+  let handler_interpreter = handler interpreter in
+  let result = 0 in
+  let store_interpreter = interpret_store handler_interpreter instruction result in
+  interpret_branch store_interpreter instruction result
+
+(* Handlers for individual instructions *)
+
+(* 2OP:1 je a b ?label
+
+Spec: Jump if a is equal to any of the subsequent operands. (Thus @je a never
+jumps and @je a b jumps if a = b.)
+
+Already we are off to a bad start; the revision to the spec says:
+
+je can take between 2 and 4 operands. je with just 1 operand is not permitted.
+
+Note that je is one of the rare "2OP" instructions that can take 3 or 4
+operands.
+
+*)
+
+let handle_je2 a b interpreter =
+  let a = signed_word a in
+  let b = signed_word b in
+  if a = b then 1 else 0
+
+let handle_je3 a b c interpreter =
+  let a = signed_word a in
+  let b = signed_word b in
+  let c = signed_word c in
+  if a = b || a = c then 1 else 0
+
+let handle_je4 a b c d interpreter =
+  let a = signed_word a in
+  let b = signed_word b in
+  let c = signed_word c in
+  let d = signed_word d in
+  if a = b || a = c || a = d then 1 else 0
+
+(* Spec
+  2OP:2 jl a b ?(label)
+  Jump if a < b  using a signed 16-bit comparison. *)
+
+let handle_jl a b interpreter =
+  let a = signed_word a in
+  let b = signed_word b in
+  if a < b then 1 else 0
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 (*
@@ -140,46 +262,14 @@ let read_operand interpreter operand =
 
 *)
 
-let handle_return interpreter instruction value =
-(* TODO: Clean this up to not be so much reading from frame's members.  *)
- let frame = current_frame interpreter in
- let next_pc = frame.Frame.resume_at in
- let store = frame.Frame.store in
- let pop_frame_interpreter = remove_frame interpreter in
- let result_interpreter = set_program_counter pop_frame_interpreter next_pc in
- let store_interpreter =
-   match store with
-   | None -> result_interpreter
-   | Some variable -> write_variable result_interpreter variable value in
 
- (* A call never has a branch and we already know the next pc *)
- store_interpreter
-
-let handle_branch interpreter instruction result =
-  let next_instruction () =
-    let addr = interpreter.program_counter + instruction.length in
-    set_program_counter interpreter addr in
-  match instruction.branch with
-  | None -> next_instruction ()
-  | Some (sense, Return_false) ->
-    if (result <> 0) = sense then handle_return interpreter instruction 0
-    else next_instruction ()
-  | Some (sense, Return_true) ->
-    if (result <> 0) = sense then handle_return interpreter instruction 1
-    else next_instruction ()
-  | Some (sense, Branch_address branch_target) ->
-    if (result <> 0) = sense then set_program_counter interpreter branch_target
-    else next_instruction ()
 
 let handle_store_and_branch interpreter instruction result =
   let store_interpreter =
     match instruction.store with
     | None -> interpreter
     | Some variable -> write_variable interpreter variable result in
-  handle_branch store_interpreter instruction result
-
-
-
+  interpret_branch store_interpreter instruction result
 
 (*
 Always evaluate the operand -- we might be popping the stack
@@ -200,7 +290,7 @@ let handle_store interpreter instruction =
     let (value, value_interpreter) = read_operand variable_interpreter value_operand in
     let target = decode_variable variable in
     let store_interpreter = write_variable value_interpreter target value in
-    handle_branch store_interpreter instruction 0
+    interpret_branch store_interpreter instruction 0
   | _ -> failwith "store requires a variable and a value"
 
 (* TODO: Fix up Instruction.display code for these opcodes. *)
@@ -220,7 +310,7 @@ let handle_inc_chk interpreter instruction =
     let incremented = signed_word (original + 1) in
     let store_interpreter = write_variable read_interpreter target incremented in
     let result = if (signed_word incremented) > (signed_word test) then 1 else 0 in
-    handle_branch store_interpreter instruction result
+    interpret_branch store_interpreter instruction result
 
   | _ -> failwith "inc_chk requires a variable and a value"
 
@@ -234,7 +324,7 @@ let handle_inc_chk interpreter instruction =
       let decremented = signed_word (original - 1) in
       let store_interpreter = write_variable read_interpreter target decremented in
       let result = if (signed_word decremented) < (signed_word test) then 1 else 0 in
-      handle_branch store_interpreter instruction result
+      interpret_branch store_interpreter instruction result
     | _ -> failwith "dec_chk requires a variable and a value"
 
 let handle_inc interpreter instruction =
@@ -245,7 +335,7 @@ let handle_inc interpreter instruction =
     let (original, read_interpreter) = read_variable variable_interpreter target in
     let incremented = signed_word (original + 1) in
     let store_interpreter = write_variable read_interpreter target incremented in
-    handle_branch store_interpreter instruction 0
+    interpret_branch store_interpreter instruction 0
   | _ -> failwith "inc requires a variable"
 
 let handle_dec interpreter instruction =
@@ -256,7 +346,7 @@ let handle_dec interpreter instruction =
   let (original, read_interpreter) = read_variable variable_interpreter target in
   let decremented = signed_word (original - 1) in
   let store_interpreter = write_variable read_interpreter target decremented in
-  handle_branch store_interpreter instruction 0
+  interpret_branch store_interpreter instruction 0
   | _ -> failwith "dec requires a variable"
 
 let handle_pull interpreter instruction =
@@ -268,14 +358,9 @@ let handle_pull interpreter instruction =
     let value = peek_stack variable_interpreter in
     let popped_interpreter = pop_stack interpreter in
     let store_interpreter = write_variable popped_interpreter target value in
-    handle_branch store_interpreter instruction 0
+    interpret_branch store_interpreter instruction 0
   | _ -> failwith "pull requires a variable "
 
-type output_stream_kind =
-  | ScreenStream
-  | TranscriptStream
-  | MemoryStream
-  | CommandStream
 
 let select_output_stream interpreter stream value =
   match stream with
@@ -639,11 +724,7 @@ let step_instruction interpreter =
   let handle_op4_effect compute_effect =
     handle_op4 (fun w x y z i -> (0, compute_effect w x y z i)) in
 
-  let handle_op4_value compute_value =
-    handle_op4 (fun w x y z i -> (compute_value w x y z i, i)) in
 
-  let handle_jl x y interp =
-    if (signed_word x) < (signed_word y) then 1 else 0 in
 
   let handle_jg x y interp =
     if (signed_word x) > (signed_word y) then 1 else 0 in
@@ -1169,26 +1250,6 @@ let step_instruction interpreter =
       set_program_counter target_interpreter absolute_target
     | _ -> failwith "instruction must have one operand" in
 
-  (* je is interesting in that it is a 2OP that can take 2 to 4 operands. *)
-  let handle_je () =
-    let handle_je2 test x interp =
-      if (signed_word test) = (signed_word x) then 1 else 0 in
-    let handle_je3 test x y interp =
-      let test = signed_word test in
-      let x = signed_word x in
-      let y = signed_word y in
-      if test = x || test = y then 1 else 0 in
-    let handle_je4 test x y z interp =
-      let test = signed_word test in
-      let x = signed_word x in
-      let y = signed_word y in
-      let z = signed_word z in
-      if test = x || test = y || test = z then 1 else 0 in
-    match instruction.operands with
-    | [_; _] -> handle_op2_value handle_je2
-    | [_; _; _] -> handle_op3_value handle_je3
-    | [_; _; _; _] -> handle_op4_value handle_je4
-    | _ -> failwith "je instruction requires 2 to 4 operands" in
 
   (* Do not advance to the next instruction *)
   let handle_quit () =
@@ -1199,23 +1260,23 @@ let step_instruction interpreter =
       match instruction.text with
       | Some text -> interpreter_print interpreter (text ^ "\n")
       | _ -> failwith "no text in print_ret instruction" in
-    handle_return printed_interpreter instruction 1 in
+    interpret_return printed_interpreter instruction 1 in
 
   let handle_ret_popped () =
-    handle_return (pop_stack interpreter) instruction (peek_stack interpreter) in
+    interpret_return (pop_stack interpreter) instruction (peek_stack interpreter) in
 
   let handle_ret () =
     match instruction.operands with
     | [lone_operand] ->
       let (result, operand_interpreter) = read_operand interpreter lone_operand in
-      handle_return operand_interpreter instruction result
+      interpret_return operand_interpreter instruction result
     | _ -> failwith "instruction must have one operand" in
 
   let handle_rtrue () =
-    handle_return interpreter instruction 1 in
+    interpret_return interpreter instruction 1 in
 
   let handle_rfalse () =
-    handle_return interpreter instruction 0 in
+    interpret_return interpreter instruction 0 in
 
   let handle_scan_table x table len interp =
     (* TODO: This is variadic; also has a 4-argument version *)
@@ -1303,12 +1364,29 @@ let step_instruction interpreter =
       set_program_counter (add_frame locals_interpreter frame) first_instruction in
     (* End handle_call *)
 
-      (* That's it for the helper methods. Now we have a big dispatch! *)
 
+
+
+
+
+
+  let (arguments, arguments_interp) = operands_to_arguments interpreter instruction.operands in
+
+
+
+ let interpret_value_instruction = interpret_value_instruction arguments_interp instruction in
+
+  match (instruction.opcode, arguments) with
+  | (ILLEGAL, _) ->  failwith "illegal operand"
+  | (OP2_1, [a; b]) -> interpret_value_instruction (handle_je2 a b)
+  | (OP2_1, [a; b; c]) -> interpret_value_instruction (handle_je3 a b c)
+  | (OP2_1, [a; b; c; d]) -> interpret_value_instruction (handle_je4 a b c d)
+  | (OP2_2, [a; b]) -> interpret_value_instruction (handle_jl a b)
+
+  | _ ->
+
+(
   match instruction.opcode with
-  | ILLEGAL -> failwith "illegal operand"
-  | OP2_1   -> handle_je ()
-  | OP2_2   -> handle_op2_value handle_jl
   | OP2_3   -> handle_op2_value handle_jg
   | OP2_4   -> handle_dec_chk interpreter instruction
   | OP2_5   -> handle_inc_chk interpreter instruction
@@ -1438,7 +1516,8 @@ let step_instruction interpreter =
   | EXT_27   -> failwith (Printf.sprintf "%04x TODO: EXT_27" instruction.address)
   | EXT_28   -> failwith (Printf.sprintf "%04x TODO: EXT_28" instruction.address)
   | EXT_29   -> failwith (Printf.sprintf "%04x TODO: EXT_29" instruction.address)
-
+  | _ -> failwith "should be impossible to get here"
+)
   (* End step_instruction *)
 
 (* Steps the interpreter to its next public-facing state. However this need
