@@ -350,7 +350,7 @@ let handle_insert_obj obj destination interpreter =
   let obj = Object obj in
   let destination = Object destination in
   { interpreter with story = insert_object interpreter.story obj destination }
-  
+
 (* Spec: 2OP:15 loadw array word-index -> (result)
 Stores array-->word-index (i.e., the word at address array+2*word-index,
 which must lie in static or dynamic memory). *)
@@ -369,10 +369,84 @@ let handle_loadb arr idx interpreter =
   let idx = unsigned_word idx in
   read_byte interpreter.story (arr + idx)
 
+(* Spec: 2OP:17 get_prop object property -> (result)
+  Read property from object (resulting in the default value if it had no
+  such declared property). If the property has length 1, the value is only
+  that byte. If it has length 2, the first two bytes of the property are
+  taken as a word value. It is illegal for the opcode to be used if the
+  property has length greater than 2, and the result is unspecified. *)
+
+let handle_get_prop obj prop interpreter =
+  let obj = Object obj in
+  let prop = Property prop in
+  object_property interpreter.story obj prop
 
 
+(* Spec: 2OP:18 get_prop_addr object property -> (result)
+  Get the byte address (in dynamic memory) of the property data for the
+  given object's property. This must return 0 if the object hasn't got
+  the property. *)
 
+let handle_get_prop_addr obj prop interpreter =
+  let obj = Object obj in
+  let prop = Property prop in
+  property_address interpreter.story obj prop
 
+(* Spec: 2OP:19 get_next_prop object property -> (result)
+  Gives the number of the next property provided by the quoted object.
+  This may be zero, indicating the end of the property list; if called
+  with zero, it gives the first property number present. It is illegal to try
+  to find the next property of a property which does not exist, and an
+  interpreter should halt with an error message (if it can efficiently check
+  this condition). *)
+
+let handle_get_next_prop obj prop interpreter =
+  let obj = Object obj in
+  let prop = Property prop in
+  let (Property next) = get_next_property interpreter.story obj prop in
+  next
+
+(* Spec: 2OP:20 add a b -> (result)
+  Signed 16-bit addition. *)
+
+let handle_add a b interpreter =
+  let a = signed_word a in
+  let b = signed_word b in
+  signed_word (a + b)
+
+(* Spec: 2OP:21 sub a b -> (result)
+  Signed 16-bit subtraction. *)
+
+let handle_sub a b interpreter =
+  let a = signed_word a in
+  let b = signed_word b in
+  signed_word (a - b)
+
+(* Spec: 2OP:22 mul a b -> (result)
+  Signed 16-bit multiplication. *)
+
+let handle_mul a b interpreter =
+  let a = signed_word a in
+  let b = signed_word b in
+  signed_word (a * b)
+
+(* Spec: 2OP:23 div a b -> (result)
+  Signed 16-bit division.  Division by zero should halt
+  the interpreter with a suitable error message. *)
+
+let handle_div a b interpreter =
+  let a = signed_word a in
+  let b = signed_word b in
+  signed_word (a / b)
+
+(* Spec: 2OP:24 mod a b -> (result)
+  Remainder after signed 16-bit division. Division by zero should halt
+  the interpreter with a suitable error message. *)
+
+let handle_mod a b interpreter =
+  let a = signed_word a in
+  let b = signed_word b in
+  signed_word (a mod b)
 
 
 
@@ -781,9 +855,6 @@ let step_instruction interpreter =
   let handle_op2_effect compute_effect =
     handle_op2 (fun x y i -> (0, compute_effect x y i)) in
 
-  let handle_op2_value compute_value =
-    handle_op2 (fun x y i -> (compute_value x y i, i)) in
-
   let handle_op3 compute_result =
     match instruction.operands with
     | [x_operand; y_operand; z_operand] ->
@@ -817,32 +888,6 @@ let step_instruction interpreter =
 
 
 
-
-
-  let handle_get_prop obj prop interp =
-    object_property interp.story (Object obj) (Property prop) in
-
-  let handle_get_prop_addr obj prop interp =
-    property_address interp.story (Object obj) (Property prop) in
-
-  let handle_get_next_prop obj prop interp =
-    let (Property next) = get_next_property interp.story (Object obj) (Property prop) in
-    next in
-
-  let handle_add x y interp =
-    signed_word (x + y)  in
-
-  let handle_sub x y interp =
-    signed_word (x - y) in
-
-  let handle_mul x y interp =
-    signed_word (x * y) in
-
-  let handle_div x y interp =
-    signed_word (x / y) in
-
-  let handle_mod x y interp =
-    signed_word (x mod y) in
 
   let handle_jz x interp =
     if x = 0 then 1 else 0 in
@@ -1453,6 +1498,14 @@ let step_instruction interpreter =
   | (OP2_14, [obj; destination]) -> effect (handle_insert_obj obj destination)
   | (OP2_15, [arr; idx]) -> value (handle_loadw arr idx)
   | (OP2_16, [arr; idx]) -> value (handle_loadb arr idx)
+  | (OP2_17, [obj; prop]) -> value (handle_get_prop obj prop)
+  | (OP2_18, [obj; prop]) -> value (handle_get_prop_addr obj prop)
+  | (OP2_19, [obj; prop]) -> value (handle_get_next_prop obj prop)
+  | (OP2_20, [a; b]) -> value (handle_add a b)
+  | (OP2_21, [a; b]) -> value (handle_sub a b)
+  | (OP2_22, [a; b]) -> value (handle_mul a b)
+  | (OP2_23, [a; b]) -> value (handle_div a b)
+  | (OP2_24, [a; b]) -> value (handle_mod a b)
 
 
 
@@ -1460,14 +1513,6 @@ let step_instruction interpreter =
 
 (
   match instruction.opcode with
-  | OP2_17  -> handle_op2_value handle_get_prop
-  | OP2_18  -> handle_op2_value handle_get_prop_addr
-  | OP2_19  -> handle_op2_value handle_get_next_prop
-  | OP2_20  -> handle_op2_value handle_add
-  | OP2_21  -> handle_op2_value handle_sub
-  | OP2_22  -> handle_op2_value handle_mul
-  | OP2_23  -> handle_op2_value handle_div
-  | OP2_24  -> handle_op2_value handle_mod
   | OP2_25  -> handle_call()
   | OP2_26  -> handle_call()
   | OP2_27  -> handle_op2_effect handle_set_color
