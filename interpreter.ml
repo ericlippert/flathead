@@ -204,7 +204,15 @@ let interpreter_print interpreter text =
       screen = new_screen;
       has_new_output = interpreter.screen_selected }
 
-(* Handlers for individual instructions *)
+(* Handlers for individual instructions
+
+All these handlers take their operands followed by an interpreter
+and sometimes an instruction. Those handlers that take just an interpreter
+will have the next PC determined by their caller. Those that take both
+an interpreter and an instruction take responsibility for doing their
+own next-pc logic.
+
+*)
 
 (* Spec: 2OP:1 je a b ?label
 Jump if a is equal to any of the subsequent operands. (Thus @je a never
@@ -465,7 +473,6 @@ let handle_mod a b interpreter =
   let b = signed_word b in
   signed_word (a mod b)
 
-
 (* This routine handles all call instructions:
 
 2OP:25  call_2s  routine arg -> (result)
@@ -480,6 +487,7 @@ VAR:250 call_vn2 routine up-to-7-arguments
 The "s" versions store the result; the "n" versions discard it. *)
 
 let handle_call routine_address arguments interpreter instruction =
+  (* TODO: Wrapper type for routine packed / unpacked addresses *)
   let routine_address = decode_routine_packed_address interpreter.story routine_address in
   if routine_address = 0 then
   (* Spec: When the address 0 is called as a routine, nothing happens and the
@@ -615,7 +623,45 @@ let handle_print_obj obj interpreter =
 let handle_ret result interpreter instruction =
     interpret_return interpreter instruction result
 
+(* Spec: 1OP:140 jump ?(label)
+Jump (unconditionally) to the given label. (This is not a branch instruction
+and the operand is a 2-byte signed offset to apply to the program counter.)
+It is legal for this to jump into a different routine (which should not
+change the routine call state), although it is considered bad practice to
+do so and the Txd disassembler is confused by it.
 
+Note: the revised specification clarifies:
+
+The destination of the jump opcode is
+Address after instruction + Offset - 2
+This is analogous to the calculation for branch offsets. *)
+
+let handle_jump offset interpreter instruction =
+  let offset = signed_word offset in
+  let target = instruction.address + instruction.length + offset - 2 in
+  set_program_counter interpreter target
+
+(* Spec: 1OP:141 print_paddr packed-address-of-string
+  Print the (Z-encoded) string at the given packed address in high memory. *)
+
+let handle_print_paddr packed_address interpreter =
+  (* TODO: Wrapper type for string packed / unpacked addresses *)
+  let packed_address = unsigned_word packed_address in
+  let address = decode_string_packed_address interpreter.story packed_address in
+  let text = read_zstring interpreter.story address in
+  interpreter_print interpreter text
+
+(* Spec: 1OP:142 load (variable) -> (result)
+  The value of the variable referred to by the operand is stored in the result. *)
+
+let handle_load variable interpreter =
+  (* The value of the operand is a number which represents the variable
+  to be read from. So, for example, if the operand is sp then the
+  value of the operand is the top of the stack, and the top of the stack
+  contains a number. That number is then interpreted as a variable, and
+  the value read from *that* variable is the result of the load. *)
+  let variable = decode_variable variable in
+  read_variable interpreter variable
 
 (* Spec:  1OP:143 not value -> (result)
           VAR:248 not value -> (result)
@@ -630,6 +676,45 @@ let handle_not x interpreter =
   let x = unsigned_word x in
   unsigned_word (lnot x)
 
+(* Spec: 0OP:176 rtrue
+  Return true (i.e., 1) from the current routine. *)
+
+let handle_rtrue interpreter instruction =
+  interpret_return interpreter instruction 1
+
+(* Spec: 0OP:177 rfalse
+  Return false (i.e., 0) from the current routine. *)
+
+let handle_rfalse interpreter instruction =
+  interpret_return interpreter instruction 0
+
+(* Spec: 0OP:178 print
+  Print the quoted (literal) Z-encoded string. *)
+
+let handle_print interpreter instruction =
+  let printed_interpreter = match instruction.text with
+  | Some text -> interpreter_print interpreter text
+  | None -> interpreter in
+  interpret_branch printed_interpreter instruction 0
+
+(* Spec: 0OP:179 print_ret
+  Print the quoted (literal) Z-encoded string, then print a new-line
+  and then return true (i.e., 1) *)
+
+let handle_print_ret interpreter instruction =
+  let printed_interpreter =
+    match instruction.text with
+    | Some text -> interpreter_print interpreter (text ^ "\n")
+    | None -> interpreter in
+  interpret_return printed_interpreter instruction 1
+
+(* Spec: 0OP:180 nop
+  Probably the official "no operation" instruction, which, appropriately,
+  was never operated (in any of the Infocom datafiles): it may once have
+  been a breakpoint. *)
+
+let handle_nop interpreter =
+  interpreter
 
 
 
@@ -637,25 +722,10 @@ let handle_not x interpreter =
 
 
 
-(*
-   Z-machine instructions essentially have three parts. The first part evaluates the
-   operands. The second part either causes a side effect or computes a result.
-   The third part stores the result and computes what instruction to run next.
 
-   Almost all instructions do the three parts in that order. But there are some
-   weird ones:
 
-   * Call does the first two parts, but the third is done by the return. The
-     call stores into the frame the information necessary to do the store.
 
-   * A return of course has no third part; it's third part is that of the call
 
-   * A successful restore will pick up where the save left off, which means it
-     needs to do the branch or store of the save. See comments in save / restore.
-
-   * A throw is essentially a return that skips over frames.
-
-*)
 
 
 
@@ -1030,23 +1100,8 @@ let step_instruction interpreter =
 
 
 
-  let handle_print_paddr paddr interp =
-    let addr = decode_string_packed_address interp.story paddr in
-    let text = read_zstring interp.story addr in
-    interpreter_print interp text in
-
-  let handle_load variable_number interpreter =
-    (* The value of the operand is a number which represents the variable
-    to be read from. So, for example, if the operand is sp then the
-    value of the operand is the top of the stack, and the top of the stack
-    contains a number. That number is then interpreted as a variable, and
-    the value read from *that* variable is the result of the load. *)
-    let variable = decode_variable variable_number in
-    read_variable interpreter variable in
 
 
-  let handle_nop interp =
-    interp in
 
   let handle_split_window lines interp =
     (* TODO: in version 3 only, clear the upper window after the split. *)
@@ -1436,10 +1491,6 @@ let step_instruction interpreter =
   let handle_piracy interp =
     1 in
 
-  let handle_print interp =
-    match instruction.text with
-    | Some text -> interpreter_print interp text
-    | _ -> failwith "no text in print instruction" in
 
 
   let handle_random n interpreter =
@@ -1451,38 +1502,18 @@ let step_instruction interpreter =
       let (result, random) = Randomness.next interpreter.random n in
       (result, { interpreter with random }) in
 
-  (* Some helpers for instructions that are a bit unusual, like returns *)
 
-  (* For an unconditional jump we might as well just evaluate the operand and branch directly. *)
-  let handle_jump () =
-    match instruction.operands with
-    | [target_operand] ->
-      let (relative_target, target_interpreter) = read_operand interpreter target_operand in
-      let absolute_target = instruction.address + instruction.length + (signed_word relative_target) - 2 in
-      set_program_counter target_interpreter absolute_target
-    | _ -> failwith "instruction must have one operand" in
 
 
   (* Do not advance to the next instruction *)
   let handle_quit () =
     { interpreter with state = Halted } in
 
-  let handle_print_ret () =
-    let printed_interpreter =
-      match instruction.text with
-      | Some text -> interpreter_print interpreter (text ^ "\n")
-      | _ -> failwith "no text in print_ret instruction" in
-    interpret_return printed_interpreter instruction 1 in
 
   let handle_ret_popped () =
     interpret_return (pop_stack interpreter) instruction (peek_stack interpreter) in
 
 
-  let handle_rtrue () =
-    interpret_return interpreter instruction 1 in
-
-  let handle_rfalse () =
-    interpret_return interpreter instruction 0 in
 
   let handle_scan_table x table len interp =
     (* TODO: This is variadic; also has a 4-argument version *)
@@ -1500,9 +1531,6 @@ let step_instruction interpreter =
 
   let handle_catch() =
     failwith "catch instruction TODO" in
-
-
-
 
 
 
@@ -1556,12 +1584,20 @@ let step_instruction interpreter =
   | (OP1_137, [obj]) -> effect (handle_remove_obj obj)
   | (OP1_138, [obj]) -> effect (handle_print_obj obj)
   | (OP1_139, [result]) -> handle_ret result arguments_interp instruction
-
+  | (OP1_140, [offset]) -> handle_jump offset interpreter instruction
+  | (OP1_141, [paddr]) -> effect (handle_print_paddr paddr)
+  | (OP1_142, [variable]) -> interpret_instruction (handle_load variable)
   | (OP1_143, [x]) ->
     if (version interpreter.story) <= 4 then
       value (handle_not x)
     else
       handle_call x [] arguments_interp instruction
+  | (OP0_176, []) -> handle_rtrue arguments_interp instruction
+  | (OP0_177, []) -> handle_rfalse arguments_interp instruction
+  | (OP0_178, []) -> handle_print arguments_interp instruction
+  | (OP0_179, []) -> handle_print_ret arguments_interp instruction
+  | (OP0_180, []) -> effect handle_nop
+
 
   | (VAR_224, routine :: args) -> handle_call routine args arguments_interp instruction
   | (VAR_236, routine :: args) -> handle_call routine args arguments_interp instruction
@@ -1575,14 +1611,6 @@ let step_instruction interpreter =
 (
   match instruction.opcode with
 
-  | OP1_140 -> handle_jump ()
-  | OP1_141 -> handle_op1_effect handle_print_paddr
-  | OP1_142 -> handle_op1 handle_load
-  | OP0_176 -> handle_rtrue ()
-  | OP0_177 -> handle_rfalse ()
-  | OP0_178 -> handle_op0_effect handle_print
-  | OP0_179 -> handle_print_ret ()
-  | OP0_180 -> handle_op0_effect handle_nop
   | OP0_181 -> handle_op0_value handle_save
   | OP0_182 -> handle_restore ()
   | OP0_183 -> handle_restart ()
