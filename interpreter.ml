@@ -186,6 +186,28 @@ let interpret_effect_instruction interpreter instruction handler =
   let store_interpreter = interpret_store handler_interpreter instruction result in
   interpret_branch store_interpreter instruction result
 
+let interpreter_print interpreter text =
+  (* TODO: Consider building an output stream manager to provide an
+  abstraction of this logic.  *)
+  (* If output stream 3 is selected then no output goes to any other
+  selected stream *)
+  if interpreter.memory_selected then
+    let table = List.hd interpreter.memory_table in
+    let new_story = write_length_prefixed_string interpreter.story table text in
+    { interpreter with story = new_story }
+  else
+    let new_transcript =
+      if interpreter.transcript_selected then
+        Transcript.append interpreter.transcript text
+      else interpreter.transcript in
+    let new_screen =
+      if interpreter.screen_selected then Screen.print interpreter.screen text
+      else interpreter.screen in
+    { interpreter with
+      transcript = new_transcript;
+      screen = new_screen;
+      has_new_output = interpreter.screen_selected }
+
 (* Handlers for individual instructions *)
 
 (* Spec: 2OP:1 je a b ?label
@@ -475,6 +497,123 @@ let handle_call routine_address arguments interpreter instruction =
     let pc = first_instruction interpreter.story routine_address in
     set_program_counter (add_frame interpreter frame) pc
 
+(* Spec: 2OP:27 set_colour foreground background
+                set_colour foreground background window
+If coloured text is available, set text to be foreground-against-background.
+(Flush any buffered text to screen, in the old colours, first.) In version 6,
+the window argument is optional and is by default the current window. *)
+
+let handle_set_colour3 foreground background window interpreter =
+  (* TODO: set_colour is not yet implemeted. Treat it as a no-op. *)
+  interpreter
+
+let handle_set_colour2 foreground background interpreter =
+  (* TODO: set_colour is not yet implemeted. Treat it as a no-op. *)
+  interpreter
+
+(* Spec: 2OP:28 throw value stack-frame
+Opposite of catch: resets the routine call state to the state it had
+when the given stack frame value was 'caught', and then returns.
+In other words, it returns as if from the routine which executed
+the catch which found this stack frame value. *)
+
+let handle_throw value frame_number interpreter =
+  failwith "TODO: throw instruction not yet implemented"
+
+(* Spec: 1OP:128 jz a ?(label)
+  Jump if a = 0. *)
+
+let handle_jz a interpreter =
+  let a = unsigned_word a in
+  if a = 0 then 1 else 0
+
+(* Spec: 1OP:129 get_sibling object -> (result) ?(label)
+  Get next object in tree, branching if this exists, i.e. is not 0 *)
+
+let handle_get_sibling obj interpreter =
+  let obj = Object obj in
+  let (Object sibling) = object_sibling interpreter.story obj in
+  sibling
+
+(* Spec: 1OP:130 get_child object -> (result) ?(label)
+  Get first object contained in given object, branching if this exists,
+  i.e., is not 0 *)
+
+let handle_get_child obj interpreter =
+  let obj = Object obj in
+  let (Object child) = object_child interpreter.story obj in
+  child
+
+(* Spec: 1OP:131 get_parent object -> (result)
+  Get parent object (note that this has no "branch if exists" clause). *)
+
+let handle_get_parent obj interpreter =
+  let obj = Object obj in
+  let (Object parent) = object_parent interpreter.story obj in
+  parent
+
+(* Spec: 1OP:132 get_prop_len property-address -> (result)
+  Get length of property data (in bytes) for the given object's property.
+  It is illegal to try to find the property length of a property which does
+  not exist for the given object, and an interpreter should halt with an error
+  message (if it can efficiently check this condition). *)
+
+let handle_get_prop_len property_address interpreter =
+  (* TODO: Make a wrapper type for property addresses *)
+  let property_address = unsigned_word property_address in
+  property_length_from_address interpreter.story property_address
+
+(* Spec: 1OP:133 inc (variable)
+  Increment variable by 1. (This is signed, so -1 increments to 0.)
+
+Note that this is another of those unusual instructions that takes as an
+argument the number of a variable. *)
+
+let handle_inc variable interpreter =
+  let variable = decode_variable variable in
+  let (original, read_interpreter) = read_variable interpreter variable in
+  let incremented = signed_word (original + 1) in
+  write_variable read_interpreter variable incremented
+
+(* Spec: 1OP:134 dec (variable)
+  Decrement variable by 1. This is signed, so 0 decrements to -1.
+
+  Note that this is another of those unusual instructions that takes as an
+  argument the number of a variable. *)
+
+let handle_dec variable interpreter =
+  let variable = decode_variable variable in
+  let (original, read_interpreter) = read_variable interpreter variable in
+  let decremented = signed_word (original - 1) in
+  write_variable read_interpreter variable decremented
+
+(* Spec: 1OP:135 print_addr byte-address-of-string
+  Print (Z-encoded) string at given byte address, in dynamic or static memory *)
+
+let handle_print_addr addr interpreter =
+  (* TODO: Add wrapper type for string addresses *)
+  let addr = unsigned_word addr in
+  let text = read_zstring interpreter.story addr in
+  interpreter_print interpreter text
+
+(* Spec: 1OP:137 remove_obj object
+Detach the object from its parent, so that it no longer has any parent.
+(Its children remain in its possession.) *)
+let handle_remove_obj obj interpreter =
+  let obj = Object obj in
+  { interpreter with story = remove_object interpreter.story obj}
+
+(* Spec: 1OP:138 print_obj object
+  Print short name of object (the Z-encoded string in the object header,
+  not a property). If the object number is invalid, the interpreter should
+  halt with a suitable error message. *)
+
+let handle_print_obj obj interpreter =
+  let obj = Object obj in
+  let text = object_name interpreter.story obj in
+  interpreter_print interpreter text
+
+
 (* Spec:  1OP:143 not value -> (result)
           VAR:248 not value -> (result)
 Bitwise NOT (i.e., all 16 bits reversed). Note that in Versions 3 and 4 this
@@ -528,27 +667,9 @@ let handle_store_and_branch interpreter instruction result =
 
 
 
-let handle_inc interpreter instruction =
-  match instruction.operands with
-  | [variable_operand] ->
-    let (variable, variable_interpreter) = read_operand interpreter variable_operand in
-    let target = decode_variable variable in
-    let (original, read_interpreter) = read_variable variable_interpreter target in
-    let incremented = signed_word (original + 1) in
-    let store_interpreter = write_variable read_interpreter target incremented in
-    interpret_branch store_interpreter instruction 0
-  | _ -> failwith "inc requires a variable"
 
-let handle_dec interpreter instruction =
-  match instruction.operands with
-  | [variable_operand] ->
-  let (variable, variable_interpreter) = read_operand interpreter variable_operand in
-  let target = decode_variable variable in
-  let (original, read_interpreter) = read_variable variable_interpreter target in
-  let decremented = signed_word (original - 1) in
-  let store_interpreter = write_variable read_interpreter target decremented in
-  interpret_branch store_interpreter instruction 0
-  | _ -> failwith "dec requires a variable"
+
+
 
 let handle_pull interpreter instruction =
   (* TODO: Variadic in v6 *)
@@ -583,25 +704,6 @@ let deselect_memory_stream interpreter =
   | [_] -> { interpreter with memory_selected = false; memory_table = [] }
   | _ :: t -> { interpreter with memory_selected = true; memory_table = t }
 
-let interpreter_print interpreter text =
-  (* If output stream 3 is selected then no output goes to any other
-  selected stream *)
-  if interpreter.memory_selected then
-    let table = List.hd interpreter.memory_table in
-    let new_story = write_length_prefixed_string interpreter.story table text in
-    { interpreter with story = new_story }
-  else
-    let new_transcript =
-      if interpreter.transcript_selected then
-        Transcript.append interpreter.transcript text
-      else interpreter.transcript in
-    let new_screen =
-      if interpreter.screen_selected then Screen.print interpreter.screen text
-      else interpreter.screen in
-    { interpreter with
-      transcript = new_transcript;
-      screen = new_screen;
-      has_new_output = interpreter.screen_selected }
 
 let set_status_line interpreter =
   let status = Status_line.make interpreter.story in
@@ -924,34 +1026,6 @@ let step_instruction interpreter =
 
 
 
-
-
-  let handle_jz x interp =
-    if x = 0 then 1 else 0 in
-
-  let handle_get_sibling obj interp =
-    let (Object sibling) = object_sibling interp.story (Object obj) in
-    sibling in
-
-  let handle_get_child obj interp =
-    let (Object child) = object_child interp.story (Object obj) in
-    child in
-
-  let handle_get_parent obj interp =
-    let (Object parent) = object_parent interp.story (Object obj) in
-    parent in
-
-  let handle_get_prop_len x interp =
-    property_length_from_address interp.story x in
-
-  let handle_print_addr x interp =
-    interpreter_print interp (read_zstring interp.story x) in
-
-  let handle_remove_obj x interp =
-    { interp with story = remove_object interp.story (Object x)} in
-
-  let handle_print_obj x interp =
-    interpreter_print interp (object_name interp.story (Object x)) in
 
   let handle_print_paddr paddr interp =
     let addr = decode_string_packed_address interp.story paddr in
@@ -1364,9 +1438,6 @@ let step_instruction interpreter =
     | Some text -> interpreter_print interp text
     | _ -> failwith "no text in print instruction" in
 
-  let handle_set_color foreground background interp =
-    (* TODO: Stub for set_color. Note that this is variadic in v6 *)
-    interp in
 
   let handle_random n interpreter =
     if n = 0 then
@@ -1433,10 +1504,6 @@ let step_instruction interpreter =
   let handle_catch() =
     failwith "catch instruction TODO" in
 
-  let handle_throw() =
-    failwith "throw instruction TODO" in
-
-
 
 
 
@@ -1477,8 +1544,21 @@ let step_instruction interpreter =
   | (OP2_24, [a; b]) -> value (handle_mod a b)
   | (OP2_25, [routine; arg1]) -> handle_call routine [arg1] arguments_interp instruction
   | (OP2_26, [routine; arg1]) -> handle_call routine [arg1] arguments_interp instruction
-
+  | (OP2_27, [foreground; background]) -> effect (handle_set_colour2 foreground background)
+  | (OP2_27, [foreground; background; window]) -> effect (handle_set_colour3 foreground background window)
+  | (OP2_28, [x; frame]) -> handle_throw x frame arguments_interp
+  | (OP1_128, [a]) -> value (handle_jz a)
+  | (OP1_129, [obj]) -> value (handle_get_sibling obj)
+  | (OP1_130, [obj]) -> value (handle_get_child obj)
+  | (OP1_131, [obj]) -> value (handle_get_parent obj)
+  | (OP1_132, [property_address]) -> value (handle_get_prop_len property_address)
+  | (OP1_133, [variable]) -> effect (handle_inc variable)
+  | (OP1_134, [variable]) -> effect (handle_dec variable)
+  | (OP1_135, [address]) -> effect (handle_print_addr address)
   | (OP1_136, [routine]) -> handle_call routine [] arguments_interp instruction
+  | (OP1_137, [obj]) -> effect (handle_remove_obj obj)
+  | (OP1_138, [obj]) -> effect (handle_print_obj obj)
+
 
   | (OP1_143, [x]) ->
     if (version interpreter.story) <= 4 then
@@ -1497,19 +1577,7 @@ let step_instruction interpreter =
 
 (
   match instruction.opcode with
-  | OP2_27  -> handle_op2_effect handle_set_color
-  | OP2_28  -> handle_throw()
 
-  | OP1_128 -> handle_op1_value handle_jz
-  | OP1_129 -> handle_op1_value handle_get_sibling
-  | OP1_130 -> handle_op1_value handle_get_child
-  | OP1_131 -> handle_op1_value handle_get_parent
-  | OP1_132 -> handle_op1_value handle_get_prop_len
-  | OP1_133 -> handle_inc interpreter instruction
-  | OP1_134 -> handle_dec interpreter instruction
-  | OP1_135 -> handle_op1_effect handle_print_addr
-  | OP1_137 -> handle_op1_effect handle_remove_obj
-  | OP1_138 -> handle_op1_effect handle_print_obj
   | OP1_139 -> handle_ret ()
   | OP1_140 -> handle_jump ()
   | OP1_141 -> handle_op1_effect handle_print_paddr
