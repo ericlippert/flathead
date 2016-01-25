@@ -882,6 +882,7 @@ restart will not have the effect of restarting from this new address. *)
 let handle_restart interpreter instruction =
   (* If transcripting is active, this has to stay on in
   the restarted interpreter *)
+  (* TODO: Other bits that have to stay on *)
   let transcript_on = interpreter.transcript_selected in
   let transcript = interpreter.transcript in
   let commands = interpreter.commands in
@@ -890,8 +891,77 @@ let handle_restart interpreter instruction =
   let restarted_interpreter = select_output_stream original TranscriptStream transcript_on in
   { restarted_interpreter with transcript = transcript; commands = commands }
 
+(* Spec:0OP:184 ret_popped
+  Pops top of stack and returns that. (This is equivalent to ret sp, but
+  is one byte cheaper.) *)
 
+let handle_ret_popped interpreter instruction =
+  let result = peek_stack interpreter in
+  let popped_interpreter = pop_stack interpreter in
+  interpret_return popped_interpreter instruction result
 
+(* 0OP:185 pop
+  Throws away the top item on the stack. (This was useful to lose unwanted
+  routine call results in early Versions.) *)
+
+let handle_pop interpreter =
+  pop_stack interpreter
+
+(* Spec: 0OP:185 catch -> (result)
+  Opposite to throw (and occupying the same opcode that pop used in
+  Versions 3 and 4). catch returns the current "stack frame". *)
+
+let handle_catch interpreter =
+  failwith "TODO: catch instruction not yet implemented"
+
+(* Spec: 0OP:186 quit
+  Exit the game immediately. (Any "Are you sure?" question must be asked by
+  the game, not the interpreter.) It is not legal to return from the main
+  routine (that is, from where execution first begins) and this must be
+  used instead. *)
+
+let handle_quit interpreter instruction =
+  (* We do not advance to the next instruction *)
+  { interpreter with state = Halted }
+
+(* Spec: 0OP:187 new_line
+  Print carriage return. *)
+
+let handle_new_line interpreter =
+  interpreter_print interpreter "\n"
+
+(* Spec: 0OP:188 show_status
+  (In Version 3 only.) Display and update the status line now (don't
+  wait until the next keyboard input). (In theory this opcode is illegal
+  in later Versions but an interpreter should treat it as nop, because
+  Version 5 Release 23 of 'Wishbringer' contains this opcode by accident.) *)
+
+let handle_show_status interpreter =
+  set_status_line interpreter
+
+(* Spec:  0OP:189 verify ?(label)
+  Verification counts a (two byte, unsigned) checksum of the file from $0040
+  onwards (by taking the sum of the values of each byte in the file,
+  modulo $10000) and compares this against the value in the game header,
+  branching if the two values agree. (Early Version 3 games do not have
+  the necessary checksums to make this possible.)
+
+  The interpreter may stop calculating when the file length (as given in the
+  header) is reached. It is legal for the file to contain more bytes than
+  this, but if so the extra bytes must all be 0, which would contribute
+  nothing [to] the checksum anyway. (Some story files are padded out to an exact
+  number of virtual-memory pages using 0s.) *)
+
+let handle_verify interpreter =
+  if verify_checksum interpreter.story then 1 else 0
+
+(* Spec: 0OP:191 piracy ?(label)
+  Branches if the game disc is believed to be genuine by the interpreter
+  (which is assumed to have some arcane way of finding out). Interpreters
+  are asked to be gullible and to unconditionally branch. *)
+
+let handle_piracy interpreter =
+  1
 
 
 (* Spec: VAR:234 3 split_window lines
@@ -1187,16 +1257,6 @@ let step_instruction interpreter =
   (* Some helper routines for generic instructions that simply evaluate operands,
      compute a result from them, store, and branch. *)
 
-  let handle_op0 compute_result =
-    let (result, result_interpreter) = compute_result interpreter in
-    handle_store_and_branch result_interpreter instruction result in
-
-  let handle_op0_effect compute_effect =
-    handle_op0 (fun i -> (0, compute_effect i)) in
-
-  let handle_op0_value compute_value =
-    handle_op0 (fun i -> (compute_value i, i)) in
-
   let handle_op1 compute_result =
     match instruction.operands with
     | [x_operand] ->
@@ -1453,20 +1513,10 @@ let step_instruction interpreter =
 
     failwith "TODO check_arg_count not implemented" in
 
-  let handle_pop interpreter =
-    pop_stack interpreter in
 
-  let handle_new_line interp =
-    interpreter_print interp "\n" in
 
-  let handle_show_status interp =
-    set_status_line interp in
 
-  let handle_verify interp =
-    if verify_checksum interp.story then 1 else 0 in
 
-  let handle_piracy interp =
-    1 in
 
 
 
@@ -1482,13 +1532,8 @@ let step_instruction interpreter =
 
 
 
-  (* Do not advance to the next instruction *)
-  let handle_quit () =
-    { interpreter with state = Halted } in
 
 
-  let handle_ret_popped () =
-    interpret_return (pop_stack interpreter) instruction (peek_stack interpreter) in
 
 
 
@@ -1506,8 +1551,6 @@ let step_instruction interpreter =
         else aux (i + 1) in
     aux 0 in
 
-  let handle_catch() =
-    failwith "catch instruction TODO" in
 
 
 
@@ -1577,6 +1620,18 @@ let step_instruction interpreter =
   | (OP0_181, []) -> value handle_save
   | (OP0_182, []) -> handle_restore arguments_interp instruction
   | (OP0_183, []) -> handle_restart arguments_interp instruction
+  | (OP0_184, []) -> handle_ret_popped arguments_interp instruction
+  | (OP0_185, []) ->
+    if (version interpreter.story <= 4) then
+      effect handle_pop
+    else
+      value handle_catch
+  | (OP0_186, []) -> handle_quit interpreter instruction
+  | (OP0_187, []) -> effect handle_new_line
+  | (OP0_188, []) -> effect handle_show_status
+  | (OP0_189, []) -> value handle_verify
+  (* 190 is the extended bytecode marker *)
+  | (OP0_191, []) -> value handle_piracy
   | (VAR_224, routine :: args) -> handle_call routine args arguments_interp instruction
 
   | (VAR_234, [lines]) -> effect (handle_split_window lines)
@@ -1591,18 +1646,6 @@ let step_instruction interpreter =
 
 (
   match instruction.opcode with
-  | OP0_184 -> handle_ret_popped ()
-  | OP0_185 ->
-    if (version interpreter.story <= 4) then
-      handle_op0_effect handle_pop
-    else
-      handle_catch()
-  | OP0_186 -> handle_quit ()
-  | OP0_187 -> handle_op0_effect handle_new_line
-  | OP0_188 -> handle_op0_effect handle_show_status
-  | OP0_189 -> handle_op0_value handle_verify
-  | OP0_190 -> failwith "190 is the extended opcode marker"
-  | OP0_191 -> handle_op0_value handle_piracy
 
   | VAR_225 -> handle_op3_effect handle_storew
   | VAR_226 -> handle_op3_effect handle_storeb

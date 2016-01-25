@@ -179,20 +179,6 @@ let branch_target instr =
   | (_, Some j) -> Some j
   | _ -> None
 
-(* These opcodes store to a variable identified as a "small" rather
-than as a "variable". *)
-
-let is_special_store opcode =
-  match opcode with
-  | OP2_4   (* dec_chk *)
-  | OP2_5   (* inc_chk *)
-  | OP2_13  (* store *)
-  | OP1_133 (* inc *)
-  | OP1_134 (* dec *)
-  | OP1_142 (* load *)
-  | VAR_233 (* pull *) -> true
-  | _ -> false
-
 let has_text opcode =
   match opcode with
   | OP0_178 | OP0_179 -> true
