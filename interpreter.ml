@@ -171,7 +171,7 @@ let interpret_branch interpreter instruction result =
     else next_instruction ()
 
 let interpret_instruction interpreter instruction handler =
-  let (result, handler_interpreter) = handler interpreter instruction in
+  let (result, handler_interpreter) = handler interpreter in
   let store_interpreter = interpret_store handler_interpreter instruction result in
   interpret_branch store_interpreter instruction result
 
@@ -229,9 +229,64 @@ let handle_jl a b interpreter =
   let b = signed_word b in
   if a < b then 1 else 0
 
+(* Spec
+  2OP:3 3 jg a b ?(label)
+  Jump if a > b using a signed 16-bit comparison. *)
 
+let handle_jg a b interpreter =
+  let a = signed_word a in
+  let b = signed_word b in
+  if a > b then 1 else 0
 
+(* Spec:
+  2OP:4 dec_chk (variable) value ?(label)
+  Decrement variable, and branch if it is now less than the given value.
 
+This one is odd. The value determined for the first argument is treated as
+a variable, which is then decremented. So if the first argument is "sp"
+then the stack is popped; if the value taken off the stack was, say, 50,
+then global 50 is decremented. *)
+
+(* TODO: Fix up Instruction.display code for these opcodes. *)
+
+let handle_dec_chk variable value interpreter =
+  let variable = decode_variable variable in
+  let value = signed_word value in
+  let (original, read_interpreter) = read_variable interpreter variable in
+  let original = signed_word original in
+  let decremented = signed_word (original - 1) in
+  let write_interpreter = write_variable read_interpreter variable decremented in
+  let result = if decremented < value then 1 else 0 in
+  (result, write_interpreter)
+
+(* Spec
+  2OP:5 inc_chk (variable) value ?(label)
+  Increment variable, and branch if now greater than value. *)
+
+let handle_inc_chk variable value interpreter =
+  let variable = decode_variable variable in
+  let value = signed_word value in
+  let (original, read_interpreter) = read_variable interpreter variable in
+  let original = signed_word original in
+  let decremented = signed_word (original + 1) in
+  let write_interpreter = write_variable read_interpreter variable decremented in
+  let result = if decremented > value then 1 else 0 in
+  (result, write_interpreter)
+
+(* Spec
+2OP:6 jin obj1 obj2 ?(label)
+  Jump if obj1 is a direct child of obj2, i.e., if parent of obj1 is obj2. *)
+
+(* TODO: The spec is unclear as to what happens if obj1 is an invalid object
+number, such as 0. On the one hand, that's not even an object, so asking
+if this object is a child of another is an invalid question. On the other
+hand, an invalid object is not a direct child of any object.*)
+
+let handle_jin obj1 obj2 interpreter =
+  let obj1 = Object obj1 in
+  let obj2 = Object obj2 in
+  let parent = object_parent interpreter.story obj1 in
+  if parent = obj2 then 1 else 0
 
 
 
@@ -293,39 +348,7 @@ let handle_store interpreter instruction =
     interpret_branch store_interpreter instruction 0
   | _ -> failwith "store requires a variable and a value"
 
-(* TODO: Fix up Instruction.display code for these opcodes. *)
-(* TODO: read_operand is not very well named. Resolve_argument might be better. *)
-let handle_inc_chk interpreter instruction =
-  match instruction.operands with
-  | [variable_operand ; test_operand] ->
-    (* Increments variable. Branches if new value is greater than test. *)
-    let (variable, variable_interpreter) = read_operand interpreter variable_operand in
-    let (test, test_interpreter) = read_operand variable_interpreter test_operand in
-    (* Increment logically happens in-place; if the variable is the sp then
-    logically we should neither push nor pop it. However, reading the sp value
-    by popping it followed by pushing the incremented result is logically the same
-    thing as an update in place. *)
-    let target = decode_variable variable in
-    let (original, read_interpreter) = read_variable variable_interpreter target in
-    let incremented = signed_word (original + 1) in
-    let store_interpreter = write_variable read_interpreter target incremented in
-    let result = if (signed_word incremented) > (signed_word test) then 1 else 0 in
-    interpret_branch store_interpreter instruction result
 
-  | _ -> failwith "inc_chk requires a variable and a value"
-
-  let handle_dec_chk interpreter instruction =
-    match instruction.operands with
-    | [variable_operand ; test_operand] ->
-      let (variable, variable_interpreter) = read_operand interpreter variable_operand in
-      let (test, test_interpreter) = read_operand variable_interpreter test_operand in
-      let target = decode_variable variable in
-      let (original, read_interpreter) = read_variable variable_interpreter target in
-      let decremented = signed_word (original - 1) in
-      let store_interpreter = write_variable read_interpreter target decremented in
-      let result = if (signed_word decremented) < (signed_word test) then 1 else 0 in
-      interpret_branch store_interpreter instruction result
-    | _ -> failwith "dec_chk requires a variable and a value"
 
 let handle_inc interpreter instruction =
   match instruction.operands with
@@ -726,11 +749,6 @@ let step_instruction interpreter =
 
 
 
-  let handle_jg x y interp =
-    if (signed_word x) > (signed_word y) then 1 else 0 in
-
-  let handle_jin x y interp =
-    if (object_parent interp.story (Object x)) = (Object y) then 1 else 0 in
 
   let handle_test x y interp =
     let x = unsigned_word x in
@@ -1373,8 +1391,8 @@ let step_instruction interpreter =
   let (arguments, arguments_interp) = operands_to_arguments interpreter instruction.operands in
 
 
-
- let interpret_value_instruction = interpret_value_instruction arguments_interp instruction in
+  let interpret_instruction = interpret_instruction arguments_interp instruction in
+  let interpret_value_instruction = interpret_value_instruction arguments_interp instruction in
 
   match (instruction.opcode, arguments) with
   | (ILLEGAL, _) ->  failwith "illegal operand"
@@ -1382,15 +1400,17 @@ let step_instruction interpreter =
   | (OP2_1, [a; b; c]) -> interpret_value_instruction (handle_je3 a b c)
   | (OP2_1, [a; b; c; d]) -> interpret_value_instruction (handle_je4 a b c d)
   | (OP2_2, [a; b]) -> interpret_value_instruction (handle_jl a b)
+  | (OP2_3, [a; b]) -> interpret_value_instruction (handle_jg a b)
+  | (OP2_4, [variable; value]) -> interpret_instruction (handle_dec_chk variable value)
+  | (OP2_5, [variable; value]) -> interpret_instruction (handle_inc_chk variable value)
+  | (OP2_6, [obj1; obj2]) -> interpret_value_instruction (handle_jin obj1 obj2)
+
+
 
   | _ ->
 
 (
   match instruction.opcode with
-  | OP2_3   -> handle_op2_value handle_jg
-  | OP2_4   -> handle_dec_chk interpreter instruction
-  | OP2_5   -> handle_inc_chk interpreter instruction
-  | OP2_6   -> handle_op2_value handle_jin
   | OP2_7   -> handle_op2_value handle_test
   | OP2_8   -> handle_op2_value handle_or
   | OP2_9   -> handle_op2_value handle_and
