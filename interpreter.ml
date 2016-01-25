@@ -963,6 +963,43 @@ let handle_verify interpreter =
 let handle_piracy interpreter =
   1
 
+(* VAR:225 storew array wordindex value
+  array->wordindex = value
+  i.e. stores the given value in the word at address array + 2 * wordindex
+  (which must lie in dynamic memory).  *)
+
+let handle_storew arr ind value interpreter =
+  let arr = unsigned_word arr in
+  let ind = unsigned_word ind in
+  let value = unsigned_word value in
+  let addr = arr + ind * 2 in
+  { interpreter with story = write_word interpreter.story addr value }
+
+(* Spec: VAR:226 storeb array byteindex value
+  array->byteindex = value, i.e. stores the given value in the byte at
+  address array+byteindex (which must lie in dynamic memory). *)
+let handle_storeb arr ind value interpreter =
+  let arr = unsigned_word arr in
+  let ind = unsigned_word ind in
+  let value = unsigned_word value in
+  let addr = arr + ind  in
+  { interpreter with story = write_byte interpreter.story addr value }
+
+(* Spec: VAR:227 put_prop object property value
+  Writes the given value to the given property of the given object. If the
+  property does not exist for that object, the interpreter should halt with a
+  suitable error message. If the property length is 1, then the interpreter
+  should store only the least significant byte of the value. (For instance,
+  storing -1 into a 1-byte property results in the property value 255.)
+  As with get_prop the property length must not be more than 2: if it is,
+  the behaviour of the opcode is undefined. *)
+
+let handle_putprop obj prop value interpreter =
+  let obj = Object obj in
+  let prop = Property prop in
+  let value = unsigned_word value in
+  { interpreter with story = write_property interpreter.story obj prop value }
+
 
 (* Spec: VAR:234 3 split_window lines
 Splits the screen so that the upper window has the given number of lines: or,
@@ -1323,14 +1360,8 @@ let step_instruction interpreter =
 
 
 
-  let handle_storew arr ind value interp =
-    { interp with story = write_word interp.story (arr + ind * 2) value } in
 
-  let handle_storeb arr ind value interp =
-    { interp with story = write_byte interp.story (arr + ind) value } in
 
-  let handle_putprop obj prop value interp =
-    { interp with story = write_property interp.story (Object obj) (Property prop) value } in
 
   let handle_print_char x interp =
     interpreter_print interp (Printf.sprintf "%c" (char_of_int x)) in
@@ -1633,6 +1664,9 @@ let step_instruction interpreter =
   (* 190 is the extended bytecode marker *)
   | (OP0_191, []) -> value handle_piracy
   | (VAR_224, routine :: args) -> handle_call routine args arguments_interp instruction
+  | (VAR_225, [arr; ind; value]) -> effect (handle_storew arr ind value)
+  | (VAR_226, [arr; ind; value]) -> effect (handle_storeb arr ind value)
+  | (VAR_227, [obj; prop; value]) -> effect (handle_putprop obj prop value)
 
   | (VAR_234, [lines]) -> effect (handle_split_window lines)
 
@@ -1647,9 +1681,6 @@ let step_instruction interpreter =
 (
   match instruction.opcode with
 
-  | VAR_225 -> handle_op3_effect handle_storew
-  | VAR_226 -> handle_op3_effect handle_storeb
-  | VAR_227 -> handle_op3_effect handle_putprop
   | VAR_228 -> handle_sread interpreter instruction
   | VAR_229 -> handle_op1_effect handle_print_char
   | VAR_230 -> handle_op1_effect handle_print_num
