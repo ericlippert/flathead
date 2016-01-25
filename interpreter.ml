@@ -135,24 +135,20 @@ let operands_to_arguments interpreter operands =
   let (args_rev, final_interpreter) = aux ([], interpreter) operands in
   ((List.rev args_rev), final_interpreter)
 
-let interpret_store interpreter instruction result =
-  match instruction.store with
+let interpret_store interpreter store result =
+  match store with
   | None -> interpreter
   | Some variable -> write_variable interpreter variable result
 
 let interpret_return interpreter instruction value =
-(* TODO: Clean this up to not be so much reading from frame's members.  *)
  let frame = current_frame interpreter in
  let next_pc = frame.Frame.resume_at in
  let store = frame.Frame.store in
  let pop_frame_interpreter = remove_frame interpreter in
  let result_interpreter = set_program_counter pop_frame_interpreter next_pc in
- let store_interpreter =
-   match store with
-   | None -> result_interpreter
-   | Some variable -> write_variable result_interpreter variable value in
- (* A call never has a branch and we already know the next pc *)
- store_interpreter
+ interpret_store result_interpreter store value
+ (* A call never has a branch and we already know the next pc, so we
+ don't need to call interpret_branch here.  *)
 
 let interpret_branch interpreter instruction result =
   let next_instruction () =
@@ -172,18 +168,18 @@ let interpret_branch interpreter instruction result =
 
 let interpret_instruction interpreter instruction handler =
   let (result, handler_interpreter) = handler interpreter in
-  let store_interpreter = interpret_store handler_interpreter instruction result in
+  let store_interpreter = interpret_store handler_interpreter instruction.store result in
   interpret_branch store_interpreter instruction result
 
 let interpret_value_instruction interpreter instruction handler =
   let result = handler interpreter in
-  let store_interpreter = interpret_store interpreter instruction result in
+  let store_interpreter = interpret_store interpreter instruction.store result in
   interpret_branch store_interpreter instruction result
 
 let interpret_effect_instruction interpreter instruction handler =
   let handler_interpreter = handler interpreter in
   let result = 0 in
-  let store_interpreter = interpret_store handler_interpreter instruction result in
+  let store_interpreter = interpret_store handler_interpreter instruction.store result in
   interpret_branch store_interpreter instruction result
 
 let interpreter_print interpreter text =
@@ -489,7 +485,7 @@ let handle_call routine_address arguments interpreter instruction =
   (* Spec: When the address 0 is called as a routine, nothing happens and the
      return value is false. *)
     let result = 0 in
-    let store_interpreter = interpret_store interpreter instruction result in
+    let store_interpreter = interpret_store interpreter instruction.store result in
     interpret_branch store_interpreter instruction result
   else
     let resume_at = instruction.address + instruction.length in
@@ -612,6 +608,13 @@ let handle_print_obj obj interpreter =
   let obj = Object obj in
   let text = object_name interpreter.story obj in
   interpreter_print interpreter text
+
+(* Spec: 1OP:139 ret value
+  Returns from the current routine with the value given *)
+
+let handle_ret result interpreter instruction =
+    interpret_return interpreter instruction result
+
 
 
 (* Spec:  1OP:143 not value -> (result)
@@ -1474,12 +1477,6 @@ let step_instruction interpreter =
   let handle_ret_popped () =
     interpret_return (pop_stack interpreter) instruction (peek_stack interpreter) in
 
-  let handle_ret () =
-    match instruction.operands with
-    | [lone_operand] ->
-      let (result, operand_interpreter) = read_operand interpreter lone_operand in
-      interpret_return operand_interpreter instruction result
-    | _ -> failwith "instruction must have one operand" in
 
   let handle_rtrue () =
     interpret_return interpreter instruction 1 in
@@ -1558,7 +1555,7 @@ let step_instruction interpreter =
   | (OP1_136, [routine]) -> handle_call routine [] arguments_interp instruction
   | (OP1_137, [obj]) -> effect (handle_remove_obj obj)
   | (OP1_138, [obj]) -> effect (handle_print_obj obj)
-
+  | (OP1_139, [result]) -> handle_ret result arguments_interp instruction
 
   | (OP1_143, [x]) ->
     if (version interpreter.story) <= 4 then
@@ -1578,7 +1575,6 @@ let step_instruction interpreter =
 (
   match instruction.opcode with
 
-  | OP1_139 -> handle_ret ()
   | OP1_140 -> handle_jump ()
   | OP1_141 -> handle_op1_effect handle_print_paddr
   | OP1_142 -> handle_op1 handle_load
