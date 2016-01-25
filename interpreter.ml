@@ -381,7 +381,6 @@ let handle_get_prop obj prop interpreter =
   let prop = Property prop in
   object_property interpreter.story obj prop
 
-
 (* Spec: 2OP:18 get_prop_addr object property -> (result)
   Get the byte address (in dynamic memory) of the property data for the
   given object's property. This must return 0 if the object hasn't got
@@ -449,6 +448,51 @@ let handle_mod a b interpreter =
   signed_word (a mod b)
 
 
+(* This routine handles all call instructions:
+
+2OP:25  call_2s  routine arg -> (result)
+2OP:26  call_2n  routine arg
+1OP:136 call_1s  routine -> (result)
+1OP:143 call_1n  routine
+VAR:224 call_vs  routine up-to-3-arguments -> (result)
+VAR:236 call_vs2 routine up-to-7-arguments -> (result)
+VAR:249 call_vn  routine up-to-3-arguments
+VAR:250 call_vn2 routine up-to-7-arguments
+
+The "s" versions store the result; the "n" versions discard it. *)
+
+let handle_call routine_address arguments interpreter instruction =
+  let routine_address = decode_routine_packed_address interpreter.story routine_address in
+  if routine_address = 0 then
+  (* Spec: When the address 0 is called as a routine, nothing happens and the
+     return value is false. *)
+    let result = 0 in
+    let store_interpreter = interpret_store interpreter instruction result in
+    interpret_branch store_interpreter instruction result
+  else
+    let resume_at = instruction.address + instruction.length in
+    let frame = Frame.make_call_frame interpreter.story arguments routine_address resume_at instruction.store in
+    let pc = first_instruction interpreter.story routine_address in
+    set_program_counter (add_frame interpreter frame) pc
+
+(* Spec:  1OP:143 not value -> (result)
+          VAR:248 not value -> (result)
+Bitwise NOT (i.e., all 16 bits reversed). Note that in Versions 3 and 4 this
+is a 1OP instruction, reasonably since it has 1 operand, but in later versions
+it was moved into the extended set to make room for call_1n. *)
+
+(* Note that the spec intended to say "was made into a VAR instruction"; it was
+not made an EXT instruction. *)
+
+let handle_not x interpreter =
+  let x = unsigned_word x in
+  unsigned_word (lnot x)
+
+
+
+
+
+
 
 
 (*
@@ -480,13 +524,6 @@ let handle_store_and_branch interpreter instruction result =
     | Some variable -> write_variable interpreter variable result in
   interpret_branch store_interpreter instruction result
 
-(*
-Always evaluate the operand -- we might be popping the stack
-If the local number is valid then update the locals map with
-the argument. *)
-
-(* There can be more or fewer arguments than there are locals; we have to deal
-with both cases. *)
 
 
 
@@ -930,8 +967,6 @@ let step_instruction interpreter =
     let variable = decode_variable variable_number in
     read_variable interpreter variable in
 
-  let handle_not x interp =
-    unsigned_word (lnot x) in
 
   let handle_nop interp =
     interp in
@@ -1401,72 +1436,6 @@ let step_instruction interpreter =
   let handle_throw() =
     failwith "throw instruction TODO" in
 
-  let handle_call () =
-    (* The packed address is already unpacked if the operand is a constant,
-    but not if the operand is a variable. *)
-    let routine_address_operand = List.hd instruction.operands in
-    let routine_operands = List.tl instruction.operands in
-    let (packed_address, routine_interpreter) = read_operand interpreter routine_address_operand in
-    let routine_address = decode_routine_packed_address interpreter.story packed_address in
-
-    (* We now have the routine address and its operands. Operands must be copied to locals.
-       Locals must be given their default values first, and then if there are corresponding operands
-       (the arguments are copied to the first n locals) then we overwrite them. *)
-
-    let count = locals_count routine_interpreter.story routine_address in
-
-    let rec create_default_locals map i =
-      if i > count then
-        map
-      else
-        let default_value =
-          local_default_value routine_interpreter.story routine_address i in
-        let new_map = IntMap.add i default_value map in
-        create_default_locals new_map (i + 1) in
-
-    let default_locals = create_default_locals IntMap.empty 1 in
-
-    (* We now have a map that contains all the locals initialized to their default values. *)
-
-    (* Now copy the arguments to the corresponding place in the locals map. *)
-    (* Note that we must evaluate all the operands even if they are not being copied to locals; they might pop the stack. *)
-
-    let rec copy_arguments operands_copied_interpreter remaining_operands acc_locals current_local =
-      match remaining_operands with
-      | [] -> (acc_locals, operands_copied_interpreter)
-      | operand :: tail ->
-        let (argument_value, new_interpreter) =
-          read_operand operands_copied_interpreter operand in
-        let new_locals =
-          if current_local <= count then
-            IntMap.add current_local argument_value acc_locals
-          else
-            acc_locals in
-        copy_arguments new_interpreter tail new_locals (current_local + 1) in
-
-    let (locals, locals_interpreter) =
-      copy_arguments routine_interpreter routine_operands default_locals 1 in
-
-    (* We have evaluated all the operands; at this point we need to bail if the
-       target address is zero. Calling zero is the same as calling a routine that
-       does nothing but return false. *)
-
-    if routine_address = 0 then
-      handle_store_and_branch locals_interpreter instruction 0
-    else
-      let first_instruction =
-        first_instruction locals_interpreter.story routine_address in
-      let frame = (* TODO: put this construction logic in the frame module *)
-      {
-        Frame.stack = Evaluation_stack.empty;
-        Frame.local_store = Local_store.make locals count (List.length routine_operands); (*TODO: be smarter*)
-        Frame.called = first_instruction;
-        Frame.resume_at = instruction.address + instruction.length ;
-        Frame.store = instruction.store
-      } in
-      set_program_counter (add_frame locals_interpreter frame) first_instruction in
-    (* End handle_call *)
-
 
 
 
@@ -1506,15 +1475,28 @@ let step_instruction interpreter =
   | (OP2_22, [a; b]) -> value (handle_mul a b)
   | (OP2_23, [a; b]) -> value (handle_div a b)
   | (OP2_24, [a; b]) -> value (handle_mod a b)
+  | (OP2_25, [routine; arg1]) -> handle_call routine [arg1] arguments_interp instruction
+  | (OP2_26, [routine; arg1]) -> handle_call routine [arg1] arguments_interp instruction
 
+  | (OP1_136, [routine]) -> handle_call routine [] arguments_interp instruction
 
+  | (OP1_143, [x]) ->
+    if (version interpreter.story) <= 4 then
+      value (handle_not x)
+    else
+      handle_call x [] arguments_interp instruction
+
+  | (VAR_224, routine :: args) -> handle_call routine args arguments_interp instruction
+  | (VAR_236, routine :: args) -> handle_call routine args arguments_interp instruction
+
+  | (VAR_248, [x]) -> value (handle_not x)
+  | (VAR_249, routine :: args) -> handle_call routine args arguments_interp instruction
+  | (VAR_250, routine :: args) -> handle_call routine args arguments_interp instruction
 
   | _ ->
 
 (
   match instruction.opcode with
-  | OP2_25  -> handle_call()
-  | OP2_26  -> handle_call()
   | OP2_27  -> handle_op2_effect handle_set_color
   | OP2_28  -> handle_throw()
 
@@ -1526,18 +1508,12 @@ let step_instruction interpreter =
   | OP1_133 -> handle_inc interpreter instruction
   | OP1_134 -> handle_dec interpreter instruction
   | OP1_135 -> handle_op1_effect handle_print_addr
-  | OP1_136 -> handle_call ()
   | OP1_137 -> handle_op1_effect handle_remove_obj
   | OP1_138 -> handle_op1_effect handle_print_obj
   | OP1_139 -> handle_ret ()
   | OP1_140 -> handle_jump ()
   | OP1_141 -> handle_op1_effect handle_print_paddr
   | OP1_142 -> handle_op1 handle_load
-  | OP1_143 ->
-    if (version interpreter.story) <= 4 then
-      handle_op1_value handle_not
-    else
-      handle_call()
   | OP0_176 -> handle_rtrue ()
   | OP0_177 -> handle_rfalse ()
   | OP0_178 -> handle_op0_effect handle_print
@@ -1559,7 +1535,6 @@ let step_instruction interpreter =
   | OP0_190 -> failwith "190 is the extended opcode marker"
   | OP0_191 -> handle_op0_value handle_piracy
 
-  | VAR_224 -> handle_call ()
   | VAR_225 -> handle_op3_effect handle_storew
   | VAR_226 -> handle_op3_effect handle_storeb
   | VAR_227 -> handle_op3_effect handle_putprop
@@ -1571,7 +1546,6 @@ let step_instruction interpreter =
   | VAR_233 -> handle_pull interpreter instruction
   | VAR_234 -> handle_op1_effect handle_split_window
   | VAR_235 -> handle_op1_effect handle_set_window
-  | VAR_236 -> handle_call()
   | VAR_237 -> handle_op1_effect handle_erase_window
   | VAR_238 -> handle_op1_effect handle_erase_line
   | VAR_239 -> handle_op2_effect handle_set_cursor
@@ -1583,9 +1557,7 @@ let step_instruction interpreter =
   | VAR_245 -> handle_sound_effect()
   | VAR_246 -> handle_read_char interpreter instruction
   | VAR_247 -> handle_op3_value handle_scan_table
-  | VAR_248 -> handle_op1_value handle_not
-  | VAR_249 -> handle_call()
-  | VAR_250 -> handle_call()
+
   | VAR_251 -> handle_tokenise()
   | VAR_252 -> handle_encode_text()
   | VAR_253 -> handle_op3_effect handle_copy_table

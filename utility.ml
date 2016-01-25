@@ -179,3 +179,9 @@ let rec binary_search min max compare =
     if comparison < 0 then binary_search (middle + 1) max compare
     else if comparison > 0 then binary_search min middle compare
     else Some middle
+
+let max x y =
+  if x > y then x else y
+
+let min x y =
+  if x < y then x else y

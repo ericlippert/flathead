@@ -68,3 +68,31 @@ let make_locals_from_record arguments_supplied locals_list =
       aux new_map (i + 1) t in
   let map = aux IntMap.empty 1 locals_list in
   { locals = map; count = List.length locals_list ; arguments_supplied }
+
+let add local_store (Local n) default_value =
+  let locals = IntMap.add n default_value local_store.locals in
+  let count = max local_store.count n in
+  { local_store with locals; count }
+
+let create_default_locals story routine_address =
+  let count = Story.locals_count story routine_address in
+  let rec aux acc i=
+    if i > count then
+      acc
+    else
+      let default_value = Story.local_default_value story routine_address i in
+      let new_store = add acc (Local i) default_value in
+      aux new_store (i + 1) in
+aux empty 1
+
+let write_arguments local_store arguments =
+  let rec aux acc args i =
+    match args with
+    | [] -> acc
+    | arg :: tail ->
+      if i > acc.count then
+        acc
+      else
+        let new_store = write_local acc (Local i) arg in
+        aux new_store tail (i + 1) in
+  aux local_store arguments 1

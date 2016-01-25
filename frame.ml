@@ -21,6 +21,19 @@ let make pc =
   store = None
 }
 
+let make_call_frame story arguments routine_address resume_at store =
+  let default_store = Local_store.create_default_locals story routine_address in
+  let local_store = Local_store.write_arguments default_store arguments in
+  let called = Story.first_instruction story routine_address in
+  {
+    stack = Evaluation_stack.empty;
+    local_store;
+    called;
+    resume_at;
+    store
+  }
+
+
 let peek_stack frame =
   Evaluation_stack.peek frame.stack
 
