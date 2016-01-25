@@ -188,19 +188,16 @@ let interpret_effect_instruction interpreter instruction handler =
 
 (* Handlers for individual instructions *)
 
-(* 2OP:1 je a b ?label
+(* Spec: 2OP:1 je a b ?label
+Jump if a is equal to any of the subsequent operands. (Thus @je a never
+jumps and @je a b jumps if a = b.) *)
 
-Spec: Jump if a is equal to any of the subsequent operands. (Thus @je a never
-jumps and @je a b jumps if a = b.)
-
-Already we are off to a bad start; the revision to the spec says:
+(* Note: Already we are off to a bad start; the revision to the spec says:
 
 je can take between 2 and 4 operands. je with just 1 operand is not permitted.
 
 Note that je is one of the rare "2OP" instructions that can take 3 or 4
-operands.
-
-*)
+operands. *)
 
 let handle_je2 a b interpreter =
   let a = signed_word a in
@@ -220,8 +217,7 @@ let handle_je4 a b c d interpreter =
   let d = signed_word d in
   if a = b || a = c || a = d then 1 else 0
 
-(* Spec
-  2OP:2 jl a b ?(label)
+(* Spec: 2OP:2 jl a b ?(label)
   Jump if a < b  using a signed 16-bit comparison. *)
 
 let handle_jl a b interpreter =
@@ -229,8 +225,7 @@ let handle_jl a b interpreter =
   let b = signed_word b in
   if a < b then 1 else 0
 
-(* Spec
-  2OP:3 3 jg a b ?(label)
+(* Spec: 2OP:3 3 jg a b ?(label)
   Jump if a > b using a signed 16-bit comparison. *)
 
 let handle_jg a b interpreter =
@@ -238,8 +233,7 @@ let handle_jg a b interpreter =
   let b = signed_word b in
   if a > b then 1 else 0
 
-(* Spec:
-  2OP:4 dec_chk (variable) value ?(label)
+(* Spec: 2OP:4 dec_chk (variable) value ?(label)
   Decrement variable, and branch if it is now less than the given value.
 
 This one is odd. The value determined for the first argument is treated as
@@ -259,8 +253,7 @@ let handle_dec_chk variable value interpreter =
   let result = if decremented < value then 1 else 0 in
   (result, write_interpreter)
 
-(* Spec
-  2OP:5 inc_chk (variable) value ?(label)
+(* Spec: 2OP:5 inc_chk (variable) value ?(label)
   Increment variable, and branch if now greater than value. *)
 
 let handle_inc_chk variable value interpreter =
@@ -273,8 +266,7 @@ let handle_inc_chk variable value interpreter =
   let result = if decremented > value then 1 else 0 in
   (result, write_interpreter)
 
-(* Spec
-2OP:6 jin obj1 obj2 ?(label)
+(* Spec: 2OP:6 jin obj1 obj2 ?(label)
   Jump if obj1 is a direct child of obj2, i.e., if parent of obj1 is obj2. *)
 
 (* TODO: The spec is unclear as to what happens if obj1 is an invalid object
@@ -288,6 +280,94 @@ let handle_jin obj1 obj2 interpreter =
   let parent = object_parent interpreter.story obj1 in
   if parent = obj2 then 1 else 0
 
+(* Spec: 2OP:7 test bitmap flags ?(label)
+  Jump if all of the flags in bitmap are set (i.e. if bitmap & flags == flags) *)
+
+let handle_test bitmap flags interpreter =
+  let bitmap = unsigned_word bitmap in
+  let flags = unsigned_word flags in
+  if (bitmap land flags) = flags then 1 else 0
+
+(* Spec: 2OP:8 8 or a b -> (result)
+  Bitwise OR. *)
+
+let handle_or a b interpreter =
+  let a = unsigned_word a in
+  let b = unsigned_word b in
+  a lor b
+
+(* Spec: 2OP:9 and a b -> (result)
+Bitwise AND. *)
+
+let handle_and a b interpreter =
+  let a = unsigned_word a in
+  let b = unsigned_word b in
+  a land b
+
+(* Spec: 2OP:10 test_attr object attribute ?(label)
+  Jump if object has attribute. *)
+
+let handle_test_attr obj attr interpreter =
+  let obj = Object obj in
+  let attr = unsigned_word attr in (* TODO: Wrapper type for attribute numbers *)
+  if object_attribute interpreter.story obj attr then 1 else 0
+
+(* Spec:  2OP:11 set_attr object attribute
+  Make object have the attribute numbered attribute. *)
+
+let handle_set_attr obj attr interpreter =
+  let obj = Object obj in
+  let attr = unsigned_word attr in (* TODO: Wrapper type for attribute numbers *)
+  { interpreter with story = set_object_attribute interpreter.story obj attr }
+
+(* Spec: 2OP:12 clear_attr object attribute
+  Make object not have the attribute numbered attribute. *)
+
+let handle_clear_attr obj attr interpreter =
+  let obj = Object obj in
+  let attr = unsigned_word attr in (* TODO: Wrapper type for attribute numbers *)
+  { interpreter with story = clear_object_attribute interpreter.story obj attr }
+
+(* Spec: 2OP:13 store (variable) value
+  Set the variable referenced by the operand to value *)
+
+(* This is one of those odd instructions like dec_chk (described above)
+that takes a variable number as an operand. *)
+
+let handle_store variable value interpreter =
+  let variable = decode_variable variable in
+  let value = unsigned_word value in
+  write_variable interpreter variable value
+
+(* Spec: 2OP:14 insert_obj object destination
+  Moves object O to become the first child of the destination object D.
+  (Thus, after the operation the child of D is O, and the sibling of O
+  is whatever was previously the child of D.) All children of O move with it.
+  (Initially O can be at any point in the object tree; it may legally
+  have parent zero.) *)
+
+let handle_insert_obj obj destination interpreter =
+  let obj = Object obj in
+  let destination = Object destination in
+  { interpreter with story = insert_object interpreter.story obj destination }
+  
+(* Spec: 2OP:15 loadw array word-index -> (result)
+Stores array-->word-index (i.e., the word at address array+2*word-index,
+which must lie in static or dynamic memory). *)
+
+let handle_loadw arr idx interpreter =
+  let arr = unsigned_word arr in
+  let idx = unsigned_word idx in
+  read_word interpreter.story (arr + idx * 2)
+
+(* Spec: 2OP:16 loadb array byte-index -> (result)
+Stores array->byte-index (i.e., the byte at address array+byte-index,
+which must lie in static or dynamic memory). *)
+
+let handle_loadb arr idx interpreter =
+  let arr = unsigned_word arr in
+  let idx = unsigned_word idx in
+  read_byte interpreter.story (arr + idx)
 
 
 
@@ -334,19 +414,6 @@ the argument. *)
 (* There can be more or fewer arguments than there are locals; we have to deal
 with both cases. *)
 
-(* The following six instructions have as their first argument a number that
-is interpreted as a variable. So if, for example, the operand is "local 1" and
-local 1 contains the number 128 then the store is to global 128. *)
-
-let handle_store interpreter instruction =
-  match instruction.operands with
-  | [variable_operand; value_operand] ->
-    let (variable, variable_interpreter) = read_operand interpreter variable_operand in
-    let (value, value_interpreter) = read_operand variable_interpreter value_operand in
-    let target = decode_variable variable in
-    let store_interpreter = write_variable value_interpreter target value in
-    interpret_branch store_interpreter instruction 0
-  | _ -> failwith "store requires a variable and a value"
 
 
 
@@ -750,34 +817,7 @@ let step_instruction interpreter =
 
 
 
-  let handle_test x y interp =
-    let x = unsigned_word x in
-    let y = unsigned_word y in
-    if (x land y) = y then 1 else 0 in
 
-  let handle_or x y interp =
-    (unsigned_word x) lor (unsigned_word y) in
-
-  let handle_and x y interp =
-    (unsigned_word x) land (unsigned_word y) in
-
-  let handle_test_attr obj attr interp =
-    if object_attribute interp.story (Object obj) attr then 1 else 0 in
-
-  let handle_set_attr obj attr interp =
-    { interp with story = set_object_attribute interp.story (Object obj) attr } in
-
-  let handle_clear_attr obj attr interp =
-    { interp with story = clear_object_attribute interp.story (Object obj) attr } in
-
-  let handle_insert_obj child parent interp =
-    { interp with story = insert_object interp.story (Object child) (Object parent) } in
-
-  let handle_loadw arr ind interp =
-    read_word interp.story (arr + ind * 2) in
-
-  let handle_loadb arr ind interp =
-    read_byte interp.story (arr + ind) in
 
   let handle_get_prop obj prop interp =
     object_property interp.story (Object obj) (Property prop) in
@@ -1389,21 +1429,30 @@ let step_instruction interpreter =
 
 
   let (arguments, arguments_interp) = operands_to_arguments interpreter instruction.operands in
-
-
   let interpret_instruction = interpret_instruction arguments_interp instruction in
-  let interpret_value_instruction = interpret_value_instruction arguments_interp instruction in
+  let value = interpret_value_instruction arguments_interp instruction in
+  let effect = interpret_effect_instruction arguments_interp instruction in
 
   match (instruction.opcode, arguments) with
   | (ILLEGAL, _) ->  failwith "illegal operand"
-  | (OP2_1, [a; b]) -> interpret_value_instruction (handle_je2 a b)
-  | (OP2_1, [a; b; c]) -> interpret_value_instruction (handle_je3 a b c)
-  | (OP2_1, [a; b; c; d]) -> interpret_value_instruction (handle_je4 a b c d)
-  | (OP2_2, [a; b]) -> interpret_value_instruction (handle_jl a b)
-  | (OP2_3, [a; b]) -> interpret_value_instruction (handle_jg a b)
+  | (OP2_1, [a; b]) -> value (handle_je2 a b)
+  | (OP2_1, [a; b; c]) -> value (handle_je3 a b c)
+  | (OP2_1, [a; b; c; d]) -> value (handle_je4 a b c d)
+  | (OP2_2, [a; b]) -> value (handle_jl a b)
+  | (OP2_3, [a; b]) -> value (handle_jg a b)
   | (OP2_4, [variable; value]) -> interpret_instruction (handle_dec_chk variable value)
   | (OP2_5, [variable; value]) -> interpret_instruction (handle_inc_chk variable value)
-  | (OP2_6, [obj1; obj2]) -> interpret_value_instruction (handle_jin obj1 obj2)
+  | (OP2_6, [obj1; obj2]) -> value (handle_jin obj1 obj2)
+  | (OP2_7, [bitmap; flags]) -> value (handle_test bitmap flags)
+  | (OP2_8, [a; b]) -> value (handle_or a b)
+  | (OP2_9, [a; b]) -> value (handle_and a b)
+  | (OP2_10, [obj; attr]) -> value (handle_test_attr obj attr)
+  | (OP2_11, [obj; attr]) -> effect (handle_set_attr obj attr)
+  | (OP2_12, [obj; attr]) -> effect (handle_clear_attr obj attr)
+  | (OP2_13, [variable; value]) -> effect (handle_store variable value)
+  | (OP2_14, [obj; destination]) -> effect (handle_insert_obj obj destination)
+  | (OP2_15, [arr; idx]) -> value (handle_loadw arr idx)
+  | (OP2_16, [arr; idx]) -> value (handle_loadb arr idx)
 
 
 
@@ -1411,16 +1460,6 @@ let step_instruction interpreter =
 
 (
   match instruction.opcode with
-  | OP2_7   -> handle_op2_value handle_test
-  | OP2_8   -> handle_op2_value handle_or
-  | OP2_9   -> handle_op2_value handle_and
-  | OP2_10  -> handle_op2_value handle_test_attr
-  | OP2_11  -> handle_op2_effect handle_set_attr
-  | OP2_12  -> handle_op2_effect handle_clear_attr
-  | OP2_13  -> handle_store interpreter instruction
-  | OP2_14  -> handle_op2_effect handle_insert_obj
-  | OP2_15  -> handle_op2_value handle_loadw
-  | OP2_16  -> handle_op2_value handle_loadb
   | OP2_17  -> handle_op2_value handle_get_prop
   | OP2_18  -> handle_op2_value handle_get_prop_addr
   | OP2_19  -> handle_op2_value handle_get_next_prop
