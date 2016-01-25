@@ -304,3 +304,11 @@ let write_iff_file filename root_form =
   let text = write_form root_form in
   write_file filename text
   (* end of write_iff_file *)
+
+let rec find_record chunks target =
+  match chunks with
+  | [] -> None
+  | (Record (Header header :: _) as record) :: tail ->
+    if header = target then Some record
+    else find_record tail target
+  | _ :: tail -> find_record tail target

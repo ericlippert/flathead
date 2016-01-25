@@ -182,6 +182,42 @@ let interpret_effect_instruction interpreter instruction handler =
   let store_interpreter = interpret_store handler_interpreter instruction.store result in
   interpret_branch store_interpreter instruction result
 
+let split_window interpreter lines=
+  { interpreter with screen = Screen.split_window interpreter.screen lines }
+
+let set_status_line interpreter =
+  let status = Status_line.make interpreter.story in
+  let screen = { interpreter.screen with status } in
+  { interpreter with has_new_output = true; screen }
+
+(* Debugging method *)
+let display_interpreter interpreter =
+  let pc = interpreter.program_counter in
+  let frames = Frameset.display_frames interpreter.frames in
+  let instr = display_instructions interpreter.story interpreter.program_counter 1 in
+  Printf.sprintf "\nPC:%04x\n%s\n%s\n" pc frames instr
+
+let select_output_stream interpreter stream value =
+  match stream with
+  | ScreenStream -> { interpreter with screen_selected = value }
+  | TranscriptStream -> { interpreter with
+    transcript_selected = value;
+    story = set_transcript_flag interpreter.story value }
+  | MemoryStream -> failwith "use select/deselect memory stream"
+  | CommandStream -> { interpreter with commands_selected = value };;
+
+let select_memory_stream interpreter table =
+  { interpreter with
+    memory_selected = true;
+    memory_table = table :: interpreter.memory_table }
+
+let deselect_memory_stream interpreter =
+  match interpreter.memory_table with
+  | [] -> { interpreter with memory_selected = false }
+  | [_] -> { interpreter with memory_selected = false; memory_table = [] }
+  | _ :: t -> { interpreter with memory_selected = true; memory_table = t }
+
+(* TODO: Rename to just print *)
 let interpreter_print interpreter text =
   (* TODO: Consider building an output stream manager to provide an
   abstraction of this logic.  *)
@@ -717,8 +753,156 @@ let handle_nop interpreter =
   interpreter
 
 
+(* Spec: 0OP:181 save ?(label)
+         0OP:181 5 4 save -> (result)
+On Versions 3 and 4, attempts to save the game (all questions about
+filenames are asked by interpreters) and branches if successful. From
+Version 5 it is a store rather than a branch instruction; the store value is
+0 for failure, 1 for "save succeeded" and 2 for "the game is being restored
+and is resuming execution again from here, the point where it was saved".
+
+It is illegal to use this opcode within an interrupt routine (one called
+asynchronously by a sound effect, or keyboard timing, or newline counting). *)
+
+(* TODO: Prompt for filename *)
+let filename = "FLATHEAD.SAV"
+let save_failed = 0
+let save_succeeded = 1
+let restore_succeeded = 2
+
+let handle_save interpreter =
+(* The PC at present points to the save instruction. The convention,
+documented nowhere I have found thus far, is to save the PC + 1.  Why
+on earth would we do that?
+
+The save instruction has a branch in v3 and a store in v4. When control
+resumes *following the restore*, the restore code needs to know
+whether to branch / what to store, which is indicated by the second
+byte of the save instruction! So we serialize the address of that thing.
+
+So on version 3, what happens is:
+
+* On a failed save the result is 0 so the branch of the save is not taken.
+* On a successful save the result is 1, so the branch of the save is taken.
+* On a failed restore the result is 0 so the branch of the restore is not taken.
+* On a successful restore the result is *2*, but the branch is never taken
+  from the restore; the branch is taken from the save.
+* Note that this means that in v3, the game has no idea when it resumes
+  from the save whether it just completed a successful save, or just
+  completed a successful restore. (The *interpreter* knows but the *game*
+  does not.)
+
+In version 4:
+* On a failed save the result is 0, which is stored.
+* On a successful save the result is 1, which is stored.
+* On a failed restore the result is 0, which is stored.
+* On a successful restore the storage of the restore never happens.
+  The result is 2, which is then stored by the back end of the save.
+* Now the game can determine whether the save failed (0), succeeded (1)
+  or we just restored (2). *)
+
+  let compressed = compress interpreter.story in
+  let release = release_number interpreter.story in
+  let serial = serial_number interpreter.story in
+  let checksum = header_checksum interpreter.story in
+  let pc = interpreter.program_counter + 1 in
+  let frames = Frameset.make_frameset_record interpreter.frames in
+  let form = Quetzal.save release serial checksum pc compressed frames in
+  Iff.write_iff_file filename form;
+  (* TODO: Handle failure *)
+  save_succeeded
+
+(* Spec: 0OP:182 restore ?(label)
+         0OP:182 restore -> (result)
+
+  In Version 3, the branch is never actually made, since either the game has
+  successfully picked up again from where it was saved, or it failed to load
+  the save game file.
+
+  As with restart, the transcription and fixed font bits survive.
+
+  The interpreter gives the game a way of knowing that a restore has just
+  happened (see save).
+
+  If the restore fails, 0 is returned, but once again this necessarily
+  happens since otherwise control is already elsewhere. *)
+
+let handle_restore interpreter instruction =
+  (* In versions 1, 2 and 3 the restore branches on failure. In version 4 the
+  restore stores a value on failure. Of course if the restore succeeds then
+  the interpreter continues with the restored instruction pointer. *)
+  (* TODO: Handle exceptions *)
+  (* TODO: prompt for a filename *)
+  let ifzd = read_iff_file filename ifzd_form in
+  let (release_number, serial_number, checksum, program_counter) = Quetzal.read_header ifzd in
+  (* TODO: Check the release, serial number, checksum *)
+  let frame_records = Quetzal.read_stacks ifzd in
+  let frames = Frameset.make_frameset_from_records frame_records in
+  let (compressed, uncompressed) = Quetzal.read_memory ifzd in
+  (* TODO: Deal with memory size mismatch. *)
+  let new_story =
+    match (compressed, uncompressed) with
+    | (Some bytes, _) -> Story.apply_compressed_changes interpreter.story bytes
+    | (_, Some bytes) -> Story.apply_uncompressed_changes interpreter.story bytes
+    | _ -> failwith "TODO handle failure reading memory" in
+  (* TODO: If restore failed then we need to complete the restore instruction
+  with result 0. *)
+  (* If the restore succeeded then we need to complete the save instruction
+    with result 2. See comments in handle_save that describe what is going
+    on here. *)
+  let save_pc = program_counter - 1 in
+  let save_instruction = decode_instruction new_story save_pc in
+  if save_instruction.opcode != OP0_181 then
+    failwith "Restored PC is not on save instruction";
+  let new_interpreter = { interpreter with
+    story = new_story;
+    program_counter = save_pc;
+    frames } in
+  (* TODO: All the bits that have to be preserved. Make a common helper
+  method with restart. *)
+  (* After a restore, redraw the status line *)
+  let new_interpreter = set_status_line new_interpreter in
+  (* After a restore, collapse the upper window *)
+  let new_interpreter = split_window new_interpreter 0 in
+  (* The save is either a conditional branch or a store depending on the version.
+  We'll just do both and let the helper sort it out. *)
+  let store_interpreter = interpret_store new_interpreter save_instruction.store restore_succeeded in
+  let save_interpreter = interpret_branch store_interpreter save_instruction restore_succeeded in
+  save_interpreter
+(* end of handle_restore *)
+
+(* Spec: 0OP:183 restart
+Restart the game. (Any "Are you sure?" question must be asked by the game,
+not the interpreter.) The only pieces of information surviving from the
+previous state are the "transcribing to printer" bit (bit 0 of 'Flags 2' in
+the header, at address $10) and the "use fixed pitch font" bit (bit 1 of
+'Flags 2'). In particular, changing the program start address before a
+restart will not have the effect of restarting from this new address. *)
+
+let handle_restart interpreter instruction =
+  (* If transcripting is active, this has to stay on in
+  the restarted interpreter *)
+  let transcript_on = interpreter.transcript_selected in
+  let transcript = interpreter.transcript in
+  let commands = interpreter.commands in
+  let story = original interpreter.story in
+  let original = make story interpreter.screen in
+  let restarted_interpreter = select_output_stream original TranscriptStream transcript_on in
+  { restarted_interpreter with transcript = transcript; commands = commands }
 
 
+
+
+
+(* Spec: VAR:234 3 split_window lines
+Splits the screen so that the upper window has the given number of lines: or,
+if this is zero, unsplits the screen again. In Version 3 (only) the upper
+window should be cleared after the split. *)
+
+let handle_split_window lines interpreter =
+  (* TODO: in version 3 only, clear the upper window after the split. *)
+  let lines = unsigned_word lines in
+  split_window interpreter lines
 
 
 
@@ -757,31 +941,8 @@ let handle_pull interpreter instruction =
   | _ -> failwith "pull requires a variable "
 
 
-let select_output_stream interpreter stream value =
-  match stream with
-  | ScreenStream -> { interpreter with screen_selected = value }
-  | TranscriptStream -> { interpreter with
-    transcript_selected = value;
-    story = set_transcript_flag interpreter.story value }
-  | MemoryStream -> failwith "use select/deselect memory stream"
-  | CommandStream -> { interpreter with commands_selected = value };;
-
-let select_memory_stream interpreter table =
-  { interpreter with
-    memory_selected = true;
-    memory_table = table :: interpreter.memory_table }
-
-let deselect_memory_stream interpreter =
-  match interpreter.memory_table with
-  | [] -> { interpreter with memory_selected = false }
-  | [_] -> { interpreter with memory_selected = false; memory_table = [] }
-  | _ :: t -> { interpreter with memory_selected = true; memory_table = t }
 
 
-let set_status_line interpreter =
-  let status = Status_line.make interpreter.story in
-  let screen = { interpreter.screen with status } in
-  { interpreter with has_new_output = true; screen }
 
 let complete_sread interpreter instruction input =
   (* TODO: Get word separator list from story *)
@@ -1017,11 +1178,6 @@ let handle_sread interpreter instruction =
       input_max = maximum_letters }
   (* end handle_sread *)
 
-let display_interpreter interpreter =
-  let pc = interpreter.program_counter in
-  let frames = Frameset.display_frames interpreter.frames in
-  let instr = display_instructions interpreter.story interpreter.program_counter 1 in
-  Printf.sprintf "\nPC:%04x\n%s\n%s\n" pc frames instr
 
 (* Move the interpreter on to the next instruction *)
 let step_instruction interpreter =
@@ -1103,188 +1259,9 @@ let step_instruction interpreter =
 
 
 
-  let handle_split_window lines interp =
-    (* TODO: in version 3 only, clear the upper window after the split. *)
-    { interp with screen = split_window interp.screen lines } in
 
-  let handle_restart () =
-    (* If transcripting is active, this has to stay on in
-    the restarted interpreter *)
-    (* TODO: windowed screens might need work here *)
-    let transcript_on = interpreter.transcript_selected in
-    let transcript = interpreter.transcript in
-    let commands = interpreter.commands in
-    let story = original interpreter.story in
-    let original = make story interpreter.screen in
-    let restarted_interpreter = select_output_stream original TranscriptStream transcript_on in
-    { restarted_interpreter with transcript = transcript; commands = commands } in
 
-  let filename = "FLATHEAD.SAV" in
-  (* TODO let save_failed = 0 in *)
-  let save_succeeded = 1 in
-  let restore_succeeded = 2 in
 
-  let handle_save interp =
-    let compressed = compress interp.story in
-    let frames = Frameset.make_frameset_record interp.frames in
-
-    (* TODO: The PC at present points to the save instruction. The convention,
-    documented nowhere I have found thus far, is to save the PC + 1.  Why
-    on earth would we do that?
-
-    The save instruction has a branch in v3 and a store in v4. When control
-    resumes *following the restore*, the restore code needs to know
-    whether to branch / what to store, which is indicated by the second
-    byte of the save instruction! So we serialize the address of that thing.
-
-    So on version 3, what happens is:
-
-    * On a failed save the result is 0 so the branch of the save is not taken.
-    * On a successful save the result is 1, so the branch of the save is taken.
-    * On a failed restore the result is 0 so the branch of the restore is not taken.
-    * On a successful restore the result is *2*, but the branch is never taken
-      from the restore; the branch is taken from the save.
-    * Note that this means that in v3, the game has no idea when it resumes
-      from the save whether it just completed a successful save, or just
-      completed a successful restore. (The *interpreter* knows but the *game*
-      does not.)
-
-    In version 4:
-    * On a failed save the result is 0, which is stored.
-    * On a successful save the result is 1, which is stored.
-    * On a failed restore the result is 0, which is stored.
-    * On a successful restore the storage of the restore never happens.
-      The result is 2, which is then stored by the back end of the save.
-    * Now the game can determine whether the save failed (0), succeeded (1)
-      or we just restored (2). *)
-
-    let root_form =
-      Record [
-        Header "FORM";
-        Length None; (* The writer will figure it out *)
-        SubHeader "IFZS";
-        UnorderedList [
-          Record [
-            Header "IFhd";
-            Length None;
-            Integer16 (Some (release_number interp.story));
-            ByteString (Some (serial_number interp.story), 6);
-            Integer16 (Some (header_checksum interp.story));
-            Integer24 (Some (interp.program_counter + 1)) ];
-          Record [
-            Header "CMem";
-            Length None;
-            RemainingBytes (Some compressed)];
-          Record [
-            Header "Stks";
-            Length None;
-            UnsizedList frames] ] ] in
-
-    write_iff_file filename root_form;
-    (* TODO: handle failure *)
-    save_succeeded in (* end of handle_save *)
-
-  let handle_restore () =
-    (* TODO: This helper method can go into the IFF library *)
-    let rec find_record chunks target =
-      match chunks with
-      | [] -> None
-      | (Record (Header header :: _) as record) :: tail ->
-        if header = target then Some record
-        else find_record tail target
-      | _ -> failwith "TODO: Handle failure in find_record" in
-
-    (* In versions 1, 2 and 3 the restore branches on failure. In version 4 the
-    restore stores a value on failure. Of course if the restore succeeds then
-    the interpreter continues with the restored instruction pointer. *)
-
-    (* TODO: Handle exceptions *)
-    (* TODO: prompt for a filename *)
-
-    let ifzd = read_iff_file filename ifzd_form in
-    let chunks = match ifzd with
-    | Record [
-        Header "FORM";
-        Length _;
-        SubHeader "IFZS";
-        UnorderedList items] ->
-        items
-    | _ -> failwith "TODO: Handle failure reading ifzs" in
-
-    let ifhd_chunk = find_record chunks "IFhd" in
-    let stacks_chunk = find_record chunks "Stks" in
-    let umem_chunk = find_record chunks "UMem" in
-    let cmem_chunk = find_record chunks "CMem" in
-
-    let (release_number, serial_number, checksum, program_counter) =
-      match ifhd_chunk with
-      | Some (
-          Record [
-            Header "IFhd";
-            Length _;
-            Integer16 (Some release_number);
-            ByteString (Some serial_number, 6);
-            Integer16 (Some checksum);
-            Integer24 (Some pc) ] ) ->
-        (release_number, serial_number, checksum, pc)
-      | _ -> failwith "TODO handle failure reading ifhd" in
-
-    (* TODO: Check the release, serial number, checksum *)
-
-    (* TODO: Move this logic into the frameset *)
-    let frame_records =
-      match stacks_chunk with
-      | Some (
-        Record [
-          Header "Stks";
-          Length _;
-          UnsizedList items ] ) -> items
-      | _ -> failwith "TODO handle failure reading stacks" in
-
-    (* TODO: Deal with memory size mismatch. *)
-    let frames = Frameset.make_frameset_from_records frame_records in
-
-    (* TODO: Move this logic into the story *)
-    let new_story =
-      match (umem_chunk, cmem_chunk) with
-      | (Some (
-          Record [
-            Header "UMem";
-            Length (Some length);
-            RemainingBytes Some bytes]),
-        _) ->
-          Story.apply_uncompressed_changes interpreter.story bytes
-      | (_,
-        Some (
-          Record [
-            Header "CMem";
-            Length Some length;
-            RemainingBytes Some bytes])) ->
-        Story.apply_compressed_changes interpreter.story bytes
-      | _ -> failwith "TODO handle failure reading memory" in
-
-    (* TODO: If restore failed then we need to complete the restore instruction
-    with result 0. *)
-
-    (* If the restore succeeded then we need to complete the save instruction
-      with result 2. See comments in handle_save that describe what is going
-      on here. *)
-
-    let save_pc = program_counter - 1 in
-    let save_instruction = decode_instruction new_story save_pc in
-    let new_interpreter = { interpreter with
-      story = new_story;
-      program_counter = save_pc;
-      frames } in
-    (* TODO: All the bits that have to be preserved *)
-
-    (* After a restore, redraw the status line *)
-    (* After a restore, collapse the upper window *)
-    let new_interpreter = handle_split_window 0 new_interpreter in
-    let new_interpreter = set_status_line new_interpreter in
-
-    handle_store_and_branch new_interpreter save_instruction restore_succeeded in
-  (* end of handle_restore *)
 
   let handle_storew arr ind value interp =
     { interp with story = write_word interp.story (arr + ind * 2) value } in
@@ -1375,7 +1352,7 @@ let step_instruction interpreter =
     let window = signed_word window in
     let unsplit = match window with
       | -2 -> interp.screen
-      | -1 -> split_window interp.screen 0
+      | -1 -> Screen.split_window interp.screen 0
       | _ -> interp.screen in
     let erased = match window with
       | -2
@@ -1597,9 +1574,13 @@ let step_instruction interpreter =
   | (OP0_178, []) -> handle_print arguments_interp instruction
   | (OP0_179, []) -> handle_print_ret arguments_interp instruction
   | (OP0_180, []) -> effect handle_nop
-
-
+  | (OP0_181, []) -> value handle_save
+  | (OP0_182, []) -> handle_restore arguments_interp instruction
+  | (OP0_183, []) -> handle_restart arguments_interp instruction
   | (VAR_224, routine :: args) -> handle_call routine args arguments_interp instruction
+
+  | (VAR_234, [lines]) -> effect (handle_split_window lines)
+
   | (VAR_236, routine :: args) -> handle_call routine args arguments_interp instruction
 
   | (VAR_248, [x]) -> value (handle_not x)
@@ -1610,10 +1591,6 @@ let step_instruction interpreter =
 
 (
   match instruction.opcode with
-
-  | OP0_181 -> handle_op0_value handle_save
-  | OP0_182 -> handle_restore ()
-  | OP0_183 -> handle_restart ()
   | OP0_184 -> handle_ret_popped ()
   | OP0_185 ->
     if (version interpreter.story <= 4) then
@@ -1636,7 +1613,6 @@ let step_instruction interpreter =
   | VAR_231 -> handle_op1 handle_random
   | VAR_232 -> handle_op1_effect handle_push
   | VAR_233 -> handle_pull interpreter instruction
-  | VAR_234 -> handle_op1_effect handle_split_window
   | VAR_235 -> handle_op1_effect handle_set_window
   | VAR_237 -> handle_op1_effect handle_erase_window
   | VAR_238 -> handle_op1_effect handle_erase_line
