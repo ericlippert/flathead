@@ -32,102 +32,104 @@ let tree_base story =
 let entry_size story =
   if (version story) <= 3 then 9 else 14
 
-let address story (Object object_number) =
+let address story (Object obj) =
   let tree_base = tree_base story in
   let entry_size = entry_size story in
-  tree_base + (object_number - 1) * entry_size
+  Object_address (tree_base + (obj - 1) * entry_size)
 
-let attributes_word_1 story object_number =
-  read_word story (address story object_number)
+let attributes_word_1 story obj =
+  let (Object_address addr) = address story obj in
+  read_word story addr
 
-let attributes_word_2 story object_number =
+let attributes_word_2 story obj =
   let attributes2_offset = 2 in
-  let obj_addr = address story object_number in
-  read_word story (obj_addr + attributes2_offset)
+  let (Object_address addr) = address story obj in
+  read_word story (addr + attributes2_offset)
 
-let attributes_word_3 story object_number =
+let attributes_word_3 story obj =
   if (version story) <= 3 then
     0
   else
     let attributes3_offset = 3 in
-    let obj_addr = address story object_number in
-    read_word story (obj_addr + attributes3_offset)
+    let (Object_address addr) = address story obj in
+    read_word story (addr + attributes3_offset)
 
 let attribute_count story =
   if (version story) <= 3 then 32 else 48
 
-let attribute_address story object_number (Attribute attribute_number) =
+let attribute_address story obj (Attribute attribute_number) =
   if attribute_number < 0 || attribute_number >= (attribute_count story) then
     failwith "bad attribute"
   else
     let offset = attribute_number / 8 in
-    let address = (address story object_number) + offset in
+    let (Object_address obj_addr) = address story obj in
+    let addr = Attribute_address (obj_addr + offset) in
     let bit = Bit_number (7 - (attribute_number mod 8)) in
-    (address, bit)
+    (addr, bit)
 
-let attribute story object_number attribute_number =
-  let (address, bit) = attribute_address story object_number attribute_number in
+let attribute story obj attribute =
+  let ((Attribute_address address), bit) = attribute_address story obj attribute in
   let byte = read_byte story address in
   fetch_bit bit byte
 
-let set_attribute story object_number attribute_number =
-  let (address, bit) = attribute_address story object_number attribute_number in
+let set_attribute story obj attribute =
+  let ((Attribute_address address), bit) = attribute_address story obj attribute in
   let byte = read_byte story address in
   write_byte story address (set_bit bit byte)
 
-let clear_attribute story object_number attribute_number =
-  let (address, bit) = attribute_address story object_number attribute_number in
+let clear_attribute story obj attribute =
+  let ((Attribute_address address), bit) = attribute_address story obj attribute in
   let byte = read_byte story address in
   write_byte story address (clear_bit bit byte)
 
-let parent story object_number =
-  let obj_addr = address story object_number in
+let parent story obj =
+  let (Object_address addr) = address story obj in
   if (version story) <= 3 then
-    Object (read_byte story (obj_addr + 4))
+    Object (read_byte story (addr + 4))
   else
-    Object (read_word story (obj_addr + 6))
+    Object (read_word story (addr + 6))
 
-let set_parent story object_number (Object new_parent) =
-  let obj_addr = address story object_number in
+let set_parent story obj (Object new_parent) =
+  let (Object_address addr) = address story obj in
   if (version story) <= 3 then
-    write_byte story (obj_addr + 4) new_parent
+    write_byte story (addr + 4) new_parent
   else
-    write_word story (obj_addr + 6) new_parent
+    write_word story (addr + 6) new_parent
 
-let sibling story object_number =
-  let obj_addr = address story object_number in
+let sibling story obj =
+  let (Object_address addr) = address story obj in
   if (version story) <= 3 then
-    Object (read_byte story (obj_addr + 5))
+    Object (read_byte story (addr + 5))
   else
-    Object (read_word story (obj_addr + 8))
+    Object (read_word story (addr + 8))
 
-let set_sibling story object_number (Object new_sibling) =
-  let obj_addr = address story object_number in
+let set_sibling story obj (Object new_sibling) =
+  let (Object_address addr) = address story obj in
   if (version story) <= 3 then
-    write_byte story (obj_addr + 5) new_sibling
+    write_byte story (addr + 5) new_sibling
   else
-    write_word story (obj_addr + 8) new_sibling
+    write_word story (addr + 8) new_sibling
 
-let child story object_number =
-  let obj_addr = address story object_number in
+let child story obj =
+  let (Object_address addr) = address story obj in
   if (version story) <= 3 then
-    Object (read_byte story (obj_addr + 6))
+    Object (read_byte story (addr + 6))
   else
-    Object (read_word story (obj_addr + 10))
+    Object (read_word story (addr + 10))
 
-let set_child story object_number (Object new_child) =
-  let obj_addr = address story object_number in
+let set_child story obj (Object new_child) =
+  let (Object_address addr) = address story obj in
   if (version story) <= 3 then
-    write_byte story (obj_addr + 6) new_child
+    write_byte story (addr + 6) new_child
   else
-    write_word story (obj_addr + 10) new_child
+    write_word story (addr + 10) new_child
 
 (* The last two bytes in an object description are a pointer to a
 block that contains additional properties. *)
-let property_header_address story object_number =
+let property_header_address story obj =
   let object_property_offset = if (version story) <= 3 then 7 else 12 in
-  let obj_addr = address story object_number in
-  read_word story (obj_addr + object_property_offset)
+  let (Object_address addr) = address story obj in
+  read_word story (addr + object_property_offset)
 
 (* Oddly enough, the Z machine does not ever say how big the object table is.
    Assume that the address of the first property block in the first object is
@@ -222,7 +224,7 @@ let decode_property_data story address =
       (1, (if fetch_bit bit6 b then 2 else 1), property_number)
 
 (* This method produces a list of (number, data_length, data_address) tuples *)
-let property_addresses story object_number =
+let property_addresses story obj =
   let rec aux acc address =
     let b = read_byte story address in
     if b = 0 then
@@ -234,7 +236,7 @@ let property_addresses story object_number =
         (property_number, data_length, address + header_length) in
       let next_addr = address + header_length + data_length in
       aux (this_property :: acc) next_addr in
-  let property_name_address = property_header_address story object_number in
+  let property_name_address = property_header_address story obj in
   let property_name_word_length = read_byte story property_name_address in
   let first_property_address = property_name_address + 1 + property_name_word_length * 2 in
   aux [] first_property_address
@@ -260,18 +262,18 @@ let property_length_from_address story address =
 
 (* Given an object and property number, what is the address
    of the associated property block? Or zero if there is none. *)
-let property_address story object_number property_number =
+let property_address story obj property_number =
   let rec aux addresses =
     match addresses with
     | [] -> 0
     | (number, _, address) :: tail ->
       if number = property_number then address
       else aux tail in
-  aux (property_addresses story object_number)
+  aux (property_addresses story obj)
 
 (* Fetch the one or two byte value associated with a given property of a given object.
 If the object does not have that property then fetch the default property value. *)
-let property story object_number property_number =
+let property story obj property_number =
   (* We simply do a linear search for the property, even though they are
      stored in sorted order. The blocks we are searching are first, variable
      size, which makes them inconvenient to binary search. And second, are
@@ -286,35 +288,35 @@ let property story object_number property_number =
         else if length = 2 then
           read_word story address
         else
-          let (Object n) = object_number in
+          let (Object n) = obj in
           let (Property p) = property_number in
           failwith (Printf.sprintf "object %d property %d length %d bad property length" n p length))
       else
         aux tail in
-  aux (property_addresses story object_number)
+  aux (property_addresses story obj)
 
 (* Given a property number, find the first property of an object
 greater than it. Note that this assumes that properties are enumerated in
 order by property_addresses. Returns zero if there is no such property. *)
-let next_property story object_number (Property property_number) =
+let next_property story obj (Property property_number) =
   let rec aux addrs =
     match addrs with
     | [] -> invalid_property
     | (Property number, _, _) :: tail ->
       if number > property_number then Property number
       else aux tail in
-  aux (property_addresses story object_number)
+  aux (property_addresses story obj)
 
 (* Writes a one or two byte property associated with a given object. *)
 (* The property must exist and must be one or two bytes. *)
-let write_property story object_number property_number value =
+let write_property story obj property_number value =
   let rec aux addresses =
     match addresses with
     | [] -> (0, 0)
     | (number, length, address) :: tail ->
       if number = property_number then (address, length)
       else aux tail in
-  let (address, length) = aux (property_addresses story object_number) in
+  let (address, length) = aux (property_addresses story obj) in
   if address = 0 then failwith "invalid property";
   match length with
   | 1 -> write_byte story address value
@@ -323,18 +325,18 @@ let write_property story object_number property_number value =
 
 (* Debugging method for displaying the property numbers and
    values for a given object *)
-let display_properties story object_number =
+let display_properties story obj =
   let to_string (property_number, length, address) =
     let (Property p) = property_number in
     let prop_number_text = Printf.sprintf "%02x" p in
     let prop_value_text =
       if length = 1 || length = 2 then
-        let prop_value = property story object_number property_number in
+        let prop_value = property story obj property_number in
         Printf.sprintf ":%04x " prop_value
       else
         " " in
     prop_number_text ^ prop_value_text in
-  let addresses = property_addresses story object_number in
+  let addresses = property_addresses story obj in
   accumulate_strings to_string addresses
 
 let display_object_table story =
@@ -357,31 +359,31 @@ let display_object_table story =
 
 (* Count down all the objects in the object table and record which ones have no parent. *)
 let roots story =
-  let rec aux object_number acc =
-    let current = Object object_number in
+  let rec aux obj acc =
+    let current = Object obj in
     if current = invalid_object then
       acc
     else if (parent story current) = invalid_object then
-      aux (object_number - 1) (current :: acc)
+      aux (obj - 1) (current :: acc)
     else
-      aux (object_number - 1) acc in
+      aux (obj - 1) acc in
   aux (count story) []
 
 let display_object_tree story =
-  let rec aux acc indent object_number =
-    if object_number = invalid_object then
+  let rec aux acc indent obj =
+    if obj = invalid_object then
       acc
     else
-      let name = name story object_number in
-      let child = child story object_number in
-      let sibling = sibling story object_number in
-      let (Object n) = object_number in
+      let name = name story obj in
+      let child = child story obj in
+      let sibling = sibling story obj in
+      let (Object n) = obj in
       let object_text =
         Printf.sprintf "%s%04d %s\n" indent n name in
       let with_object = acc ^ object_text in
       let new_indent = "    " ^ indent in
       let with_children = aux with_object new_indent child in
       aux with_children indent sibling in
-  let to_string object_number =
-    aux "" "" object_number in
+  let to_string obj =
+    aux "" "" obj in
   accumulate_strings to_string (roots story)
