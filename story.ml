@@ -855,13 +855,28 @@ let locals_count story routine_address =
   else count
 
 let first_instruction story routine_address =
-  let count = locals_count story routine_address in
-  routine_address + 1 + count * 2
+  (* Spec:
+  * A routine begins with one byte indicating the number of local
+    variables it has (between 0 and 15 inclusive).
+  * In Versions 1 to 4, that number of 2-byte words follows, giving initial
+    values for these local variables.
+  * In Versions 5 and later, the initial values are all zero.
+  * Execution of instructions begins from the byte after this header
+    information *)
+  if (version story) <= 4 then
+    let count = locals_count story routine_address in
+    routine_address + 1 + count * 2
+  else
+    routine_address + 1
 
 (* Note that here the locals are indexed from 1 to 15, not 0 to 14 *)
 let local_default_value story routine_address n =
-  if n < 1 || n > maximum_local then failwith "invalid local"
-  else read_word story (routine_address + 1 + 2 * (n - 1));;
+  if n < 1 || n > maximum_local then
+    failwith "invalid local"
+  else if (version story) <= 4 then
+    read_word story (routine_address + 1 + 2 * (n - 1))
+  else
+    0
 
 let display_routine story routine_address =
   let first = first_instruction story routine_address in
