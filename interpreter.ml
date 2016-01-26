@@ -194,12 +194,16 @@ let set_status_line interpreter =
   let screen = { interpreter.screen with status } in
   { interpreter with has_new_output = true; screen }
 
+let display_current_instruction interpreter =
+  let address = interpreter.program_counter in
+  let instruction = Story.decode_instruction interpreter.story address in
+  Instruction.display instruction (version interpreter.story)
+
 (* Debugging method *)
 let display interpreter =
-  let (Instruction pc) = interpreter.program_counter in
   let frames = Frameset.display_frames interpreter.frames in
-  let instr = display_instructions interpreter.story interpreter.program_counter 1 in
-  Printf.sprintf "\nPC:%04x\n%s\n%s\n" pc frames instr
+  let instr = display_current_instruction interpreter in
+  Printf.sprintf "\n---\n%s\n%s\n" frames instr
 
 let select_output_stream interpreter stream value =
   match stream with

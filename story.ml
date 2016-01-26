@@ -837,17 +837,6 @@ let decode_instruction story address =
     } in
   Instruction.decode reader address (version story)
 
-let display_instructions story address count =
-  let rec aux acc addr c =
-    if c = 0 then
-      acc
-    else
-      let instr = decode_instruction story addr in
-      let s = Instruction.display instr (version story)  in
-      let new_addr = Instruction.following instr in
-      aux (acc  ^ s) new_addr (c - 1) in
-  aux "" address count
-
 (* Any given instruction in a routine either goes on to the next instruction,
 when it is done, or branches to another instruction when it is done, or terminates
 the routine. Given the address of an instruction, what are all the reachable instructions

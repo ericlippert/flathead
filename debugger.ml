@@ -148,7 +148,7 @@ let draw_undo_redo debugger =
   let window_w = text_width * instruction_width in
   let window_h = text_height * interpreter.screen.height in
   let draw_line interp n =
-    let instr = (Story.display_instructions interp.story interp.program_counter 1) in
+    let instr = display_current_instruction interp in
     let text = trim_to_length instr instruction_width in
     draw_string_at text window_x (window_y + text_height * n) in
   let rec draw_undo undo n =
