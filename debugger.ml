@@ -309,7 +309,7 @@ let halt debugger =
       else frame_instruction in
     let story = debugger.interpreter.story in
     let current = Instruction.display  (Story.decode_instruction story current_instruction) (Story.version story) in
-    let reachable = Story.all_reachable_addresses_in_routine story first_instruction in
+    let reachable = Reachability.all_reachable_addresses_in_routine story first_instruction in
     let sorted = List.sort compare reachable in
     let decode instr =
       (instr, Instruction.display (Story.decode_instruction story instr) (Story.version story)) in
