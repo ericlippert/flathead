@@ -951,11 +951,6 @@ let display_all_routines story =
 (* *)
 
 let first_global = 16
-let current_object_global = Global 16
-let current_score_global = Global 17
-let turn_count_global = Global 18
-let current_hours_global = Global 17
-let current_minute_global = Global 18
 let last_global = 255
 
 (* Note that globals are indexed starting at 16 *)
@@ -979,19 +974,6 @@ let write_global story (Global global_number) value =
     let base = global_variables_table_base story in
     let offset = (global_number - first_global) * 2 in
     write_word story (base + offset) value
-
-let current_object story =
-  Object (read_global story current_object_global)
-
-let current_object_name story =
-  let c = current_object story in
-  if c = invalid_object then ""
-  else object_name story c
-
-let status_globals story =
-  let score = signed_word (read_global story current_score_global) in
-  let turn = read_global story turn_count_global in
-  (score, turn)
 
 (* *)
 (* Serialization *)
