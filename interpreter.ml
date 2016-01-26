@@ -1,5 +1,4 @@
 open Utility
-open Story
 open Iff
 open Quetzal
 open Type
@@ -64,7 +63,7 @@ let make story screen =
     has_new_output = false;
     screen_selected = true;
     transcript = Transcript.empty;
-    transcript_selected = get_transcript_flag story;
+    transcript_selected = Story.get_transcript_flag story;
     commands = [];
     commands_selected = false;
     memory_table = [];
@@ -199,7 +198,7 @@ let set_status_line interpreter =
 let display_current_instruction interpreter =
   let address = interpreter.program_counter in
   let instruction = Instruction.decode interpreter.story address in
-  Instruction.display instruction (version interpreter.story)
+  Instruction.display instruction (Story.version interpreter.story)
 
 (* Debugging method *)
 let display interpreter =
@@ -212,7 +211,7 @@ let select_output_stream interpreter stream value =
   | ScreenStream -> { interpreter with screen_selected = value }
   | TranscriptStream -> { interpreter with
     transcript_selected = value;
-    story = set_transcript_flag interpreter.story value }
+    story = Story.set_transcript_flag interpreter.story value }
   | MemoryStream -> failwith "use select/deselect memory stream"
   | CommandStream -> { interpreter with commands_selected = value };;
 
@@ -239,7 +238,7 @@ let print interpreter text =
   selected stream *)
   if interpreter.memory_selected then
     let table = List.hd interpreter.memory_table in
-    let new_story = write_length_word_prefixed_string interpreter.story table text in
+    let new_story = Story.write_length_word_prefixed_string interpreter.story table text in
     { interpreter with story = new_story }
   else
     let new_transcript =
@@ -434,7 +433,7 @@ which must lie in static or dynamic memory). *)
 let handle_loadw arr idx interpreter =
   let arr = unsigned_word arr in
   let idx = unsigned_word idx in
-  read_word interpreter.story (arr + idx * 2)
+  Story.read_word interpreter.story (arr + idx * 2)
 
 (* Spec: 2OP:16 loadb array byte-index -> (result)
 Stores array->byte-index (i.e., the byte at address array+byte-index,
@@ -443,7 +442,7 @@ which must lie in static or dynamic memory). *)
 let handle_loadb arr idx interpreter =
   let arr = unsigned_word arr in
   let idx = unsigned_word idx in
-  read_byte interpreter.story (arr + idx)
+  Story.read_byte interpreter.story (arr + idx)
 
 (* Spec: 2OP:17 get_prop object property -> (result)
   Read property from object (resulting in the default value if it had no
@@ -540,7 +539,7 @@ The "s" versions store the result; the "n" versions discard it. *)
 let handle_call routine_address arguments interpreter instruction =
   (* TODO: Wrapper type for routine packed / unpacked addresses *)
   let routine_address = Packed_routine routine_address in
-  let routine_address = decode_routine_packed_address interpreter.story routine_address in
+  let routine_address = Story.decode_routine_packed_address interpreter.story routine_address in
   if routine_address = Routine 0 then
   (* Spec: When the address 0 is called as a routine, nothing happens and the
      return value is false. *)
@@ -552,7 +551,7 @@ let handle_call routine_address arguments interpreter instruction =
     let resume_at = Instruction.following instruction in
     let store = Instruction.store instruction in
     let frame = Frame.make_call_frame interpreter.story arguments routine_address resume_at store in
-    let pc = first_instruction interpreter.story routine_address in
+    let pc = Story.first_instruction interpreter.story routine_address in
     set_program_counter (add_frame interpreter frame) pc
 
 (* Spec: 2OP:27 set_colour foreground background
@@ -700,7 +699,7 @@ let handle_jump offset interpreter instruction =
 
 let handle_print_paddr packed_address interpreter =
   let packed_address = Packed_zstring packed_address in
-  let address = decode_string_packed_address interpreter.story packed_address in
+  let address = Story.decode_string_packed_address interpreter.story packed_address in
   let text = Zstring.read interpreter.story address in
   print interpreter text
 
@@ -818,10 +817,10 @@ In version 4:
 * Now the game can determine whether the save failed (0), succeeded (1)
   or we just restored (2). *)
 
-  let compressed = compress interpreter.story in
-  let release = release_number interpreter.story in
-  let serial = serial_number interpreter.story in
-  let checksum = header_checksum interpreter.story in
+  let compressed = Story.compress interpreter.story in
+  let release = Story.release_number interpreter.story in
+  let serial = Story.serial_number interpreter.story in
+  let checksum = Story.header_checksum interpreter.story in
   let (Instruction pc) = interpreter.program_counter in
   let frames = Frameset.make_frameset_record interpreter.frames in
   let form = Quetzal.save release serial checksum (pc + 1) compressed frames in
@@ -904,7 +903,7 @@ let handle_restart interpreter instruction =
   let transcript_on = interpreter.transcript_selected in
   let transcript = interpreter.transcript in
   let commands = interpreter.commands in
-  let story = original interpreter.story in
+  let story = Story.original interpreter.story in
   let original = make story interpreter.screen in
   let restarted_interpreter = select_output_stream original TranscriptStream transcript_on in
   { restarted_interpreter with transcript = transcript; commands = commands }
@@ -971,7 +970,7 @@ let handle_show_status interpreter =
   number of virtual-memory pages using 0s.) *)
 
 let handle_verify interpreter =
-  if verify_checksum interpreter.story then 1 else 0
+  if Story.verify_checksum interpreter.story then 1 else 0
 
 (* Spec: 0OP:191 piracy ?(label)
   Branches if the game disc is believed to be genuine by the interpreter
@@ -991,7 +990,7 @@ let handle_storew arr ind value interpreter =
   let ind = unsigned_word ind in
   let value = unsigned_word value in
   let addr = arr + ind * 2 in
-  { interpreter with story = write_word interpreter.story addr value }
+  { interpreter with story = Story.write_word interpreter.story addr value }
 
 (* Spec: VAR:226 storeb array byteindex value
   array->byteindex = value, i.e. stores the given value in the byte at
@@ -1001,7 +1000,7 @@ let handle_storeb arr ind value interpreter =
   let ind = unsigned_word ind in
   let value = unsigned_word value in
   let addr = arr + ind  in
-  { interpreter with story = write_byte interpreter.story addr value }
+  { interpreter with story = Story.write_byte interpreter.story addr value }
 
 (* Spec: VAR:227 put_prop object property value
   Writes the given value to the given property of the given object. If the
@@ -1082,9 +1081,9 @@ let handle_sread2 text_addr parse_addr interpreter instruction =
   the maximum number of letters which can be typed (the interpreter should
   not accept more than this).    *)
 
-  let maximum_letters = read_byte interpreter.story text_addr in
+  let maximum_letters = Story.read_byte interpreter.story text_addr in
   let maximum_letters =
-    if (version interpreter.story) <= 4 then maximum_letters - 1
+    if (Story.version interpreter.story) <= 4 then maximum_letters - 1
     else maximum_letters in
 
   (* At this point set the state to "needs input" and return that interpreter.
@@ -1115,9 +1114,9 @@ let complete_sread text_addr parse_addr input interpreter instruction =
   to versions 1-4, or all versions. Let's assume all. *)
   let text = String.lowercase input in
   let story = interpreter.story in
-  let maximum_letters = read_byte story text_addr in
+  let maximum_letters = Story.read_byte story text_addr in
   let maximum_letters =
-    if (version interpreter.story) <= 4 then maximum_letters - 1
+    if (Story.version interpreter.story) <= 4 then maximum_letters - 1
     else maximum_letters in
   let trimmed = truncate text maximum_letters in
   let story = Tokeniser.write_user_string_to_memory story text_addr trimmed in
@@ -1194,7 +1193,7 @@ game stack.
 push*)
 
 let handle_pull1 x interpreter =
-  if (version interpreter.story) = 6 then
+  if (Story.version interpreter.story) = 6 then
     failwith "TODO: user stack pull not yet implemented"
   else
     (* In non-v6, this is another one of those odd instructions
@@ -1254,7 +1253,7 @@ let handle_erase_window window interpreter =
     | -2
     | -1
     | 0 ->
-      if (version interpreter.story) <= 4 then
+      if (Story.version interpreter.story) <= 4 then
         Screen.set_lower_cursor upper_moved 1 (Screen.height upper_moved)
       else
         Screen.set_lower_cursor upper_moved 1 1
@@ -1449,7 +1448,7 @@ let handle_scan_table3 x table len interpreter =
       0
     else
       let addr = table + 2 * i in
-      let y = unsigned_word (read_word interpreter.story addr) in
+      let y = unsigned_word (Story.read_word interpreter.story addr) in
       if x = y then addr
       else aux (i + 1) in
   aux 0
@@ -1672,7 +1671,7 @@ let step_instruction interpreter =
   | (OP1_141, [paddr]) -> effect (handle_print_paddr paddr)
   | (OP1_142, [variable]) -> interpret_instruction (handle_load variable)
   | (OP1_143, [x]) ->
-    if (version interpreter.story) <= 4 then value (handle_not x)
+    if (Story.version interpreter.story) <= 4 then value (handle_not x)
     else handle_call x [] interpreter instruction
   | (OP0_176, []) -> handle_rtrue interpreter instruction
   | (OP0_177, []) -> handle_rfalse interpreter instruction
@@ -1684,7 +1683,7 @@ let step_instruction interpreter =
   | (OP0_183, []) -> handle_restart interpreter instruction
   | (OP0_184, []) -> handle_ret_popped interpreter instruction
   | (OP0_185, []) ->
-    if (version interpreter.story <= 4) then effect handle_pop
+    if (Story.version interpreter.story <= 4) then effect handle_pop
     else value handle_catch
   | (OP0_186, []) -> handle_quit interpreter instruction
   | (OP0_187, []) -> effect handle_new_line
@@ -1768,9 +1767,9 @@ let step_instruction interpreter =
   | (EXT_26, _)
   | (EXT_27, _)
   | (EXT_28, _)
-  | (EXT_29, _)   -> failwith (Printf.sprintf "TODO: %s " (Instruction.display instruction (version interpreter.story)))
+  | (EXT_29, _)   -> failwith (Printf.sprintf "TODO: %s " (Instruction.display instruction (Story.version interpreter.story)))
 
-  | _ -> failwith (Printf.sprintf "unexpected instruction %s" (Instruction.display instruction (version interpreter.story)))
+  | _ -> failwith (Printf.sprintf "unexpected instruction %s" (Instruction.display instruction (Story.version interpreter.story)))
   (* End step_instruction *)
 
 (* Steps the interpreter to its next public-facing state. However this need
