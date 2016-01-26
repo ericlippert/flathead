@@ -1511,22 +1511,74 @@ let handle_check_arg_count number interpreter =
   failwith "TODO check_arg_count not implemented"
 
 (* Spec: EXT:0 save table bytes name -> (result)
-  *** The extension also has (optional) parameters, which save a region of
+         EXT:0 save table bytes name prompt -> (result)
+  The extension also has (optional) parameters, which save a region of
   the save area, whose address and length are in bytes, and provides a
   suggested filename: name is a pointer to an array of ASCII characters
   giving this name (as usual preceded by a byte giving the number of characters).
-  See Section 7.6. *)
+  See Section 7.6.
+
+  As of Standard 1.1 an additional optional parameter, prompt, is allowed on
+  Version 5 extended save/restore. This allows a game author to tell the
+  interpreter whether it should ask for confirmation of the provided file
+  name (prompt=1), or just silently save/restore using the provided filename
+  (prompt=0). If the parameter is not provided, whether to prompt or not is
+  a matter for the interpreter - this might be globally user-configurable.
+  Infocom's interpreters do prompt for filenames, many modern ones do not.  *)
+
 let handle_save3 table bytes name interpreter =
     failwith "TODO: save table bytes name not yet implemented "
 
+let handle_save4 table bytes name interpreter prompt =
+    failwith "TODO: save table bytes name not yet implemented "
+
+(* Spec:  EXT:1 restore table bytes name -> (result)
+          EXT:1 restore table bytes name prompt -> (result)
+From Version 5 it can have optional parameters as save does, and returns
+the number of bytes loaded if so. *)
+
+let handle_restore3 table bytes name interpreter =
+    failwith "TODO: restore table bytes name not yet implemented "
+
+let handle_restore4 table bytes name interpreter prompt =
+    failwith "TODO: restore table bytes name not yet implemented "
+
+(* Spec: EXT:2 log_shift number places -> (result)
+    Does a logical shift of number by the given number of places,
+    shifting left (i.e. increasing) if places is positive, right if negative.
+    In a right shift, the sign is zeroed instead of being shifted on.
+    (See also art_shift.) *)
+let handle_log_shift number places interpreter =
+  let number = unsigned_word number in
+  let places = signed_word places in
+  let result =
+    if places < 0 then number lsr ( - places)
+    else if places > 0 then number lsl places
+    else number in
+  unsigned_word result
+
+(* Spec:  EXT:3 art_shift number places -> (result)
+Does an arithmetic shift of number by the given number of places, shifting
+left (i.e. increasing) if places is positive, right if negative. In a
+right shift, the sign bit is preserved as well as being
+shifted on down. (The alternative behaviour is log_shift.) *)
+
+let handle_art_shift number places interpreter =
+  let number = unsigned_word number in
+  let places = signed_word places in
+  let result =
+    if places < 0 then number asr ( - places)
+    else if places > 0 then number lsl places
+    else number in
+  signed_word result
+
 (* Move the interpreter on to the next instruction *)
 let step_instruction interpreter =
-  let instruction =
-    decode_instruction interpreter.story interpreter.program_counter in
-  let (arguments, arguments_interp) = operands_to_arguments interpreter instruction.operands in
-  let interpret_instruction = interpret_instruction arguments_interp instruction in
-  let value = interpret_value_instruction arguments_interp instruction in
-  let effect = interpret_effect_instruction arguments_interp instruction in
+  let instruction = decode_instruction interpreter.story interpreter.program_counter in
+  let (arguments, interpreter) = operands_to_arguments interpreter instruction.operands in
+  let interpret_instruction = interpret_instruction interpreter instruction in
+  let value = interpret_value_instruction interpreter instruction in
+  let effect = interpret_effect_instruction interpreter instruction in
 
   match (instruction.opcode, arguments) with
   | (OP2_1, [a; b]) -> value (handle_je2 a b)
@@ -1555,11 +1607,11 @@ let step_instruction interpreter =
   | (OP2_22, [a; b]) -> value (handle_mul a b)
   | (OP2_23, [a; b]) -> value (handle_div a b)
   | (OP2_24, [a; b]) -> value (handle_mod a b)
-  | (OP2_25, [routine; arg1]) -> handle_call routine [arg1] arguments_interp instruction
-  | (OP2_26, [routine; arg1]) -> handle_call routine [arg1] arguments_interp instruction
+  | (OP2_25, [routine; arg1]) -> handle_call routine [arg1] interpreter instruction
+  | (OP2_26, [routine; arg1]) -> handle_call routine [arg1] interpreter instruction
   | (OP2_27, [foreground; background]) -> effect (handle_set_colour2 foreground background)
   | (OP2_27, [foreground; background; window]) -> effect (handle_set_colour3 foreground background window)
-  | (OP2_28, [x; frame]) -> handle_throw x frame arguments_interp
+  | (OP2_28, [x; frame]) -> handle_throw x frame interpreter
   | (OP1_128, [a]) -> value (handle_jz a)
   | (OP1_129, [obj]) -> value (handle_get_sibling obj)
   | (OP1_130, [obj]) -> value (handle_get_child obj)
@@ -1568,25 +1620,25 @@ let step_instruction interpreter =
   | (OP1_133, [variable]) -> effect (handle_inc variable)
   | (OP1_134, [variable]) -> effect (handle_dec variable)
   | (OP1_135, [address]) -> effect (handle_print_addr address)
-  | (OP1_136, [routine]) -> handle_call routine [] arguments_interp instruction
+  | (OP1_136, [routine]) -> handle_call routine [] interpreter instruction
   | (OP1_137, [obj]) -> effect (handle_remove_obj obj)
   | (OP1_138, [obj]) -> effect (handle_print_obj obj)
-  | (OP1_139, [result]) -> handle_ret result arguments_interp instruction
+  | (OP1_139, [result]) -> handle_ret result interpreter instruction
   | (OP1_140, [offset]) -> handle_jump offset interpreter instruction
   | (OP1_141, [paddr]) -> effect (handle_print_paddr paddr)
   | (OP1_142, [variable]) -> interpret_instruction (handle_load variable)
   | (OP1_143, [x]) ->
     if (version interpreter.story) <= 4 then value (handle_not x)
-    else handle_call x [] arguments_interp instruction
-  | (OP0_176, []) -> handle_rtrue arguments_interp instruction
-  | (OP0_177, []) -> handle_rfalse arguments_interp instruction
-  | (OP0_178, []) -> handle_print arguments_interp instruction
-  | (OP0_179, []) -> handle_print_ret arguments_interp instruction
+    else handle_call x [] interpreter instruction
+  | (OP0_176, []) -> handle_rtrue interpreter instruction
+  | (OP0_177, []) -> handle_rfalse interpreter instruction
+  | (OP0_178, []) -> handle_print interpreter instruction
+  | (OP0_179, []) -> handle_print_ret interpreter instruction
   | (OP0_180, []) -> effect handle_nop
   | (OP0_181, []) -> value handle_save
-  | (OP0_182, []) -> handle_restore arguments_interp instruction
-  | (OP0_183, []) -> handle_restart arguments_interp instruction
-  | (OP0_184, []) -> handle_ret_popped arguments_interp instruction
+  | (OP0_182, []) -> handle_restore interpreter instruction
+  | (OP0_183, []) -> handle_restart interpreter instruction
+  | (OP0_184, []) -> handle_ret_popped interpreter instruction
   | (OP0_185, []) ->
     if (version interpreter.story <= 4) then effect handle_pop
     else value handle_catch
@@ -1596,7 +1648,7 @@ let step_instruction interpreter =
   | (OP0_189, []) -> value handle_verify
   (* 190 is the extended bytecode marker *)
   | (OP0_191, []) -> value handle_piracy
-  | (VAR_224, routine :: args) -> handle_call routine args arguments_interp instruction
+  | (VAR_224, routine :: args) -> handle_call routine args interpreter instruction
   | (VAR_225, [arr; ind; value]) -> effect (handle_storew arr ind value)
   | (VAR_226, [arr; ind; value]) -> effect (handle_storeb arr ind value)
   | (VAR_227, [obj; prop; value]) -> effect (handle_putprop obj prop value)
@@ -1610,7 +1662,7 @@ let step_instruction interpreter =
   | (VAR_233, [x]) -> interpret_instruction (handle_pull1 x)
   | (VAR_234, [lines]) -> effect (handle_split_window lines)
   | (VAR_235, [window]) -> effect (handle_set_window window)
-  | (VAR_236, routine :: args) -> handle_call routine args arguments_interp instruction
+  | (VAR_236, routine :: args) -> handle_call routine args interpreter instruction
   | (VAR_237, [window]) -> effect (handle_erase_window window)
   | (VAR_238, [x]) -> effect (handle_erase_line x)
   | (VAR_239, [line; column]) -> effect (handle_set_cursor2 line column)
@@ -1623,13 +1675,13 @@ let step_instruction interpreter =
   | (VAR_243, [number; table; width]) -> effect (handle_output_stream3 number table width)
   | (VAR_244, [number]) -> effect (handle_input_stream number)
   | (VAR_245, args) -> effect (handle_sound_effect args)
-  | (VAR_246, [dummy]) -> handle_read_char0 arguments_interp instruction
-  | (VAR_246, [dummy; time; routine]) -> handle_read_char2 time routine arguments_interp instruction
+  | (VAR_246, [dummy]) -> handle_read_char0 interpreter instruction
+  | (VAR_246, [dummy; time; routine]) -> handle_read_char2 time routine interpreter instruction
   | (VAR_247, [x; table; len]) -> value (handle_scan_table3 x table len)
   | (VAR_247, [x; table; len; form]) -> value (handle_scan_table4 x table len form)
   | (VAR_248, [x]) -> value (handle_not x)
-  | (VAR_249, routine :: args) -> handle_call routine args arguments_interp instruction
-  | (VAR_250, routine :: args) -> handle_call routine args arguments_interp instruction
+  | (VAR_249, routine :: args) -> handle_call routine args interpreter instruction
+  | (VAR_250, routine :: args) -> handle_call routine args interpreter instruction
   | (VAR_251, [text; parse; dictionary; flag]) -> effect (handle_tokenise text parse dictionary flag)
   | (VAR_252, [zsciitext; length; from; codedtext]) -> effect (handle_encode_text zsciitext length from codedtext)
   | (VAR_253, [first; second; size]) -> effect (handle_copy_table first second size)
@@ -1639,9 +1691,12 @@ let step_instruction interpreter =
   | (VAR_255, [number]) -> value (handle_check_arg_count number)
   | (EXT_0, []) -> value handle_save
   | (EXT_0, [table; bytes; name]) -> value (handle_save3 table bytes name)
-  | (EXT_1 , _)   -> failwith (Printf.sprintf "%04x TODO: EXT_1" instruction.address)
-  | (EXT_2 , _)   -> failwith (Printf.sprintf "%04x TODO: EXT_2" instruction.address)
-  | (EXT_3 , _)   -> failwith (Printf.sprintf "%04x TODO: EXT_3" instruction.address)
+  | (EXT_0, [table; bytes; name; prompt]) -> value (handle_save4 table bytes name prompt)
+  | (EXT_1, []) -> handle_restore interpreter instruction
+  | (EXT_1, [table; bytes; name]) -> interpret_instruction (handle_restore3 table bytes name)
+  | (EXT_1, [table; bytes; name; prompt]) -> interpret_instruction (handle_restore4 table bytes name prompt)
+  | (EXT_2, [number; places]) -> value (handle_log_shift number places)
+  | (EXT_3, [number; places]) -> value (handle_art_shift number places)
   | (EXT_4 , _)   -> failwith (Printf.sprintf "%04x TODO: EXT_4" instruction.address)
   | (EXT_5 , _)   -> failwith (Printf.sprintf "%04x TODO: EXT_5" instruction.address)
   | (EXT_6 , _)   -> failwith (Printf.sprintf "%04x TODO: EXT_6" instruction.address)
