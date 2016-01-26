@@ -195,7 +195,7 @@ let set_status_line interpreter =
   { interpreter with has_new_output = true; screen }
 
 (* Debugging method *)
-let display_interpreter interpreter =
+let display interpreter =
   let pc = interpreter.program_counter in
   let frames = Frameset.display_frames interpreter.frames in
   let instr = display_instructions interpreter.story interpreter.program_counter 1 in
@@ -1591,6 +1591,16 @@ let handle_set_font font interpreter =
 let handle_draw_picture number y x interpreter =
   failwith "TODO: draw_picture not yet implemented"
 
+(* Spec EXT:9 save_undo -> (result)
+Like save, except that the optional parameters may not be specified: it
+saves the game into a cache of memory held by the interpreter. If the
+interpreter is unable to provide this feature, it must return -1: otherwise
+it returns the save return value *)
+
+let handle_save_undo interpreter =
+  (* TODO: save_undo NYI, so just return -1 *)
+  -1
+
 (* Move the interpreter on to the next instruction *)
 let step_instruction interpreter =
   let instruction = decode_instruction interpreter.story interpreter.program_counter in
@@ -1721,7 +1731,7 @@ let step_instruction interpreter =
   | (EXT_6 , _)   -> failwith (Printf.sprintf "%04x TODO: EXT_6" instruction.address)
   | (EXT_7 , _)   -> failwith (Printf.sprintf "%04x TODO: EXT_7" instruction.address)
   | (EXT_8 , _)   -> failwith (Printf.sprintf "%04x TODO: EXT_8" instruction.address)
-  | (EXT_9 , _)   -> failwith (Printf.sprintf "%04x TODO: EXT_9" instruction.address)
+  | (EXT_9 , []) -> value handle_save_undo
   | (EXT_10, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_10" instruction.address)
   | (EXT_11, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_11" instruction.address)
   | (EXT_12, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_12" instruction.address)
@@ -1741,7 +1751,7 @@ let step_instruction interpreter =
   | (EXT_27, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_27" instruction.address)
   | (EXT_28, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_28" instruction.address)
   | (EXT_29, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_29" instruction.address)
-  | _ -> failwith "unexpected instruction"
+  | _ -> failwith (Printf.sprintf "unexpected instruction %s" (Instruction.display instruction (version interpreter.story)))
   (* End step_instruction *)
 
 (* Steps the interpreter to its next public-facing state. However this need
