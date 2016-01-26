@@ -1460,7 +1460,10 @@ let handle_scan_table4 x table len form interpreter =
     reads this as "n entries unsorted". This is very convenient if the table
     is being altered in play: if, for instance, the player is naming things. *)
 
-let handle_tokenise text parse dictionary flag interpreter =
+let handle_tokenise2 text parse interpreter =
+  failwith "TODO: tokenise not implemented"
+
+let handle_tokenise4 text parse dictionary flag interpreter =
   failwith "TODO: tokenise not implemented"
 
 (* Spec: VAR:252 encode_text zsciitext length from codedtext
@@ -1711,7 +1714,8 @@ let step_instruction interpreter =
   | (VAR_248, [x]) -> value (handle_not x)
   | (VAR_249, routine :: args) -> handle_call routine args interpreter instruction
   | (VAR_250, routine :: args) -> handle_call routine args interpreter instruction
-  | (VAR_251, [text; parse; dictionary; flag]) -> effect (handle_tokenise text parse dictionary flag)
+  | (VAR_251, [text; parse]) -> effect (handle_tokenise2 text parse)
+  | (VAR_251, [text; parse; dictionary; flag]) -> effect (handle_tokenise4 text parse dictionary flag)
   | (VAR_252, [zsciitext; length; from; codedtext]) -> effect (handle_encode_text zsciitext length from codedtext)
   | (VAR_253, [first; second; size]) -> effect (handle_copy_table first second size)
   | (VAR_254, [text; width; height; skip]) -> effect (handle_print_table4 text width height skip)
