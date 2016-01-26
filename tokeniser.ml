@@ -4,8 +4,7 @@ type token =
 {
   token_text : string;
   start : int; (* Offset in the input text *)
-  dictionary_address : int (* Address in the dictionary *)
-}
+  dictionary_address : Dictionary.dictionary_address}
 
 (* TODO: Get word separator list from story *)
 
@@ -30,7 +29,7 @@ let tokenise story text =
     else
       let end_of_token = find_space_or_end start in
       let token_text = String.sub text start (end_of_token - start) in
-      let dictionary_address = dictionary_lookup story token_text in
+      let dictionary_address = Dictionary.lookup story token_text in
       Some {token_text; start; dictionary_address} in
 
   let rec aux i acc =
@@ -63,12 +62,17 @@ let write_tokens items address max_parse story =
       if count = max_parse then
         story
       else
+        let (Dictionary.Address dictionary_address) = dictionary_address in
         let story = write_word story address dictionary_address in
         let story = write_byte story (address + 2) (String.length token_text) in
         let story = write_byte story (address + 3) (start + text_buffer_offset) in
         aux tail (address + 4) (count + 1) story in
   aux items address 0 story
 
+(* TODO: This is wrong; we need to pass in not the trimmed string but the
+buffer the trimmed string was written to, that the whole thing may be
+parsed again. This will be necessary in order to implement the tokenise
+instruction. *)
 let write_user_string_to_memory story text_addr trimmed =
   (* Now we have to write the string into story memory. This is a bit tricky. *)
   if (version story) <= 4 then

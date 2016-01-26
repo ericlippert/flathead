@@ -1,6 +1,11 @@
 open Story
 open Utility
 
+type dictionary_address =
+  Address of int
+
+let invalid_address = Address 0
+
 (* The table is laid out as follows. First there is a header:
 
 byte giving the number of word separators
@@ -43,10 +48,10 @@ let table_base story =
 let entry_address story (Dictionary dictionary_number) =
   let base = table_base story in
   let entry_length = entry_length story in
-  base + dictionary_number * entry_length
+  Address (base + dictionary_number * entry_length)
 
 let entry story dictionary_number =
-  let addr = entry_address story dictionary_number in
+  let (Address addr) = entry_address story dictionary_number in
   read_zstring story (Zstring.Address addr)
 
 (* Takes a string and finds the address of the corresponding zstring
@@ -63,7 +68,7 @@ let lookup story text =
   let compare i =
     String.compare (entry story (Dictionary i)) truncated in
   match binary_search 0 count compare with
-  | None -> 0
+  | None -> invalid_address
   | Some entry_index -> entry_address story (Dictionary entry_index)
 
 let display_dictionary story =
