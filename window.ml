@@ -1,47 +1,47 @@
 open Utility
 
-  (* A window is a rectangular block of text with a cursor. Text is
-  written at the cursor; text which hits the edge of the window is wrapped
-  either on word or character boundaries. Text written on the bottom line
-  may cause the window to scroll. Windows keep track of pending text and
-  will add it to the bottom line when scrolled. A window also knows how
-  many times it has been scrolled, and lets the host know when it should
-  be displaying "MORE". *)
+(* A window is a rectangular block of text with a cursor. Text is
+written at the cursor; text which hits the edge of the window is wrapped
+either on word or character boundaries. Text written on the bottom line
+may cause the window to scroll. Windows keep track of pending text and
+will add it to the bottom line when scrolled. A window also knows how
+many times it has been scrolled, and lets the host know when it should
+be displaying "MORE". *)
 
-  type scroll_enabled =
-    | Scroll_enabled
-    | Scroll_disabled
+type scroll_enabled =
+  | Scroll_enabled
+  | Scroll_disabled
 
-  type wrap_enabled =
-    | Word_wrap_enabled
-    | Word_wrap_disabled
+type wrap_enabled =
+  | Word_wrap_enabled
+  | Word_wrap_disabled
 
-  type more_enabled =
-    | More_enabled
-    | More_disabled
+type more_enabled =
+  | More_enabled
+  | More_disabled
 
-  type scroll_pending =
-    | Scroll_pending of string
-    | Nothing_pending
+type scroll_pending =
+  | Scroll_pending of string
+  | Nothing_pending
 
-  (* TODO: This can be its own module *)
+(* TODO: This can be its own module *)
 
-  (* Cursor position is one-based; (1, 1) is the top left,
-  (width, height) is the bottom right. *)
+(* Cursor position is one-based; (1, 1) is the top left,
+(width, height) is the bottom right. *)
 
-  type t =
-  {
-    cursor : int * int;
-    can_wrap : wrap_enabled;
-    can_scroll : scroll_enabled;
-    can_more : more_enabled;
-    pending : scroll_pending;
-    lines : string Deque.t;
-    height : int;
-    width : int;
-    scroll_count : int;
-    needs_more : bool
-  }
+type t =
+{
+  cursor : int * int;
+  can_wrap : wrap_enabled;
+  can_scroll : scroll_enabled;
+  can_more : more_enabled;
+  pending : scroll_pending;
+  lines : string Deque.t;
+  height : int;
+  width : int;
+  scroll_count : int;
+  needs_more : bool
+}
 
 let make height width x y can_wrap can_scroll can_more =
   let blank_line = spaces width in
