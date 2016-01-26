@@ -1,7 +1,4 @@
-open Story
-open Screen
 open Utility
-open Instruction
 open Type
 
 let empty = Status None
@@ -25,7 +22,7 @@ let make story =
     let right_length = String.length right in
     let left = current_object_name () in
     let left_length = String.length left in
-    let width = screen_width story in
+    let width = Story.screen_width story in
     let left_trimmed =
       if left_length + right_length < width then left
       else left_string left (width - right_length - 1) in (* TODO: Assumes that width >= right_length *)
@@ -41,7 +38,7 @@ let make story =
     let (score, turns) = status_globals () in
     let text = Printf.sprintf "%d/%d" score turns in
     build_status_line text in
-  match status_line_kind story with
+  match Story.status_line_kind story with
   | NoStatus -> empty
   | TimeStatus -> Status (Some (time_status ()) )
   | ScoreStatus -> Status (Some (score_status ()) )

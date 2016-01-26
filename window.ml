@@ -1,4 +1,5 @@
 open Utility
+open Type
 
 (* A window is a rectangular block of text with a cursor. Text is
 written at the cursor; text which hits the edge of the window is wrapped
@@ -7,24 +8,6 @@ may cause the window to scroll. Windows keep track of pending text and
 will add it to the bottom line when scrolled. A window also knows how
 many times it has been scrolled, and lets the host know when it should
 be displaying "MORE". *)
-
-type scroll_enabled =
-  | Scroll_enabled
-  | Scroll_disabled
-
-type wrap_enabled =
-  | Word_wrap_enabled
-  | Word_wrap_disabled
-
-type more_enabled =
-  | More_enabled
-  | More_disabled
-
-type scroll_pending =
-  | Scroll_pending of string
-  | Nothing_pending
-
-(* TODO: This can be its own module *)
 
 (* Cursor position is one-based; (1, 1) is the top left,
 (width, height) is the bottom right. *)

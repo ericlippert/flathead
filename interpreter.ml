@@ -1,8 +1,5 @@
 open Utility
 open Story
-open Instruction
-open Window
-open Screen
 open Iff
 open Quetzal
 open Type
@@ -52,10 +49,10 @@ type t =
 
 let make story screen =
   (* TODO: Restore these after a restart / restore *)
-  let story = set_screen_width story screen.width in
-  let story = set_screen_height story screen.height in
-  let story = set_supports_multiple_windows story true in
-  let pc = initial_program_counter story in
+  let story = Story.set_screen_width story (Screen.width screen) in
+  let story = Story.set_screen_height story (Screen.height screen) in
+  let story = Story.set_supports_multiple_windows story true in
+  let pc = Story.initial_program_counter story in
   let initial_frame = Frame.make pc in
   {
     story = story;
@@ -146,6 +143,7 @@ let interpret_store interpreter store result =
   | Some variable -> write_variable interpreter variable result
 
 let interpret_return interpreter instruction value =
+(* TODO: Accessors in frame *)
  let frame = current_frame interpreter in
  let next_pc = frame.Frame.resume_at in
  let store = frame.Frame.store in
@@ -159,7 +157,7 @@ let interpret_branch interpreter instruction result =
   let next_instruction () =
     let addr = Instruction.following instruction in
     set_program_counter interpreter addr in
-  match instruction.branch with
+  match Instruction.branch instruction with
   | None -> next_instruction ()
   | Some (sense, Return_false) ->
     if (result <> 0) = sense then interpret_return interpreter instruction 0
@@ -173,18 +171,21 @@ let interpret_branch interpreter instruction result =
 
 let interpret_instruction interpreter instruction handler =
   let (result, handler_interpreter) = handler interpreter in
-  let store_interpreter = interpret_store handler_interpreter instruction.store result in
+  let store = Instruction.store instruction in
+  let store_interpreter = interpret_store handler_interpreter store result in
   interpret_branch store_interpreter instruction result
 
 let interpret_value_instruction interpreter instruction handler =
   let result = handler interpreter in
-  let store_interpreter = interpret_store interpreter instruction.store result in
+  let store = Instruction.store instruction in
+  let store_interpreter = interpret_store interpreter store result in
   interpret_branch store_interpreter instruction result
 
 let interpret_effect_instruction interpreter instruction handler =
   let handler_interpreter = handler interpreter in
   let result = 0 in
-  let store_interpreter = interpret_store handler_interpreter instruction.store result in
+  let store = Instruction.store instruction in
+  let store_interpreter = interpret_store handler_interpreter store result in
   interpret_branch store_interpreter instruction result
 
 let split_window interpreter lines=
@@ -192,12 +193,12 @@ let split_window interpreter lines=
 
 let set_status_line interpreter =
   let status = Status_line.make interpreter.story in
-  let screen = { interpreter.screen with status } in
+  let screen = Screen.set_status interpreter.screen status in
   { interpreter with has_new_output = true; screen }
 
 let display_current_instruction interpreter =
   let address = interpreter.program_counter in
-  let instruction = decode interpreter.story address in
+  let instruction = Instruction.decode interpreter.story address in
   Instruction.display instruction (version interpreter.story)
 
 (* Debugging method *)
@@ -319,7 +320,7 @@ then global 50 is decremented. *)
 (* TODO: Fix up Instruction.display code for these opcodes. *)
 
 let handle_dec_chk variable value interpreter =
-  let variable = decode_variable variable in
+  let variable = Instruction.decode_variable variable in
   let value = signed_word value in
   let (original, read_interpreter) = read_variable interpreter variable in
   let original = signed_word original in
@@ -332,7 +333,7 @@ let handle_dec_chk variable value interpreter =
   Increment variable, and branch if now greater than value. *)
 
 let handle_inc_chk variable value interpreter =
-  let variable = decode_variable variable in
+  let variable = Instruction.decode_variable variable in
   let value = signed_word value in
   let (original, read_interpreter) = read_variable interpreter variable in
   let original = signed_word original in
@@ -410,7 +411,7 @@ let handle_clear_attr obj attr interpreter =
 that takes a variable number as an operand. *)
 
 let handle_store variable value interpreter =
-  let variable = decode_variable variable in
+  let variable = Instruction.decode_variable variable in
   let value = unsigned_word value in
   write_variable interpreter variable value
 
@@ -544,11 +545,13 @@ let handle_call routine_address arguments interpreter instruction =
   (* Spec: When the address 0 is called as a routine, nothing happens and the
      return value is false. *)
     let result = 0 in
-    let store_interpreter = interpret_store interpreter instruction.store result in
+    let store = Instruction.store instruction in
+    let store_interpreter = interpret_store interpreter store result in
     interpret_branch store_interpreter instruction result
   else
     let resume_at = Instruction.following instruction in
-    let frame = Frame.make_call_frame interpreter.story arguments routine_address resume_at instruction.store in
+    let store = Instruction.store instruction in
+    let frame = Frame.make_call_frame interpreter.story arguments routine_address resume_at store in
     let pc = first_instruction interpreter.story routine_address in
     set_program_counter (add_frame interpreter frame) pc
 
@@ -625,7 +628,7 @@ Note that this is another of those unusual instructions that takes as an
 argument the number of a variable. *)
 
 let handle_inc variable interpreter =
-  let variable = decode_variable variable in
+  let variable = Instruction.decode_variable variable in
   let (original, read_interpreter) = read_variable interpreter variable in
   let incremented = signed_word (original + 1) in
   write_variable read_interpreter variable incremented
@@ -637,7 +640,7 @@ let handle_inc variable interpreter =
   argument the number of a variable. *)
 
 let handle_dec variable interpreter =
-  let variable = decode_variable variable in
+  let variable = Instruction.decode_variable variable in
   let (original, read_interpreter) = read_variable interpreter variable in
   let decremented = signed_word (original - 1) in
   write_variable read_interpreter variable decremented
@@ -710,7 +713,7 @@ let handle_load variable interpreter =
   value of the operand is the top of the stack, and the top of the stack
   contains a number. That number is then interpreted as a variable, and
   the value read from *that* variable is the result of the load. *)
-  let variable = decode_variable variable in
+  let variable = Instruction.decode_variable variable in
   read_variable interpreter variable
 
 (* Spec:  1OP:143 not value -> (result)
@@ -742,7 +745,7 @@ let handle_rfalse interpreter instruction =
   Print the quoted (literal) Z-encoded string. *)
 
 let handle_print interpreter instruction =
-  let printed_interpreter = match instruction.text with
+  let printed_interpreter = match Instruction.text instruction with
   | Some text -> print interpreter text
   | None -> interpreter in
   interpret_branch printed_interpreter instruction 0
@@ -753,7 +756,7 @@ let handle_print interpreter instruction =
 
 let handle_print_ret interpreter instruction =
   let printed_interpreter =
-    match instruction.text with
+    match Instruction.text instruction with
     | Some text -> print interpreter (text ^ "\n")
     | None -> interpreter in
   interpret_return printed_interpreter instruction 1
@@ -865,8 +868,8 @@ let handle_restore interpreter instruction =
     with result 2. See comments in handle_save that describe what is going
     on here. *)
   let save_pc = Instruction (program_counter - 1) in
-  let save_instruction = decode new_story save_pc in
-  if save_instruction.opcode != OP0_181 then
+  let save_instruction = Instruction.decode new_story save_pc in
+  if (Instruction.opcode save_instruction) != OP0_181 then
     failwith "Restored PC is not on save instruction";
   let new_interpreter = { interpreter with
     story = new_story;
@@ -880,7 +883,8 @@ let handle_restore interpreter instruction =
   let new_interpreter = split_window new_interpreter 0 in
   (* The save is either a conditional branch or a store depending on the version.
   We'll just do both and let the helper sort it out. *)
-  let store_interpreter = interpret_store new_interpreter save_instruction.store restore_succeeded in
+  let store = Instruction.store save_instruction in
+  let store_interpreter = interpret_store new_interpreter store restore_succeeded in
   let save_interpreter = interpret_branch store_interpreter save_instruction restore_succeeded in
   save_interpreter
 (* end of handle_restore *)
@@ -1130,14 +1134,15 @@ let complete_sread text_addr parse_addr input interpreter instruction =
     return is printed (so the cursor moves to the next line). If it was interrupted, the cursor is left at
     the rightmost end of the text typed in so far.*)
   let interpreter = print interpreter (input ^ "\n") in
-  let interpreter = { interpreter with screen = fully_scroll interpreter.screen } in
+  let interpreter = { interpreter with screen = Screen.fully_scroll interpreter.screen } in
   (* Spec:  In Version 5 and later, this is a store instruction: the return
     value is the terminating character (note that the user pressing his "enter"
     key may cause either 10 or 13 to be returned; the author recommends that
     interpreters return 10).
     A timed-out input returns 0. *)
   let result = 10 in
-  let interpreter = interpret_store interpreter instruction.store result in
+  let store = Instruction.store instruction in
+  let interpreter = interpret_store interpreter store result in
   interpret_branch interpreter instruction result
   (* End of complete_sread *)
 
@@ -1194,7 +1199,7 @@ let handle_pull1 x interpreter =
   else
     (* In non-v6, this is another one of those odd instructions
     whose operand identifies a variable. *)
-    let variable = decode_variable x in
+    let variable = Instruction.decode_variable x in
     let value = peek_stack interpreter in
     let popped_interpreter = pop_stack interpreter in
     let store_interpreter = write_variable popped_interpreter variable value in
@@ -1211,12 +1216,12 @@ let handle_pull0 interpreter =
   Selects the given window for text output. *)
 
 let handle_set_window window interpreter =
-  let w =
+  let window =
     match window with
     | 0 -> Lower_window
     | 1 -> Upper_window
     | _ -> failwith "Unexpected window in set_window" in
-  { interpreter with screen = set_window interpreter.screen w }
+  { interpreter with screen = Screen.set_window interpreter.screen window }
 
 (* Spec: VAR:237 erase_window window
     Erases window with given number (to background colour); or if -1 it
@@ -1236,23 +1241,23 @@ let handle_erase_window window interpreter =
     | _ -> interpreter.screen in
   let erased = match window with
     | -2
-    | -1 -> erase_all unsplit
-    | 0 -> erase_lower unsplit
-    | 1 -> erase_upper unsplit
+    | -1 -> Screen.erase_all unsplit
+    | 0 -> Screen.erase_lower unsplit
+    | 1 -> Screen.erase_upper unsplit
     | _ -> failwith "unexpected window number in erase_window" in
   let upper_moved = match window with
     | -2
     | -1
-    | 1 -> set_upper_cursor erased 1 1
+    | 1 -> Screen.set_upper_cursor erased 1 1
     | _ -> erased in
   let lower_moved = match window with
     | -2
     | -1
     | 0 ->
       if (version interpreter.story) <= 4 then
-        set_lower_cursor upper_moved 1 (upper_moved.height)
+        Screen.set_lower_cursor upper_moved 1 (Screen.height upper_moved)
       else
-        set_lower_cursor upper_moved 1 1
+        Screen.set_lower_cursor upper_moved 1 1
     | _ -> upper_moved in
   { interpreter with screen = lower_moved }
 
@@ -1267,7 +1272,7 @@ margin). The cursor does not move. *)
 
 let handle_erase_line value interpreter =
   if value = 1 then
-    { interpreter with screen = erase_line interpreter.screen }
+    { interpreter with screen = Screen.erase_line interpreter.screen }
   else
     interpreter
 
@@ -1289,10 +1294,10 @@ let handle_set_cursor2 line column interpreter =
   set_cursor. The opcode has no effect when the lower window is selected.
   It is illegal to move the cursor outside the current size of the upper
   window. *)
-  match interpreter.screen.selected_window with
+  match Screen.selected_window interpreter.screen with
   | Lower_window -> interpreter
   | Upper_window ->
-    { interpreter with screen = set_cursor interpreter.screen column line }
+    { interpreter with screen = Screen.set_cursor interpreter.screen column line }
 
 let handle_set_cursor3 line column window interpreter =
   failwith "TODO: set_cursor with window not yet implemented"
@@ -1304,9 +1309,9 @@ size information in its initial entry.) *)
 
 let handle_get_cursor arr interpreter =
   let arr = unsigned_word arr in
-  let (x, y) = get_active_cursor interpreter.screen in
-  let story = write_word interpreter.story arr y in
-  let story = write_word story (arr + 2) x in
+  let (x, y) = Screen.get_active_cursor interpreter.screen in
+  let story = Story.write_word interpreter.story arr y in
+  let story = Story.write_word story (arr + 2) x in
   { interpreter with story }
 
 (* Spec: VAR:241 set_text_style style
@@ -1330,9 +1335,9 @@ unspecified what happens when the value is neither 0 nor 1? *)
 let handle_buffer_mode flag interpreter =
   match flag with
   | 0 -> { interpreter with screen =
-    set_word_wrap interpreter.screen Word_wrap_disabled }
+    Screen.set_word_wrap interpreter.screen Word_wrap_disabled }
   | 1 -> { interpreter with screen =
-    set_word_wrap interpreter.screen Word_wrap_enabled }
+    Screen.set_word_wrap interpreter.screen Word_wrap_enabled }
   | _ -> interpreter
 
 (* Spec: VAR:243  output_stream number
@@ -1425,7 +1430,8 @@ let handle_read_char2 routine time interpreter instruction =
 let complete_read_char interpreter instruction input =
   let result = int_of_char input in
   let interpreter = { interpreter with state = Running } in
-  let interpreter = interpret_store interpreter instruction.store result in
+  let store = Instruction.store instruction in
+  let interpreter = interpret_store interpreter store result in
   interpret_branch interpreter instruction result
 
 (* Spec: VAR:247 scan_table x table len form -> (result)
@@ -1611,13 +1617,14 @@ let handle_save_undo interpreter =
 
 (* Move the interpreter on to the next instruction *)
 let step_instruction interpreter =
-  let instruction = decode interpreter.story interpreter.program_counter in
-  let (arguments, interpreter) = operands_to_arguments interpreter instruction.operands in
+  let instruction = Instruction.decode interpreter.story interpreter.program_counter in
+  let operands = Instruction.operands instruction in
+  let (arguments, interpreter) = operands_to_arguments interpreter operands in
   let interpret_instruction = interpret_instruction interpreter instruction in
   let value = interpret_value_instruction interpreter instruction in
   let effect = interpret_effect_instruction interpreter instruction in
-
-  match (instruction.opcode, arguments) with
+  let opcode = Instruction.opcode instruction in
+  match (opcode, arguments) with
   | (OP2_1, [a; b]) -> value (handle_je2 a b)
   | (OP2_1, [a; b; c]) -> value (handle_je3 a b c)
   | (OP2_1, [a; b; c; d]) -> value (handle_je4 a b c d)
@@ -1778,12 +1785,12 @@ let step interpreter =
   if interpreter.state = Waiting_for_input then
     failwith "interpreter is waiting for input";
   let screen =
-    if needs_more interpreter.screen then
-      clear_more interpreter.screen
+    if Screen.needs_more interpreter.screen then
+      Screen.clear_more interpreter.screen
     else
       interpreter.screen in
-  if needs_scroll screen then
-    { interpreter with screen = scroll screen; has_new_output = true }
+  if Screen.needs_scroll screen then
+    { interpreter with screen = Screen.scroll screen; has_new_output = true }
   else
     step_instruction { interpreter with screen; has_new_output = false }
 
@@ -1791,7 +1798,7 @@ let step_with_input interpreter key =
   let key_text = string_of_char key in
   let length = String.length interpreter.input in
   let instruction =
-    decode interpreter.story interpreter.program_counter in
+    Instruction.decode interpreter.story interpreter.program_counter in
   let handle_enter () =
     let blank_input = { interpreter with input = ""; input_max = 0; text_address = 0; parse_address = 0 } in
     complete_sread interpreter.text_address interpreter.parse_address interpreter.input blank_input instruction  in
@@ -1800,7 +1807,8 @@ let step_with_input interpreter key =
       interpreter
     else
       { interpreter with input = truncate interpreter.input (length - 1)} in
-  match instruction.opcode with
+  let opcode = Instruction.opcode instruction in
+  match opcode with
   | VAR_246 -> complete_read_char interpreter instruction key
   | VAR_228 ->
     if key_text = "\r" then handle_enter()

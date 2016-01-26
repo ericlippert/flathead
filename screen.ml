@@ -1,11 +1,5 @@
 open Utility
-
-type status_line =
-  Status of string option
-
-type window_selection =
-  | Upper_window
-  | Lower_window
+open Type
 
 type t =
 {
@@ -20,12 +14,24 @@ type t =
 let make height width =
   {
     status = Status None;
-    upper_window = Window.make 0 width 1 1 Window.Word_wrap_disabled Window.Scroll_disabled Window.More_disabled;
-    lower_window = Window.make height width 1 height Window.Word_wrap_enabled Window.Scroll_enabled Window.More_enabled;
+    upper_window = Window.make 0 width 1 1 Word_wrap_disabled Scroll_disabled More_disabled;
+    lower_window = Window.make height width 1 height Word_wrap_enabled Scroll_enabled More_enabled;
     height;
     width;
     selected_window = Lower_window
   }
+
+let width screen =
+  screen.width
+
+let height screen =
+  screen.height
+
+let set_status screen status =
+  { screen with status }
+
+let selected_window screen =
+  screen.selected_window
 
 let screen_lines screen =
   Window.merge screen.upper_window screen.lower_window

@@ -87,11 +87,6 @@ let flags1 story =
   let flags1_offset = 1 in
   read_byte story flags1_offset
 
-type status_line_kind_type =
-  | NoStatus
-  | ScoreStatus
-  | TimeStatus
-
 let status_line_kind story =
   match (version story, fetch_bit bit1 (flags1 story))  with
   | (1, _)

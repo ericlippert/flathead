@@ -1,7 +1,5 @@
 open Utility
 open Iff
-open Story
-open Instruction
 open Type
 
 type t =
@@ -124,7 +122,7 @@ let make_frame_from_record frame_record =
       let store = (* TODO: Use decode_variable *)
         match (discard_value, target_variable) with
         | (true, _) -> None
-        | (false, n) -> Some (decode_variable n) in
+        | (false, n) -> Some (Instruction.decode_variable n) in
 
       (Instruction ret_addr, locals_list, eval_stack,
         store, arg_count, locals_count)
