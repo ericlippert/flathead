@@ -1,13 +1,12 @@
-open Graphics
 open Utility
 open Type;;
 
 (* TODO: Wrapper types around pixel height / width vs character height / width *)
 
-open_graph "";;
-auto_synchronize false;;
-set_font "Lucida Console";;
-let (text_width, text_height) = text_size "X";;
+Graphics.open_graph "";;
+Graphics.auto_synchronize false;;
+Graphics.set_font "Lucida Console";;
+let (text_width, text_height) = Graphics.text_size "X";;
 
 let draw_string_at text x y =
   Graphics.moveto x y;
@@ -78,23 +77,23 @@ let make interpreter =
 
 let clear_screen screen =
   let (x, y, w, h) = screen_extent screen in
-  set_color background;
-  fill_rect x y w h
+  Graphics.set_color Graphics.background;
+  Graphics.fill_rect x y w h
 
 let draw_status screen =
   let (x, y, _, _) = screen_extent screen in
-  let status_color = blue in
+  let status_color = Graphics.blue in
   match Screen.status screen with
   | Status None  -> ()
   | Status Some status -> (
-    set_color status_color;
+    Graphics.set_color status_color;
     let h = Screen.height screen in
     draw_string_at status x (y + text_height * h) )
 
 let rec draw_screen screen =
   clear_screen screen;
   draw_status screen;
-  set_color foreground;
+  Graphics.set_color Graphics.foreground;
   let (x, y, _, _) = screen_extent screen in
   let rec aux n =
     let h = Screen.height screen in
@@ -104,7 +103,7 @@ let rec draw_screen screen =
       draw_string_at text x text_y;
       aux (n + 1)) in
   aux 0 ;
-  synchronize()
+  Graphics.synchronize()
 
 let trim_to_length text length =
   if (String.length text) <= length then text
@@ -112,9 +111,9 @@ let trim_to_length text length =
 
 (* x and y in screen coordinates; width and height in characters *)
 let draw_before_current_after before current after x y width height =
-  let before_color = blue in
-  let current_color = black in
-  let after_color = blue in
+  let before_color = Graphics.blue in
+  let current_color = Graphics.black in
+  let after_color = Graphics.blue in
   let rec draw_before items n =
     if n < height then
       match items with
@@ -129,22 +128,22 @@ let draw_before_current_after before current after x y width height =
       | text :: tail -> (
         draw_string_at text x (y + n * text_height);
         draw_after tail (n - 1)) in
-  set_color background;
-  fill_rect x y (width * text_width) (height * text_height);
-  set_color before_color;
+  Graphics.set_color Graphics.background;
+  Graphics.fill_rect x y (width * text_width) (height * text_height);
+  Graphics.set_color before_color;
   draw_before before (height / 2 + 1);
-  set_color current_color;
+  Graphics.set_color current_color;
   draw_string_at current x (y + text_height * (height / 2));
-  set_color after_color;
+  Graphics.set_color after_color;
   draw_after after (height / 2 - 1);
-  set_color foreground;
-  synchronize();;
+  Graphics.set_color Graphics.foreground;
+  Graphics.synchronize();;
 
 (* TODO: use draw_before_current_after *)
 let draw_undo_redo debugger =
-  let undo_color = blue in
-  let redo_color = blue in
-  let current_color = black in
+  let undo_color = Graphics.blue in
+  let redo_color = Graphics.blue in
+  let current_color = Graphics.black in
   let interpreter = debugger.interpreter in
   let screen = Interpreter.screen interpreter in
   let (screen_x, screen_y, screen_w, screen_h) = screen_extent screen in
@@ -171,17 +170,17 @@ let draw_undo_redo debugger =
       | h :: t -> (
         draw_line h n;
         draw_redo t (n - 1)) in
-  set_color background;
-  fill_rect window_x window_y window_w window_h;
-  set_color undo_color;
+  Graphics.set_color Graphics.background;
+  Graphics.fill_rect window_x window_y window_w window_h;
+  Graphics.set_color undo_color;
   let h = Screen.height screen in
   draw_undo debugger.undo_stack ( h / 2 + 1);
-  set_color current_color;
+  Graphics.set_color current_color;
   draw_line debugger.interpreter (h / 2);
-  set_color redo_color;
+  Graphics.set_color redo_color;
   draw_redo debugger.redo_stack (h / 2 - 1);
-  set_color foreground;
-  synchronize()
+  Graphics.set_color Graphics.foreground;
+  Graphics.synchronize()
 
 let debugger_push_undo debugger new_interpreter =
   let new_pc = Interpreter.program_counter new_interpreter in
@@ -260,16 +259,16 @@ let rec obtain_action debugger should_block =
   therefore only consider keystroke events as having happened
   when we are blocking while waiting for input. *)
   let events =
-    if should_block then [Key_pressed; Button_down]
-    else [Poll] in
-  let status = wait_next_event events in
-  if should_block && status.keypressed then
-    Keystroke status.key
+    if should_block then [Graphics.Key_pressed; Graphics.Button_down]
+    else [Graphics.Poll] in
+  let status = Graphics.wait_next_event events in
+  if should_block && status.Graphics.keypressed then
+    Keystroke status.Graphics.key
   else
     let action =
       let is_hit (button, _) =
-        Button.was_clicked button status.mouse_x status.mouse_y in
-      if status.button then
+        Button.was_clicked button status.Graphics.mouse_x status.Graphics.mouse_y in
+      if status.Graphics.button then
         match List.filter is_hit debugger.buttons with
         | [] -> NoAction
         | (_, action) :: _ -> action
