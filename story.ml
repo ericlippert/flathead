@@ -23,6 +23,9 @@ let invalid_property = Property 0
 type dictionary_number =
   Dictionary of int
 
+type attribute_number =
+  Attribute of int
+
 
 (* *)
 (* Dealing with memory *)
@@ -393,7 +396,7 @@ let object_attributes_word_3 story object_number =
 let attribute_count story =
   if (version story) <= 3 then 32 else 48
 
-let object_attribute_address story object_number attribute_number =
+let object_attribute_address story object_number (Attribute attribute_number) =
   if attribute_number < 0 || attribute_number >= (attribute_count story) then
     failwith "bad attribute"
   else

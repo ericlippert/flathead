@@ -226,7 +226,6 @@ let write_command interpreter input =
     {interpreter with commands = (input :: interpreter.commands) }
   else interpreter
 
-(* TODO: Rename to just print *)
 let print interpreter text =
   (* TODO: Consider building an output stream manager to provide an
   abstraction of this logic.  *)
@@ -380,7 +379,7 @@ let handle_and a b interpreter =
 
 let handle_test_attr obj attr interpreter =
   let obj = Object obj in
-  let attr = unsigned_word attr in (* TODO: Wrapper type for attribute numbers *)
+  let attr = Attribute attr in
   if object_attribute interpreter.story obj attr then 1 else 0
 
 (* Spec:  2OP:11 set_attr object attribute
@@ -388,7 +387,7 @@ let handle_test_attr obj attr interpreter =
 
 let handle_set_attr obj attr interpreter =
   let obj = Object obj in
-  let attr = unsigned_word attr in (* TODO: Wrapper type for attribute numbers *)
+  let attr = Attribute attr in
   { interpreter with story = set_object_attribute interpreter.story obj attr }
 
 (* Spec: 2OP:12 clear_attr object attribute
@@ -396,7 +395,7 @@ let handle_set_attr obj attr interpreter =
 
 let handle_clear_attr obj attr interpreter =
   let obj = Object obj in
-  let attr = unsigned_word attr in (* TODO: Wrapper type for attribute numbers *)
+  let attr = Attribute attr in 
   { interpreter with story = clear_object_attribute interpreter.story obj attr }
 
 (* Spec: 2OP:13 store (variable) value
