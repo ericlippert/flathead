@@ -15,7 +15,7 @@ let make story =
   let current_object_name () =
     let c = current_object () in
     if c = invalid_object then ""
-    else object_name story c in
+    else Object.name story c in
   let status_globals () =
     let score = signed_word (Globals.read story current_score_global) in
     let turn = Globals.read story turn_count_global in

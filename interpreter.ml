@@ -351,7 +351,7 @@ hand, an invalid object is not a direct child of any object.*)
 let handle_jin obj1 obj2 interpreter =
   let obj1 = Object obj1 in
   let obj2 = Object obj2 in
-  let parent = object_parent interpreter.story obj1 in
+  let parent = Object.parent interpreter.story obj1 in
   if parent = obj2 then 1 else 0
 
 (* Spec: 2OP:7 test bitmap flags ?(label)
@@ -384,7 +384,7 @@ let handle_and a b interpreter =
 let handle_test_attr obj attr interpreter =
   let obj = Object obj in
   let attr = Attribute attr in
-  if object_attribute interpreter.story obj attr then 1 else 0
+  if Object.attribute interpreter.story obj attr then 1 else 0
 
 (* Spec:  2OP:11 set_attr object attribute
   Make object have the attribute numbered attribute. *)
@@ -392,7 +392,7 @@ let handle_test_attr obj attr interpreter =
 let handle_set_attr obj attr interpreter =
   let obj = Object obj in
   let attr = Attribute attr in
-  { interpreter with story = set_object_attribute interpreter.story obj attr }
+  { interpreter with story = Object.set_attribute interpreter.story obj attr }
 
 (* Spec: 2OP:12 clear_attr object attribute
   Make object not have the attribute numbered attribute. *)
@@ -400,7 +400,7 @@ let handle_set_attr obj attr interpreter =
 let handle_clear_attr obj attr interpreter =
   let obj = Object obj in
   let attr = Attribute attr in
-  { interpreter with story = clear_object_attribute interpreter.story obj attr }
+  { interpreter with story = Object.clear_attribute interpreter.story obj attr }
 
 (* Spec: 2OP:13 store (variable) value
   Set the variable referenced by the operand to value *)
@@ -423,7 +423,7 @@ let handle_store variable value interpreter =
 let handle_insert_obj obj destination interpreter =
   let obj = Object obj in
   let destination = Object destination in
-  { interpreter with story = insert_object interpreter.story obj destination }
+  { interpreter with story = Object.insert interpreter.story obj destination }
 
 (* Spec: 2OP:15 loadw array word-index -> (result)
 Stores array-->word-index (i.e., the word at address array+2*word-index,
@@ -453,7 +453,7 @@ let handle_loadb arr idx interpreter =
 let handle_get_prop obj prop interpreter =
   let obj = Object obj in
   let prop = Property prop in
-  object_property interpreter.story obj prop
+  Object.property interpreter.story obj prop
 
 (* Spec: 2OP:18 get_prop_addr object property -> (result)
   Get the byte address (in dynamic memory) of the property data for the
@@ -463,7 +463,7 @@ let handle_get_prop obj prop interpreter =
 let handle_get_prop_addr obj prop interpreter =
   let obj = Object obj in
   let prop = Property prop in
-  property_address interpreter.story obj prop
+  Object.property_address interpreter.story obj prop
 
 (* Spec: 2OP:19 get_next_prop object property -> (result)
   Gives the number of the next property provided by the quoted object.
@@ -476,7 +476,7 @@ let handle_get_prop_addr obj prop interpreter =
 let handle_get_next_prop obj prop interpreter =
   let obj = Object obj in
   let prop = Property prop in
-  let (Property next) = get_next_property interpreter.story obj prop in
+  let (Property next) = Object.next_property interpreter.story obj prop in
   next
 
 (* Spec: 2OP:20 add a b -> (result)
@@ -585,7 +585,7 @@ let handle_jz a interpreter =
 
 let handle_get_sibling obj interpreter =
   let obj = Object obj in
-  let (Object sibling) = object_sibling interpreter.story obj in
+  let (Object sibling) = Object.sibling interpreter.story obj in
   sibling
 
 (* Spec: 1OP:130 get_child object -> (result) ?(label)
@@ -594,7 +594,7 @@ let handle_get_sibling obj interpreter =
 
 let handle_get_child obj interpreter =
   let obj = Object obj in
-  let (Object child) = object_child interpreter.story obj in
+  let (Object child) = Object.child interpreter.story obj in
   child
 
 (* Spec: 1OP:131 get_parent object -> (result)
@@ -602,7 +602,7 @@ let handle_get_child obj interpreter =
 
 let handle_get_parent obj interpreter =
   let obj = Object obj in
-  let (Object parent) = object_parent interpreter.story obj in
+  let (Object parent) = Object.parent interpreter.story obj in
   parent
 
 (* Spec: 1OP:132 get_prop_len property-address -> (result)
@@ -614,7 +614,7 @@ let handle_get_parent obj interpreter =
 let handle_get_prop_len property_address interpreter =
   (* TODO: Make a wrapper type for property addresses *)
   let property_address = unsigned_word property_address in
-  property_length_from_address interpreter.story property_address
+  Object.property_length_from_address interpreter.story property_address
 
 (* Spec: 1OP:133 inc (variable)
   Increment variable by 1. (This is signed, so -1 increments to 0.)
@@ -654,7 +654,7 @@ Detach the object from its parent, so that it no longer has any parent.
 (Its children remain in its possession.) *)
 let handle_remove_obj obj interpreter =
   let obj = Object obj in
-  { interpreter with story = remove_object interpreter.story obj}
+  { interpreter with story = Object.remove interpreter.story obj}
 
 (* Spec: 1OP:138 print_obj object
   Print short name of object (the Z-encoded string in the object header,
@@ -663,7 +663,7 @@ let handle_remove_obj obj interpreter =
 
 let handle_print_obj obj interpreter =
   let obj = Object obj in
-  let text = object_name interpreter.story obj in
+  let text = Object.name interpreter.story obj in
   print interpreter text
 
 (* Spec: 1OP:139 ret value
@@ -1010,7 +1010,7 @@ let handle_putprop obj prop value interpreter =
   let obj = Object obj in
   let prop = Property prop in
   let value = unsigned_word value in
-  { interpreter with story = write_property interpreter.story obj prop value }
+  { interpreter with story = Object.write_property interpreter.story obj prop value }
 
 (* Spec: VAR:234 3 split_window lines
 Splits the screen so that the upper window has the given number of lines: or,
