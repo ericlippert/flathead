@@ -1,4 +1,3 @@
-open Story
 open Utility
 open Type
 
@@ -15,31 +14,31 @@ Each entry is either 4 (in V1-3) or 6 (otherwise) bytes of zstring data,
 followed by enough bytes to make up the size of the dictionary entry. *)
 
 let word_separators_count story =
-  read_byte story (dictionary_base story)
+  Story.read_byte story (Story.dictionary_base story)
 
 let word_separators story =
-  let base = dictionary_base story in
-  let count = read_byte story base in
+  let base = Story.dictionary_base story in
+  let count = Story.read_byte story base in
   let rec aux acc i =
     if i < 1 then acc
-    else aux ((read_byte story (base + i)) :: acc) (i - 1) in
+    else aux ((Story.read_byte story (base + i)) :: acc) (i - 1) in
   aux [] count
 
 let entry_length story =
-  let base = dictionary_base story in
+  let base = Story.dictionary_base story in
   let separators = word_separators_count story in
-  read_byte story (base + separators + 1)
+  Story.read_byte story (base + separators + 1)
 
 let max_word_length story =
-  if (version story) <= 3 then 6 else 9
+  if (Story.version story) <= 3 then 6 else 9
 
 let entry_count story =
-  let base = dictionary_base story in
+  let base = Story.dictionary_base story in
   let separators = word_separators_count story in
-  read_word story (base + separators + 2)
+  Story.read_word story (base + separators + 2)
 
 let table_base story =
-  let base = dictionary_base story in
+  let base = Story.dictionary_base story in
   let separators = word_separators_count story in
   base + separators + 4
 

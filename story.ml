@@ -10,9 +10,6 @@ type t =
   memory : Memory.t
 }
 
-(* TODO: Move these somewhere more appropriate *)
-let invalid_object = Object 0
-let invalid_property = Property 0
 
 (* *)
 (* Dealing with memory *)

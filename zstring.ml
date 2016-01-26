@@ -1,8 +1,6 @@
 open Utility
 open Type
 
-
-
 type string_mode =
   | Alphabet of int
   | Abbrev of abbreviation_number

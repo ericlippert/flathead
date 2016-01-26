@@ -107,6 +107,12 @@ type t =
   text : string option;
 }
 
+let opcode instruction =
+  instruction.opcode
+
+let operands instruction =
+  instruction.operands
+
 let following instruction =
   let (Instruction addr) = instruction.address in
   (Instruction (addr + instruction.length))
@@ -127,6 +133,17 @@ let is_call ver opcode =
   | VAR_250 (* call_vn2 *)
   | VAR_236 (* call_vs2 *) -> true
   | _ -> false
+
+let call_address instr story  =
+  if is_call (Story.version story) instr.opcode then
+    match instr.operands with
+    | (Large packed_address) :: _ ->
+      let packed_address = Packed_routine packed_address in
+      let unpacked_address = Story.decode_routine_packed_address story packed_address in
+      Some unpacked_address
+    | _ -> None
+  else
+    None
 
 let has_store opcode ver =
   match opcode with
