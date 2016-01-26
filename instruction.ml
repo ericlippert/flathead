@@ -136,7 +136,7 @@ let has_store opcode ver =
   | OP0_181 -> ver >= 4 (* save branches in v3, stores in v4 *)
   | OP0_182 -> ver >= 4 (* restore branches in v3, stores in v4 *)
   | OP0_185 -> ver >= 4 (* pop in v4, catch in v5 *)
-  | VAR_233 -> ver >= 6
+  | VAR_233 -> ver = 6
   | VAR_228 -> ver >= 5
   | OP2_8   | OP2_9   | OP2_15  | OP2_16  | OP2_17  | OP2_18  | OP2_19
   | OP2_20  | OP2_21  | OP2_22  | OP2_23  | OP2_24  | OP2_25
