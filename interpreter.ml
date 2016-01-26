@@ -1572,6 +1572,25 @@ let handle_art_shift number places interpreter =
     else number in
   signed_word result
 
+(* Spec: EXT:4 set_font font -> (result)
+  If the requested font is available, then it is chosen for the current
+  window, and the store value is the font ID of the previous font (which is
+  always positive). If the font is unavailable, nothing will happen and the
+  store value is 0. *)
+let handle_set_font font interpreter =
+  (* TODO: set_font not yet implemented; just make it a no-op *)
+  (0, interpreter)
+
+(* Spec: EXT:5 draw_picture picture-number y x
+  * Displays the picture with the given number.
+  * (y,x) coordinates (of the top left of the picture) are each optional, in
+    that a value of zero for y or x means the cursor y or x coordinate in
+    the current window.
+  * It is illegal to call this with an invalid picture number. *)
+
+let handle_draw_picture number y x interpreter =
+  failwith "TODO: draw_picture not yet implemented"
+
 (* Move the interpreter on to the next instruction *)
 let step_instruction interpreter =
   let instruction = decode_instruction interpreter.story interpreter.program_counter in
@@ -1697,8 +1716,8 @@ let step_instruction interpreter =
   | (EXT_1, [table; bytes; name; prompt]) -> interpret_instruction (handle_restore4 table bytes name prompt)
   | (EXT_2, [number; places]) -> value (handle_log_shift number places)
   | (EXT_3, [number; places]) -> value (handle_art_shift number places)
-  | (EXT_4 , _)   -> failwith (Printf.sprintf "%04x TODO: EXT_4" instruction.address)
-  | (EXT_5 , _)   -> failwith (Printf.sprintf "%04x TODO: EXT_5" instruction.address)
+  | (EXT_4, [font]) -> interpret_instruction (handle_set_font font)
+  | (EXT_5, [number; y; x]) -> effect (handle_draw_picture number y x)
   | (EXT_6 , _)   -> failwith (Printf.sprintf "%04x TODO: EXT_6" instruction.address)
   | (EXT_7 , _)   -> failwith (Printf.sprintf "%04x TODO: EXT_7" instruction.address)
   | (EXT_8 , _)   -> failwith (Printf.sprintf "%04x TODO: EXT_8" instruction.address)
