@@ -147,7 +147,7 @@ let high_memory_base story =
 
 let initial_program_counter story =
   let initial_program_counter_offset = 6 in
-  read_word story initial_program_counter_offset
+  Instruction (read_word story initial_program_counter_offset)
 
 let dictionary_base story =
   (* Spec: The dictionary table is held in static memory and its byte address
@@ -262,6 +262,7 @@ let string_offset story =
   8 * (read_word story string_offset_offset)
 
 let display_header story =
+  let (Instruction ipc) = initial_program_counter story in
   Printf.sprintf "Version                     : %d\n" (version story) ^
   Printf.sprintf "Release number              : %d\n" (release_number story) ^
   Printf.sprintf "Serial number               : %s\n" (serial_number story) ^
@@ -273,7 +274,7 @@ let display_header story =
   Printf.sprintf "Static memory base          : %04x\n" (static_memory_base story) ^
   Printf.sprintf "Dictionary base             : %04x\n" (dictionary_base story) ^
   Printf.sprintf "High memory base            : %04x\n" (high_memory_base story) ^
-  Printf.sprintf "Initial program counter     : %04x\n" (initial_program_counter story)
+  Printf.sprintf "Initial program counter     : %04x\n" ipc
 
 let decode_routine_packed_address story (Packed_routine packed) =
   match version story with
@@ -843,7 +844,8 @@ let display_instructions story address count =
     else
       let instr = decode_instruction story addr in
       let s = Instruction.display instr (version story)  in
-      aux (acc  ^ s) (addr + instr.length) (c - 1) in
+      let new_addr = Instruction.following instr in
+      aux (acc  ^ s) new_addr (c - 1) in
   aux "" address count
 
 (* Any given instruction in a routine either goes on to the next instruction,
@@ -856,7 +858,7 @@ let all_reachable_addresses_in_routine story instr_address =
     let instr = decode_instruction story address in
     let next =
       if continues_to_following instr.opcode then
-        [instr.address + instr.length]
+        [Instruction.following instr]
       else
         [] in
     match (branch_target instr) with
@@ -890,9 +892,9 @@ let first_instruction story (Routine routine_address) =
     information *)
   if (version story) <= 4 then
     let count = locals_count story (Routine routine_address) in
-    routine_address + 1 + count * 2
+    Instruction (routine_address + 1 + count * 2)
   else
-    routine_address + 1
+    Instruction (routine_address + 1)
 
 (* Note that here the locals are indexed from 1 to 15, not 0 to 14 *)
 let local_default_value story (Routine routine_address) n =

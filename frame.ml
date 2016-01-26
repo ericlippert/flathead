@@ -7,8 +7,8 @@ type t =
 {
   stack : Evaluation_stack.t;
   local_store : Local_store.t;
-  called : int;
-  resume_at : int;
+  called : instruction_address;
+  resume_at : instruction_address;
   store : variable_location option
 }
 
@@ -17,7 +17,7 @@ let make pc =
   stack = Evaluation_stack.empty;
   local_store = Local_store.empty;
   called = pc;
-  resume_at = 0;
+  resume_at = Instruction 0;
   store = None
 }
 
@@ -52,17 +52,20 @@ let read_local frame local =
 (* Handy debugging methods *)
 
 let display_frame frame =
+  let (Instruction called) = frame.called in
+  let (Instruction resume_at) = frame.resume_at in
   Printf.sprintf "Locals %s\nStack %s\nResume at:%04x\nCurrent Routine: %04x\n"
     (Local_store.display_locals frame.local_store)
     (Evaluation_stack.display_stack frame.stack)
-    frame.resume_at
-    frame.called
+    resume_at
+    called
 
 let make_frame_record frame =
   let locals = Local_store.make_locals_record frame.local_store in
   let stack = Evaluation_stack.make_stack_records frame.stack in
   let arguments_byte = (1 lsl frame.local_store.Local_store.arguments_supplied) - 1 in
-(* TODO Put this somewhere better *)
+  let (Instruction resume_at) = frame.resume_at in
+(* TODO Move this into the Quetzal module *)
   let (discard_value, target_variable) =
     match frame.store with
     | None -> (true, 0)
@@ -72,7 +75,7 @@ let make_frame_record frame =
 
 (* TODO: Bit_number could take a bit number, not an integer *)
   Record [
-    Integer24 (Some frame.resume_at);
+    Integer24 (Some resume_at);
     BitField [
       Integer4 (Some (List.length locals));
       Bit (4, Some discard_value)];
@@ -122,14 +125,14 @@ let make_frame_from_record frame_record =
         | (true, _) -> None
         | (false, n) -> Some (decode_variable n) in
 
-      (ret_addr, locals_list, eval_stack,
+      (Instruction ret_addr, locals_list, eval_stack,
         store, arg_count, locals_count)
     | _ -> failwith "TODO handle failure reading frame" in
   let stack = Evaluation_stack.make_stack_from_record eval_stack in
   let local_store = Local_store.make_locals_from_record arg_count locals_list in
   { stack;
     local_store;
-    called = 0;
+    called = Instruction 0;
     resume_at = ret_addr ;
     store
     }

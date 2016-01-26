@@ -21,7 +21,7 @@ type output_stream_kind =
 type t =
 {
   story : Story.t;
-  program_counter : int;
+  program_counter : instruction_address;
   frames : Frameset.t;
   random : Randomness.t;
   state : state;
@@ -156,7 +156,7 @@ let interpret_return interpreter instruction value =
 
 let interpret_branch interpreter instruction result =
   let next_instruction () =
-    let addr = interpreter.program_counter + instruction.length in
+    let addr = Instruction.following instruction in
     set_program_counter interpreter addr in
   match instruction.branch with
   | None -> next_instruction ()
@@ -196,7 +196,7 @@ let set_status_line interpreter =
 
 (* Debugging method *)
 let display interpreter =
-  let pc = interpreter.program_counter in
+  let (Instruction pc) = interpreter.program_counter in
   let frames = Frameset.display_frames interpreter.frames in
   let instr = display_instructions interpreter.story interpreter.program_counter 1 in
   Printf.sprintf "\nPC:%04x\n%s\n%s\n" pc frames instr
@@ -541,7 +541,7 @@ let handle_call routine_address arguments interpreter instruction =
     let store_interpreter = interpret_store interpreter instruction.store result in
     interpret_branch store_interpreter instruction result
   else
-    let resume_at = instruction.address + instruction.length in
+    let resume_at = Instruction.following instruction in
     let frame = Frame.make_call_frame interpreter.story arguments routine_address resume_at instruction.store in
     let pc = first_instruction interpreter.story routine_address in
     set_program_counter (add_frame interpreter frame) pc
@@ -683,7 +683,7 @@ This is analogous to the calculation for branch offsets. *)
 
 let handle_jump offset interpreter instruction =
   let offset = signed_word offset in
-  let target = instruction.address + instruction.length + offset - 2 in
+  let target = Instruction.jump_address instruction offset in
   set_program_counter interpreter target
 
 (* Spec: 1OP:141 print_paddr packed-address-of-string
@@ -813,9 +813,9 @@ In version 4:
   let release = release_number interpreter.story in
   let serial = serial_number interpreter.story in
   let checksum = header_checksum interpreter.story in
-  let pc = interpreter.program_counter + 1 in
+  let (Instruction pc) = interpreter.program_counter in
   let frames = Frameset.make_frameset_record interpreter.frames in
-  let form = Quetzal.save release serial checksum pc compressed frames in
+  let form = Quetzal.save release serial checksum (pc + 1) compressed frames in
   Iff.write_iff_file filename form;
   (* TODO: Handle failure *)
   save_succeeded
@@ -858,7 +858,7 @@ let handle_restore interpreter instruction =
   (* If the restore succeeded then we need to complete the save instruction
     with result 2. See comments in handle_save that describe what is going
     on here. *)
-  let save_pc = program_counter - 1 in
+  let save_pc = Instruction (program_counter - 1) in
   let save_instruction = decode_instruction new_story save_pc in
   if save_instruction.opcode != OP0_181 then
     failwith "Restored PC is not on save instruction";
@@ -1731,29 +1731,32 @@ let step_instruction interpreter =
   | (EXT_3, [number; places]) -> value (handle_art_shift number places)
   | (EXT_4, [font]) -> interpret_instruction (handle_set_font font)
   | (EXT_5, [number; y; x]) -> effect (handle_draw_picture number y x)
-  | (EXT_6 , _)   -> failwith (Printf.sprintf "%04x TODO: EXT_6" instruction.address)
-  | (EXT_7 , _)   -> failwith (Printf.sprintf "%04x TODO: EXT_7" instruction.address)
-  | (EXT_8 , _)   -> failwith (Printf.sprintf "%04x TODO: EXT_8" instruction.address)
+
   | (EXT_9 , []) -> value handle_save_undo
-  | (EXT_10, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_10" instruction.address)
-  | (EXT_11, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_11" instruction.address)
-  | (EXT_12, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_12" instruction.address)
-  | (EXT_13, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_13" instruction.address)
-  | (EXT_14, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_14" instruction.address)
-  | (EXT_16, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_16" instruction.address)
-  | (EXT_17, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_17" instruction.address)
-  | (EXT_18, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_18" instruction.address)
-  | (EXT_19, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_19" instruction.address)
-  | (EXT_20, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_20" instruction.address)
-  | (EXT_21, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_21" instruction.address)
-  | (EXT_22, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_22" instruction.address)
-  | (EXT_23, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_23" instruction.address)
-  | (EXT_24, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_24" instruction.address)
-  | (EXT_25, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_25" instruction.address)
-  | (EXT_26, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_26" instruction.address)
-  | (EXT_27, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_27" instruction.address)
-  | (EXT_28, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_28" instruction.address)
-  | (EXT_29, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_29" instruction.address)
+
+  | (EXT_6 , _)
+  | (EXT_7 , _)
+  | (EXT_8 , _)
+  | (EXT_10, _)
+  | (EXT_11, _)
+  | (EXT_12, _)
+  | (EXT_13, _)
+  | (EXT_14, _)
+  | (EXT_16, _)
+  | (EXT_17, _)
+  | (EXT_18, _)
+  | (EXT_19, _)
+  | (EXT_20, _)
+  | (EXT_21, _)
+  | (EXT_22, _)
+  | (EXT_23, _)
+  | (EXT_24, _)
+  | (EXT_25, _)
+  | (EXT_26, _)
+  | (EXT_27, _)
+  | (EXT_28, _)
+  | (EXT_29, _)   -> failwith (Printf.sprintf "TODO: %s " (Instruction.display instruction (version interpreter.story)))
+
   | _ -> failwith (Printf.sprintf "unexpected instruction %s" (Instruction.display instruction (version interpreter.story)))
   (* End step_instruction *)
 

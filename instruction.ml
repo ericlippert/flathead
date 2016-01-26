@@ -23,6 +23,9 @@ type variable_location =
   | Local_variable of local_variable
   | Global_variable of global_variable
 
+type instruction_address =
+  Instruction of int
+
 let decode_variable n =
   let maximum_local = 15 in
   if n = 0 then Stack
@@ -104,18 +107,26 @@ let ext_bytecodes = [|
 type branch_address =
   | Return_true
   | Return_false
-  | Branch_address of int
+  | Branch_address of instruction_address
 
-type instruction =
+type t =
 {
   opcode : bytecode;
-  address : int;
+  address : instruction_address;
   length : int;
   operands : operand list;
   store : variable_location option;
   branch : (bool * branch_address) option;
   text : string option;
 }
+
+let following instruction =
+  let (Instruction addr) = instruction.address in
+  (Instruction (addr + instruction.length))
+
+let jump_address instruction offset =
+  let (Instruction addr) = instruction.address in
+  Instruction (addr + instruction.length + offset - 2)
 
 let is_call ver opcode =
   match opcode with
@@ -170,9 +181,9 @@ let branch_target instr =
     | Some (_, Branch_address address) -> Some address in
   let jump_target =
     match (instr.opcode, instr.operands) with
-    | (OP1_140, [Large relative_target]) ->
-      let absolute_target = instr.address + instr.length + (signed_word relative_target) - 2 in
-      Some absolute_target
+    | (OP1_140, [Large offset]) ->
+      let offset = signed_word offset in
+      Some (jump_address instr offset)
     | _ -> None in
   match (br_target, jump_target) with
   | (Some b, _) -> Some b
@@ -322,9 +333,11 @@ let opcode_name opcode ver =
 let display instr ver =
   let display_operands () =
     match (instr.opcode, instr.operands) with
-    | (OP1_140, [Large target]) ->
+    | (OP1_140, [Large offset]) ->
       (* For jumps, display the absolute target rather than the relative target. *)
-      Printf.sprintf "%04x " (instr.address + instr.length + (signed_word target) - 2)
+      let offset = signed_word offset in
+      let (Instruction target) = jump_address instr offset in
+      Printf.sprintf "%04x " target
     | _ ->
       let to_string operand =
         match operand with
@@ -345,15 +358,15 @@ let display instr ver =
     | Some (false, Return_false) -> "?~false"
     | Some (true, Return_true) -> "?true"
     | Some (false, Return_true) -> "?~true"
-    | Some (true, Branch_address address) -> Printf.sprintf "?%04x" address
-    | Some (false, Branch_address address) -> Printf.sprintf "?~%04x" address in
+    | Some (true, Branch_address Instruction address) -> Printf.sprintf "?%04x" address
+    | Some (false, Branch_address Instruction address) -> Printf.sprintf "?~%04x" address in
 
   let display_text () =
     match instr.text with
     | None -> ""
     | Some str -> str in
 
-  let start_addr = instr.address in
+  let (Instruction start_addr) = instr.address in
   let name = opcode_name instr.opcode ver in
   let operands = display_operands() in
   let store = display_store() in
@@ -377,7 +390,7 @@ type instruction_reader =
 (* Takes the address of an instruction and produces the instruction *)
 let decode
   { word_reader; byte_reader; zstring_reader; zstring_length }
-  address ver =
+  (Instruction address) ver =
 
   (* Spec 4.3:
 
@@ -620,7 +633,7 @@ let decode
         | _ ->
           let branch_length = if fetch_bit bit6 high then 1 else 2 in
           let address_after = branch_code_address + branch_length in
-          let branch_target = address_after + offset - 2 in
+          let branch_target = Instruction (address_after + offset - 2) in
           (sense, Branch_address branch_target) in
       Some branch
     else
@@ -670,4 +683,5 @@ let decode
   let length =
     opcode_length + type_length + operand_length + store_length +
     branch_length + text_length in
+  let address = Instruction address in
   { opcode; address; length; operands; store; branch; text }

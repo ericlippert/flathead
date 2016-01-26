@@ -17,7 +17,7 @@ type state =
   | Paused
   | Running
   | Halted
-  | Stepping of int
+  | Stepping of instruction_address
 
 type action =
   | Pause
@@ -305,7 +305,7 @@ let halt debugger =
     (* This can be zero if we were restored from a save game *)
     let frame_instruction = (current_frame debugger.interpreter).Frame.called in
     let first_instruction =
-      if frame_instruction = 0 then current_instruction
+      if frame_instruction = Instruction 0 then current_instruction
       else frame_instruction in
     let story = debugger.interpreter.story in
     let current = Instruction.display  (Story.decode_instruction story current_instruction) (Story.version story) in
