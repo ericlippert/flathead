@@ -26,6 +26,12 @@ type dictionary_number =
 type attribute_number =
   Attribute of int
 
+type routine_address =
+  Routine of int
+
+type packed_routine_address =
+  Packed_routine of int
+
 
 (* *)
 (* Dealing with memory *)
@@ -264,16 +270,16 @@ let display_header story =
   Printf.sprintf "High memory base            : %04x\n" (high_memory_base story) ^
   Printf.sprintf "Initial program counter     : %04x\n" (initial_program_counter story)
 
-let decode_routine_packed_address story packed =
+let decode_routine_packed_address story (Packed_routine packed) =
   match version story with
   | 1
   | 2
-  | 3 -> packed * 2
+  | 3 -> Routine (packed * 2)
   | 4
-  | 5 -> packed * 4
+  | 5 -> Routine (packed * 4)
   | 6
-  | 7 -> packed * 4 + (routine_offset story)
-  | 8 -> packed * 8
+  | 7 -> Routine (packed * 4 + (routine_offset story))
+  | 8 -> Routine (packed * 8)
   | _ -> failwith "bad version"
 
 let decode_string_packed_address story packed =
@@ -852,12 +858,12 @@ let display_reachable_instructions story address =
 
 let maximum_local = 15
 
-let locals_count story routine_address =
+let locals_count story (Routine routine_address) =
   let count = read_byte story routine_address in
   if count > maximum_local then failwith "routine must have fewer than 16 locals"
   else count
 
-let first_instruction story routine_address =
+let first_instruction story (Routine routine_address) =
   (* Spec:
   * A routine begins with one byte indicating the number of local
     variables it has (between 0 and 15 inclusive).
@@ -867,13 +873,13 @@ let first_instruction story routine_address =
   * Execution of instructions begins from the byte after this header
     information *)
   if (version story) <= 4 then
-    let count = locals_count story routine_address in
+    let count = locals_count story (Routine routine_address) in
     routine_address + 1 + count * 2
   else
     routine_address + 1
 
 (* Note that here the locals are indexed from 1 to 15, not 0 to 14 *)
-let local_default_value story routine_address n =
+let local_default_value story (Routine routine_address) n =
   if n < 1 || n > maximum_local then
     failwith "invalid local"
   else if (version story) <= 4 then
@@ -889,6 +895,7 @@ let call_address story instr =
   if is_call (version story) instr.opcode then
     match instr.operands with
     | (Large packed_address) :: _ ->
+      let packed_address = Packed_routine packed_address in
       let unpacked_address = decode_routine_packed_address story packed_address in
       Some unpacked_address
     | _ -> None
@@ -901,7 +908,8 @@ let call_address story instr =
 let reachable_routines_in_routine story instr_address =
   let reachable_instrs = all_reachable_addresses_in_routine story instr_address in
   let option_fold routines instr_addr =
-    match call_address story (decode_instruction story instr_addr) with
+    let instr = decode_instruction story instr_addr in
+    match call_address story instr with
     | None -> routines
     | Some routine_address -> routine_address :: routines in
   List.fold_left option_fold [] reachable_instrs

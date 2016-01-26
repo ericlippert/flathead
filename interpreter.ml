@@ -395,7 +395,7 @@ let handle_set_attr obj attr interpreter =
 
 let handle_clear_attr obj attr interpreter =
   let obj = Object obj in
-  let attr = Attribute attr in 
+  let attr = Attribute attr in
   { interpreter with story = clear_object_attribute interpreter.story obj attr }
 
 (* Spec: 2OP:13 store (variable) value
@@ -532,8 +532,9 @@ The "s" versions store the result; the "n" versions discard it. *)
 
 let handle_call routine_address arguments interpreter instruction =
   (* TODO: Wrapper type for routine packed / unpacked addresses *)
+  let routine_address = Packed_routine routine_address in
   let routine_address = decode_routine_packed_address interpreter.story routine_address in
-  if routine_address = 0 then
+  if routine_address = Routine 0 then
   (* Spec: When the address 0 is called as a routine, nothing happens and the
      return value is false. *)
     let result = 0 in
