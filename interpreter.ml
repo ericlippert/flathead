@@ -1446,137 +1446,83 @@ let handle_scan_table3 x table len interpreter =
 let handle_scan_table4 x table len form interpreter =
   failwith "TODO scan_table x table len form is not yet implemented"
 
+(* Spec VAR:251 tokenise text parse dictionary flag
+  * This performs lexical analysis (see read above).
+  * If a non-zero dictionary is supplied, it is used (if not, the ordinary
+    game dictionary is).
+  * If the flag is set, unrecognised words are not written
+    into the parse buffer and their slots are left unchanged: this is
+    presumably so that if several tokenise instructions are performed in a
+    row, each fills in more slots without wiping those filled by the others.
+  * Parsing a user dictionary is slightly different. A user dictionary should
+    look just like the main one but need not be alphabetically sorted.
+  * If  the number of entries is given as -n, then the interpreter
+    reads this as "n entries unsorted". This is very convenient if the table
+    is being altered in play: if, for instance, the player is naming things. *)
 
+let handle_tokenise text parse dictionary flag interpreter =
+  failwith "TODO: tokenise not implemented"
 
+(* Spec: VAR:252 encode_text zsciitext length from codedtext
+  Translates a ZSCII word to Z-encoded text format (stored at coded-text),
+  as if it were an entry in the dictionary. The text begins at from in the
+  zscii-text buffer and is length characters long.  *)
 
+let handle_encode_text zsciitext length from codedtext =
+  failwith "TODO encode_text not implemented"
 
+(* Spec: VAR:253 copy_table first second size
+  * If second is zero, then size bytes of first are zeroed.
+  * Otherwise first is copied into second, its length in bytes being the
+    absolute value of size
+  * The tables are allowed to overlap.
+  * If size is positive, the interpreter must copy either forwards or
+    backwards so as to avoid corrupting first in the copying process.
+  * If size is negative, the interpreter must copy forwards even if this
+    corrupts first. *)
+let handle_copy_table first second size interpreter =
+  failwith "TODO copy_table not implemented"
 
+(* Spec: VAR:254 print_table zscii-text width height skip
+Print a rectangle of text on screen spreading right and down from the
+current cursor position, of given width and height, from the table of
+ZSCII text given. (Height is optional and defaults to 1.) If a skip
+value is given, then that many characters of text are skipped over in
+between each line and the next. (So one could make this display, for
+instance, a 2 by 3 window onto a giant 40 by 40 character graphics map.) *)
 
+let handle_print_table4 text width height skip interpreter =
+  failwith "TODO print_table not implemented"
 
-let handle_store_and_branch interpreter instruction result =
-  let store_interpreter =
-    match instruction.store with
-    | None -> interpreter
-    | Some variable -> write_variable interpreter variable result in
-  interpret_branch store_interpreter instruction result
+let handle_print_table3 text width height interpreter =
+  failwith "TODO print_table not implemented"
 
+let handle_print_table2 text width interpreter =
+  failwith "TODO print_table not implemented"
 
+(* Spec: VAR:255 check_arg_count argument-number
+  Branches if the given argument-number (counting from 1) has been
+  provided by the routine call to the current routine. (This allows
+  routines in Versions 5 and later to distinguish between the calls
+  routine(1) and routine(1,0), which would otherwise be impossible to
+  tell apart.) *)
 
+let handle_check_arg_count number interpreter =
+  failwith "TODO check_arg_count not implemented"
 
-
-
+(* Spec: EXT:0 save table bytes name -> (result)
+  *** The extension also has (optional) parameters, which save a region of
+  the save area, whose address and length are in bytes, and provides a
+  suggested filename: name is a pointer to an array of ASCII characters
+  giving this name (as usual preceded by a byte giving the number of characters).
+  See Section 7.6. *)
+let handle_save3 table bytes name interpreter =
+    failwith "TODO: save table bytes name not yet implemented "
 
 (* Move the interpreter on to the next instruction *)
 let step_instruction interpreter =
   let instruction =
     decode_instruction interpreter.story interpreter.program_counter in
-
-  (* Some helper routines for generic instructions that simply evaluate operands,
-     compute a result from them, store, and branch. *)
-
-  let handle_op1 compute_result =
-    match instruction.operands with
-    | [x_operand] ->
-      let (x, operand_interpreter) = read_operand interpreter x_operand in
-      let (result, result_interpreter) = compute_result x operand_interpreter in
-      handle_store_and_branch result_interpreter instruction result
-   | _ -> failwith (Printf.sprintf "instruction %s must have one operand" (Instruction.display instruction (version interpreter.story) ) ) in
-
-  let handle_op1_value compute_value =
-    handle_op1 (fun x i -> (compute_value x i, i)) in
-
-
-  let handle_op3 compute_result =
-    match instruction.operands with
-    | [x_operand; y_operand; z_operand] ->
-      let (x, x_interpreter) = read_operand interpreter x_operand in
-      let (y, y_interpreter) = read_operand x_interpreter y_operand in
-      let (z, z_interpreter) = read_operand y_interpreter z_operand in
-      let (result, result_interpreter) = compute_result x y z z_interpreter in
-      handle_store_and_branch result_interpreter instruction result
-    | _ -> failwith (Printf.sprintf "instruction at %04x must have three operands" instruction.address ) in
-
-  let handle_op3_effect compute_effect =
-    handle_op3 (fun x y z i -> (0, compute_effect x y z i)) in
-
-
-  let handle_op4 compute_result =
-    match instruction.operands with
-    | [w_operand; x_operand; y_operand; z_operand] ->
-      let (w, w_interpreter) = read_operand interpreter w_operand in
-      let (x, x_interpreter) = read_operand w_interpreter x_operand in
-      let (y, y_interpreter) = read_operand x_interpreter y_operand in
-      let (z, z_interpreter) = read_operand y_interpreter z_operand in
-      let (result, result_interpreter) = compute_result w x y z z_interpreter in
-      handle_store_and_branch result_interpreter instruction result
-     | _ -> failwith (Printf.sprintf "instruction at %04x must have four operands" instruction.address ) in
-
-  let handle_op4_effect compute_effect =
-    handle_op4 (fun w x y z i -> (0, compute_effect w x y z i)) in
-
-
-
-
-
-
-
-
-
-
-
-  let handle_tokenise () =
-    failwith "tokenise not implemented" in
-
-  let handle_encode_text () =
-    failwith "TODO encode_text not implemented" in
-
-  let handle_copy_table first second size interpreter =
-    (* Spec:
-    If second is zero, then size bytes of first are zeroed. Otherwise first
-    is copied into second, its length in bytes being the absolute value of
-    size (i.e., size if size is positive, -size if size is negative).
-    The tables are allowed to overlap. If size is positive, the interpreter
-    must copy either forwards or backwards so as to avoid corrupting first in
-    the copying process. If size is negative, the interpreter
-    must copy forwards even if this corrupts first. *)
-    failwith "TODO copy_table not implemented" in
-
-  let handle_print_table text width height skip interpreter =
-  (* TODO: Note: variadic instruction *)
-      (* Spec:
-      Print a rectangle of text on screen spreading right and down from the
-      current cursor position, of given width and height, from the table of
-      ZSCII text given. (Height is optional and defaults to 1.) If a skip
-      value is given, then that many characters of text are skipped over in
-      between each line and the next. (So one could make this display, for
-      instance, a 2 by 3 window onto a giant 40 by 40 character graphics map.) *)
-
-      failwith "TODO print_table not implemented" in
-
-  let handle_check_arg_count number interpreter =
-    (* Spec:
-      Branches if the given argument-number (counting from 1) has been
-      provided by the routine call to the current routine. (This allows
-      routines in Versions 5 and later to distinguish between the calls
-      routine(1) and routine(1,0), which would otherwise be impossible to
-      tell apart.) *)
-
-    failwith "TODO check_arg_count not implemented" in
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
   let (arguments, arguments_interp) = operands_to_arguments interpreter instruction.operands in
   let interpret_instruction = interpret_instruction arguments_interp instruction in
   let value = interpret_value_instruction arguments_interp instruction in
@@ -1684,51 +1630,44 @@ let step_instruction interpreter =
   | (VAR_248, [x]) -> value (handle_not x)
   | (VAR_249, routine :: args) -> handle_call routine args arguments_interp instruction
   | (VAR_250, routine :: args) -> handle_call routine args arguments_interp instruction
-
-  | _ ->
-
-
-
-
-(
-  match instruction.opcode with
-
-  | VAR_251 -> handle_tokenise()
-  | VAR_252 -> handle_encode_text()
-  | VAR_253 -> handle_op3_effect handle_copy_table
-  | VAR_254 -> handle_op4_effect handle_print_table
-  | VAR_255 -> handle_op1_value handle_check_arg_count
-  | EXT_0   -> failwith (Printf.sprintf "%04x TODO: EXT_0" instruction.address)
-  | EXT_1   -> failwith (Printf.sprintf "%04x TODO: EXT_1" instruction.address)
-  | EXT_2   -> failwith (Printf.sprintf "%04x TODO: EXT_2" instruction.address)
-  | EXT_3   -> failwith (Printf.sprintf "%04x TODO: EXT_3" instruction.address)
-  | EXT_4   -> failwith (Printf.sprintf "%04x TODO: EXT_4" instruction.address)
-  | EXT_5   -> failwith (Printf.sprintf "%04x TODO: EXT_5" instruction.address)
-  | EXT_6   -> failwith (Printf.sprintf "%04x TODO: EXT_6" instruction.address)
-  | EXT_7   -> failwith (Printf.sprintf "%04x TODO: EXT_7" instruction.address)
-  | EXT_8   -> failwith (Printf.sprintf "%04x TODO: EXT_8" instruction.address)
-  | EXT_9   -> failwith (Printf.sprintf "%04x TODO: EXT_9" instruction.address)
-  | EXT_10   -> failwith (Printf.sprintf "%04x TODO: EXT_10" instruction.address)
-  | EXT_11   -> failwith (Printf.sprintf "%04x TODO: EXT_11" instruction.address)
-  | EXT_12   -> failwith (Printf.sprintf "%04x TODO: EXT_12" instruction.address)
-  | EXT_13   -> failwith (Printf.sprintf "%04x TODO: EXT_13" instruction.address)
-  | EXT_14   -> failwith (Printf.sprintf "%04x TODO: EXT_14" instruction.address)
-  | EXT_16   -> failwith (Printf.sprintf "%04x TODO: EXT_16" instruction.address)
-  | EXT_17   -> failwith (Printf.sprintf "%04x TODO: EXT_17" instruction.address)
-  | EXT_18   -> failwith (Printf.sprintf "%04x TODO: EXT_18" instruction.address)
-  | EXT_19   -> failwith (Printf.sprintf "%04x TODO: EXT_19" instruction.address)
-  | EXT_20   -> failwith (Printf.sprintf "%04x TODO: EXT_20" instruction.address)
-  | EXT_21   -> failwith (Printf.sprintf "%04x TODO: EXT_21" instruction.address)
-  | EXT_22   -> failwith (Printf.sprintf "%04x TODO: EXT_22" instruction.address)
-  | EXT_23   -> failwith (Printf.sprintf "%04x TODO: EXT_23" instruction.address)
-  | EXT_24   -> failwith (Printf.sprintf "%04x TODO: EXT_24" instruction.address)
-  | EXT_25   -> failwith (Printf.sprintf "%04x TODO: EXT_25" instruction.address)
-  | EXT_26   -> failwith (Printf.sprintf "%04x TODO: EXT_26" instruction.address)
-  | EXT_27   -> failwith (Printf.sprintf "%04x TODO: EXT_27" instruction.address)
-  | EXT_28   -> failwith (Printf.sprintf "%04x TODO: EXT_28" instruction.address)
-  | EXT_29   -> failwith (Printf.sprintf "%04x TODO: EXT_29" instruction.address)
-  | _ -> failwith "should be impossible to get here"
-)
+  | (VAR_251, [text; parse; dictionary; flag]) -> effect (handle_tokenise text parse dictionary flag)
+  | (VAR_252, [zsciitext; length; from; codedtext]) -> effect (handle_encode_text zsciitext length from codedtext)
+  | (VAR_253, [first; second; size]) -> effect (handle_copy_table first second size)
+  | (VAR_254, [text; width; height; skip]) -> effect (handle_print_table4 text width height skip)
+  | (VAR_254, [text; width; height]) -> effect (handle_print_table3 text width height)
+  | (VAR_254, [text; width]) -> effect (handle_print_table2 text width)
+  | (VAR_255, [number]) -> value (handle_check_arg_count number)
+  | (EXT_0, []) -> value handle_save
+  | (EXT_0, [table; bytes; name]) -> value (handle_save3 table bytes name)
+  | (EXT_1 , _)   -> failwith (Printf.sprintf "%04x TODO: EXT_1" instruction.address)
+  | (EXT_2 , _)   -> failwith (Printf.sprintf "%04x TODO: EXT_2" instruction.address)
+  | (EXT_3 , _)   -> failwith (Printf.sprintf "%04x TODO: EXT_3" instruction.address)
+  | (EXT_4 , _)   -> failwith (Printf.sprintf "%04x TODO: EXT_4" instruction.address)
+  | (EXT_5 , _)   -> failwith (Printf.sprintf "%04x TODO: EXT_5" instruction.address)
+  | (EXT_6 , _)   -> failwith (Printf.sprintf "%04x TODO: EXT_6" instruction.address)
+  | (EXT_7 , _)   -> failwith (Printf.sprintf "%04x TODO: EXT_7" instruction.address)
+  | (EXT_8 , _)   -> failwith (Printf.sprintf "%04x TODO: EXT_8" instruction.address)
+  | (EXT_9 , _)   -> failwith (Printf.sprintf "%04x TODO: EXT_9" instruction.address)
+  | (EXT_10, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_10" instruction.address)
+  | (EXT_11, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_11" instruction.address)
+  | (EXT_12, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_12" instruction.address)
+  | (EXT_13, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_13" instruction.address)
+  | (EXT_14, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_14" instruction.address)
+  | (EXT_16, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_16" instruction.address)
+  | (EXT_17, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_17" instruction.address)
+  | (EXT_18, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_18" instruction.address)
+  | (EXT_19, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_19" instruction.address)
+  | (EXT_20, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_20" instruction.address)
+  | (EXT_21, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_21" instruction.address)
+  | (EXT_22, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_22" instruction.address)
+  | (EXT_23, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_23" instruction.address)
+  | (EXT_24, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_24" instruction.address)
+  | (EXT_25, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_25" instruction.address)
+  | (EXT_26, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_26" instruction.address)
+  | (EXT_27, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_27" instruction.address)
+  | (EXT_28, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_28" instruction.address)
+  | (EXT_29, _)   -> failwith (Printf.sprintf "%04x TODO: EXT_29" instruction.address)
+  | _ -> failwith "unexpected instruction"
   (* End step_instruction *)
 
 (* Steps the interpreter to its next public-facing state. However this need
