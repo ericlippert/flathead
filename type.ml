@@ -1,6 +1,7 @@
 type object_number = Object of int
 type object_address = Object_address of int
 type property_number = Property of int
+type property_header_address = Property_header of int
 type dictionary_number = Dictionary of int
 type dictionary_address =  Dictionary_address of int
 type attribute_number = Attribute of int
