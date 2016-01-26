@@ -1304,7 +1304,147 @@ let handle_get_cursor arr interpreter =
   let story = write_word story (arr + 2) x in
   { interpreter with story }
 
+(* Spec: VAR:241 set_text_style style
+  Sets the text style to: Roman (if 0), Reverse Video (if 1),
+  Bold (if 2), Italic (4), Fixed Pitch (8). In some interpreters (though
+  this is not required) a combination of styles is possible (such as reverse
+  video and bold). In these, changing to Roman should turn off all the
+  other styles currently set. *)
 
+let handle_set_text_style style interpreter =
+  (* TODO: set_text_style not yet implemented; treat as a no-op for now. *)
+  interpreter
+
+(* Spec: VAR:242 buffer_mode flag
+If set to 1, text output on the lower window in stream
+If set to 1, text output on the lower window in stream 1 is buffered up
+so that it can be word wrapped properly. If set to 0, it isn't. *)
+
+(* I note that this code implements the spec; did the spec intend to leave
+unspecified what happens when the value is neither 0 nor 1? *)
+let handle_buffer_mode flag interpreter =
+  match flag with
+  | 0 -> { interpreter with screen =
+    set_word_wrap interpreter.screen Word_wrap_disabled }
+  | 1 -> { interpreter with screen =
+    set_word_wrap interpreter.screen Word_wrap_enabled }
+  | _ -> interpreter
+
+(* Spec: VAR:243  output_stream number
+                  output_stream number table
+                  output_stream number table width
+
+  * If stream is 0, nothing happens.
+  * If it is positive, then that stream is selected; if negative, deselected.
+  * (Recall that several different streams can be selected at once.)
+  * When stream 3 is selected, a table must be given into which text can be printed.
+  * The first word always holds the number of characters printed, the actual
+    text being stored at bytes table+2 onward.
+  * It is not the interpreter's responsibility to worry about the length of
+    this table being overrun.
+  * In Version 6, a width field may optionally be given: if this is non-zero,
+    text will then be justified as if it were in the window with that number
+    (if width is positive) or a box "width" pixels wide (if negative). Then the
+    table will contain not ordinary text but formatted text: see print_form. *)
+
+let handle_output_stream1 stream interpreter =
+  let stream = signed_word stream in
+  let new_interpreter = match stream with
+  | 0 -> interpreter
+  | 1 -> select_output_stream interpreter ScreenStream true
+  | -1 -> select_output_stream interpreter ScreenStream false
+  | 2 -> select_output_stream interpreter TranscriptStream true
+  | -2 -> select_output_stream interpreter TranscriptStream true
+  | 3 -> failwith "Illegal to select stream 3 without table "
+  | -3 -> deselect_memory_stream interpreter
+  | 4 -> select_output_stream interpreter CommandStream true
+  | -4 -> select_output_stream interpreter CommandStream true
+  | _ -> failwith (Printf.sprintf "Invalid stream %d in output_stream" stream) in
+  new_interpreter
+
+let handle_output_stream2 stream table interpreter =
+  if stream = 3 then
+    select_memory_stream interpreter table
+  else
+    handle_output_stream1 stream interpreter
+
+let handle_output_stream3 stream table width interp =
+  failwith "TODO handle_output_stream stream table width not yet implemented"
+
+(* Spec: VAR:244 input_stream number
+Selects the current input stream. *)
+
+let handle_input_stream number interpreter =
+  (* TODO: input_stream not yet implemented; treat as a no-op for now. *)
+  interpreter
+
+(* Spec: VAR:245 sound_effect number effect volume routine
+  The given effect happens to the given sound number. The low byte of volume
+  holds the volume level, the high byte the number of repeats. (The value 255
+  means "loudest possible" and "forever" respectively.) (In Version 3, repeats
+  are unsupported and the high byte must be 0.)
+  Note that sound effect numbers 1 and 2 are bleeps (see S 9) and in these
+  cases the other operands must be omitted. Conversely, if any of the
+  other operands are present, the sound effect number must be 3 or higher.
+  The effect can be: 1 (prepare), 2 (start), 3 (stop), 4 (finish with).
+  In Versions 5 and later, the routine is called (with no parameters)
+  after the sound has been finished (it has been playing in the background
+  while the Z-machine has been working on other things). (This is used by
+  'Sherlock' to implement fading in and out, which explains why mysterious
+  numbers like $34FB were previously thought to be to do with fading.) The
+  routine is not called if the sound is stopped by another sound or by an
+  effect 3 call. See the remarks to Section 9 for which forms of this
+  opcode were actually used by Infocom. In theory, @sound_effect; (with no
+  operands at all) is illegal. However interpreters are asked to
+  beep (as if the operand were 1) if possible, and in any case not to halt. *)
+
+let handle_sound_effect args interpreter =
+  (* TODO: sound_effect not yet implemented; treat as a no-op for now. *)
+  interpreter
+
+(* Spec:  VAR:246 read_char 1 time routine -> (result)
+  Reads a single character from input stream 0 (the keyboard).
+  The first operand must be 1 (presumably it was provided to support
+  multiple input devices, but only the keyboard was ever used).
+  time and routine are optional (in Versions 4 and later only) and dealt
+  with as in read above. *)
+
+let handle_read_char0 interpreter instruction =
+  { interpreter with
+      state = Waiting_for_input ;
+      input_max = 1 }
+
+let handle_read_char2 routine time interpreter instruction =
+  handle_read_char0 interpreter instruction
+
+let complete_read_char interpreter instruction input =
+  let result = int_of_char input in
+  let interpreter = { interpreter with state = Running } in
+  let interpreter = interpret_store interpreter instruction.store result in
+  interpret_branch interpreter instruction result
+
+(* Spec: VAR:247 scan_table x table len form -> (result)
+    Is x one of the words in table, which is len words long? If so,
+    return the address where it first occurs and branch.
+    If not, return 0 and don't.
+    The form is optional (and only used in Version 5?): bit 8 is set for
+    words, clear for bytes: the rest contains the length of each
+    field in the table. (The first word or byte in each field being the one
+    looked at.) Thus $82 is the default. *)
+
+let handle_scan_table3 x table len interpreter =
+  let rec aux i =
+    if i = len then
+      0
+    else
+      let addr = table + 2 * i in
+      let y = unsigned_word (read_word interpreter.story addr) in
+      if x = y then addr
+      else aux (i + 1) in
+  aux 0
+
+let handle_scan_table4 x table len form interpreter =
+  failwith "TODO scan_table x table len form is not yet implemented"
 
 
 
@@ -1326,24 +1466,6 @@ let handle_store_and_branch interpreter instruction result =
 
 
 
-
-
-
-
-
-let handle_read_char interpreter instruction =
-  (* TODO: Support for time routine *)
-  { interpreter with
-      state = Waiting_for_input ;
-      input_max = 1 }
-
-let complete_read_char interpreter instruction input =
-    (*  TODO: Handle arguments; could require taking stuff off stack. *)
-    let running_interpreter = { interpreter with state = Running } in
-    handle_store_and_branch running_interpreter instruction (int_of_char input)
-
-
-
 (* Move the interpreter on to the next instruction *)
 let step_instruction interpreter =
   let instruction =
@@ -1360,23 +1482,9 @@ let step_instruction interpreter =
       handle_store_and_branch result_interpreter instruction result
    | _ -> failwith (Printf.sprintf "instruction %s must have one operand" (Instruction.display instruction (version interpreter.story) ) ) in
 
-  let handle_op1_effect compute_effect =
-    handle_op1 (fun x i -> (0, compute_effect x i)) in
-
   let handle_op1_value compute_value =
     handle_op1 (fun x i -> (compute_value x i, i)) in
 
-  let handle_op2 compute_result =
-    match instruction.operands with
-    | [x_operand; y_operand] ->
-      let (x, x_interpreter) = read_operand interpreter x_operand in
-      let (y, y_interpreter) = read_operand x_interpreter y_operand in
-      let (result, result_interpreter) = compute_result x y y_interpreter in
-      handle_store_and_branch result_interpreter instruction result
-   | _ -> failwith (Printf.sprintf "instruction at %04x must have two operands" instruction.address ) in
-
-  let handle_op2_effect compute_effect =
-    handle_op2 (fun x y i -> (0, compute_effect x y i)) in
 
   let handle_op3 compute_result =
     match instruction.operands with
@@ -1391,8 +1499,6 @@ let step_instruction interpreter =
   let handle_op3_effect compute_effect =
     handle_op3 (fun x y z i -> (0, compute_effect x y z i)) in
 
-  let handle_op3_value compute_value =
-    handle_op3 (fun x y z i -> (compute_value x y z i, i)) in
 
   let handle_op4 compute_result =
     match instruction.operands with
@@ -1417,61 +1523,6 @@ let step_instruction interpreter =
 
 
 
-
-
-  let handle_output_stream_1 stream interp =
-    let stream = signed_word stream in
-    let new_interpreter = match stream with
-    | 0 -> interp
-    | 1 -> select_output_stream interp ScreenStream true
-    | -1 -> select_output_stream interp ScreenStream false
-    | 2 -> select_output_stream interp TranscriptStream true
-    | -2 -> select_output_stream interp TranscriptStream true
-    | 3 -> failwith "Illegal to select stream 3 without table "
-    | -3 -> deselect_memory_stream interp
-    | 4 -> select_output_stream interp CommandStream true
-    | -4 -> select_output_stream interp CommandStream true
-    | _ -> failwith (Printf.sprintf "Invalid stream %d in output_stream" stream) in
-    new_interpreter in
-
-  let handle_output_stream_2 stream table interp =
-    if stream = 3 then
-      select_memory_stream interp table
-    else
-      handle_output_stream_1 stream interp in
-
-  let handle_output_stream () =
-    match instruction.operands with
-    | [_] -> handle_op1_effect handle_output_stream_1
-    | [_; _] -> handle_op2_effect handle_output_stream_2
-    | _ -> failwith "output_stream requires 1 or 2 arguments" in
-
-  let handle_input_stream stream interpreter =
-    (* TODO: input_stream not yet implemented; treat as a no-op for now. *)
-    interpreter in
-
-  let handle_sound_effect() =
-    (* TODO: sound_effect not yet implemented; treat as a no-op for now. *)
-    interpreter in
-
-
-
-  let handle_buffer_mode flag interpreter =
-    (* Spec:
-    If set to 1, text output on the lower window in stream 1 is buffered up
-    so that it can be word wrapped properly. If set to 0, it isn't. *)
-    (* I note that this code implements the spec; did the spec intend to leave
-    unspecified what happens when the value is neither 0 nor 1? *)
-    match flag with
-    | 0 -> { interpreter with screen =
-      set_word_wrap interpreter.screen Word_wrap_disabled }
-    | 1 -> { interpreter with screen =
-      set_word_wrap interpreter.screen Word_wrap_enabled }
-    | _ -> interpreter in
-
-  let handle_set_text_style style interpreter =
-    (* TODO: set_text_style not yet implemented; treat as a no-op for now. *)
-    interpreter in
 
   let handle_tokenise () =
     failwith "tokenise not implemented" in
@@ -1526,32 +1577,12 @@ let step_instruction interpreter =
 
 
 
-
-
-  let handle_scan_table x table len interp =
-    (* TODO: This is variadic; also has a 4-argument version *)
-    (* Does word x occur in table of len words? If yes, give
-    the address. If no, zero. *)
-    let rec aux i =
-      if i = len then
-        0
-      else
-        let addr = table + 2 * i in
-        let y = unsigned_word (read_word interp.story addr) in
-        if x = y then addr
-        else aux (i + 1) in
-    aux 0 in
-
-
-
-
   let (arguments, arguments_interp) = operands_to_arguments interpreter instruction.operands in
   let interpret_instruction = interpret_instruction arguments_interp instruction in
   let value = interpret_value_instruction arguments_interp instruction in
   let effect = interpret_effect_instruction arguments_interp instruction in
 
   match (instruction.opcode, arguments) with
-  | (ILLEGAL, _) ->  failwith "illegal operand"
   | (OP2_1, [a; b]) -> value (handle_je2 a b)
   | (OP2_1, [a; b; c]) -> value (handle_je3 a b c)
   | (OP2_1, [a; b; c; d]) -> value (handle_je4 a b c d)
@@ -1599,10 +1630,8 @@ let step_instruction interpreter =
   | (OP1_141, [paddr]) -> effect (handle_print_paddr paddr)
   | (OP1_142, [variable]) -> interpret_instruction (handle_load variable)
   | (OP1_143, [x]) ->
-    if (version interpreter.story) <= 4 then
-      value (handle_not x)
-    else
-      handle_call x [] arguments_interp instruction
+    if (version interpreter.story) <= 4 then value (handle_not x)
+    else handle_call x [] arguments_interp instruction
   | (OP0_176, []) -> handle_rtrue arguments_interp instruction
   | (OP0_177, []) -> handle_rfalse arguments_interp instruction
   | (OP0_178, []) -> handle_print arguments_interp instruction
@@ -1613,10 +1642,8 @@ let step_instruction interpreter =
   | (OP0_183, []) -> handle_restart arguments_interp instruction
   | (OP0_184, []) -> handle_ret_popped arguments_interp instruction
   | (OP0_185, []) ->
-    if (version interpreter.story <= 4) then
-      effect handle_pop
-    else
-      value handle_catch
+    if (version interpreter.story <= 4) then effect handle_pop
+    else value handle_catch
   | (OP0_186, []) -> handle_quit interpreter instruction
   | (OP0_187, []) -> effect handle_new_line
   | (OP0_188, []) -> effect handle_show_status
@@ -1643,7 +1670,17 @@ let step_instruction interpreter =
   | (VAR_239, [line; column]) -> effect (handle_set_cursor2 line column)
   | (VAR_239, [line; column; window]) -> effect (handle_set_cursor3 line column window)
   | (VAR_240, [arr]) -> effect (handle_get_cursor arr)
-
+  | (VAR_241, [style]) -> effect (handle_set_text_style style)
+  | (VAR_242, [flag]) -> effect (handle_buffer_mode flag)
+  | (VAR_243, [number]) -> effect (handle_output_stream1 number)
+  | (VAR_243, [number; table]) -> effect (handle_output_stream2 number table)
+  | (VAR_243, [number; table; width]) -> effect (handle_output_stream3 number table width)
+  | (VAR_244, [number]) -> effect (handle_input_stream number)
+  | (VAR_245, args) -> effect (handle_sound_effect args)
+  | (VAR_246, [dummy]) -> handle_read_char0 arguments_interp instruction
+  | (VAR_246, [dummy; time; routine]) -> handle_read_char2 time routine arguments_interp instruction
+  | (VAR_247, [x; table; len]) -> value (handle_scan_table3 x table len)
+  | (VAR_247, [x; table; len; form]) -> value (handle_scan_table4 x table len form)
   | (VAR_248, [x]) -> value (handle_not x)
   | (VAR_249, routine :: args) -> handle_call routine args arguments_interp instruction
   | (VAR_250, routine :: args) -> handle_call routine args arguments_interp instruction
@@ -1655,13 +1692,6 @@ let step_instruction interpreter =
 
 (
   match instruction.opcode with
-  | VAR_241 -> handle_op1_effect handle_set_text_style
-  | VAR_242 -> handle_op1_effect handle_buffer_mode
-  | VAR_243 -> handle_output_stream ()
-  | VAR_244 -> handle_op1_effect handle_input_stream
-  | VAR_245 -> handle_sound_effect()
-  | VAR_246 -> handle_read_char interpreter instruction
-  | VAR_247 -> handle_op3_value handle_scan_table
 
   | VAR_251 -> handle_tokenise()
   | VAR_252 -> handle_encode_text()
