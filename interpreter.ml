@@ -1009,7 +1009,6 @@ let handle_putprop obj prop value interpreter =
   let value = unsigned_word value in
   { interpreter with story = write_property interpreter.story obj prop value }
 
-
 (* Spec: VAR:234 3 split_window lines
 Splits the screen so that the upper window has the given number of lines: or,
 if this is zero, unsplits the screen again. In Version 3 (only) the upper
@@ -1137,10 +1136,173 @@ let complete_sread text_addr parse_addr input interpreter instruction =
   interpret_branch interpreter instruction result
   (* End of complete_sread *)
 
+(* Spec: VAR:229 print_char output-character-code
+  Print a ZSCII character. The operand must be a character code defined in
+  ZSCII for output (see Section 3). In particular, it must certainly not be
+  negative or larger than 1023. *)
 
+let handle_print_char code interpreter =
+  let text = string_of_char (char_of_int code) in
+  interpreter_print interpreter text
 
+(* Spec: VAR:230 print_num value
+  Print (signed) number in decimal. *)
 
+let handle_print_num value interpreter =
+  let value = signed_word value in
+  let text = Printf.sprintf "%d" value in
+  interpreter_print interpreter text
 
+(* Spec: VAR:231 random range -> (result)
+  If range is positive, returns a uniformly random number between 1 and
+  range. If range is negative, the random number generator is seeded to
+  that value and the return value is 0. Most interpreters consider giving
+  0 as range illegal (because they attempt a division with remainder by the
+  range), but correct behaviour is to reseed the generator in as random a
+  way as the interpreter can (e.g. by using the time in milliseconds). *)
+
+let handle_random n interpreter =
+  if n = 0 then
+    (0, { interpreter with random = Randomness.make_random()})
+  else if n < 0 then
+    (0, { interpreter with random = Randomness.make_seeded n })
+  else
+    let (result, random) = Randomness.next interpreter.random n in
+    (result, { interpreter with random })
+
+(* Spec: VAR:232 push value
+Pushes value onto the game stack. *)
+
+let handle_push value interpreter =
+  push_stack interpreter value
+
+(* Spec: VAR:233 pull (variable)
+                 pull stack -> (result)
+Pulls value off a stack. (If the stack underflows, the interpreter should halt with a suitable error
+message.) In Version 6, the stack in question may be specified as a user one: otherwise it is the
+game stack.
+push*)
+
+let handle_pull1 x interpreter =
+  if (version interpreter.story) = 6 then
+    failwith "TODO: user stack pull not yet implemented"
+  else
+    (* In non-v6, this is another one of those odd instructions
+    whose operand identifies a variable. *)
+    let variable = decode_variable x in
+    let value = peek_stack interpreter in
+    let popped_interpreter = pop_stack interpreter in
+    let store_interpreter = write_variable popped_interpreter variable value in
+    (0, store_interpreter)
+
+let handle_pull0 interpreter =
+  (* In version 6 if the operand is omitted then we simply pop the stack
+  and store the result normally. *)
+  let result = peek_stack interpreter in
+  let popped_interpreter = pop_stack interpreter in
+  (result, popped_interpreter)
+
+(* Spec: VAR:235 set_window window
+  Selects the given window for text output. *)
+
+let handle_set_window window interpreter =
+  let w =
+    match window with
+    | 0 -> Lower_window
+    | 1 -> Upper_window
+    | _ -> failwith "Unexpected window in set_window" in
+  { interpreter with screen = set_window interpreter.screen w }
+
+(* Spec: VAR:237 erase_window window
+    Erases window with given number (to background colour); or if -1 it
+    unsplits the screen and clears the lot; or if -2 it clears the screen
+    without unsplitting it. In cases -1 and -2, the cursor may move (see
+    Section 8 for precise details) *)
+
+let handle_erase_window window interpreter =
+  (* In Versions 5 and later, the cursor for the window being erased should
+    be moved to the top left. *)
+  (* In Version 4, the lower window's cursor moves to its bottom left,
+     while the upper window's cursor moves to top left *)
+  let window = signed_word window in
+  let unsplit = match window with
+    | -2 -> interpreter.screen
+    | -1 -> Screen.split_window interpreter.screen 0
+    | _ -> interpreter.screen in
+  let erased = match window with
+    | -2
+    | -1 -> erase_all unsplit
+    | 0 -> erase_lower unsplit
+    | 1 -> erase_upper unsplit
+    | _ -> failwith "unexpected window number in erase_window" in
+  let upper_moved = match window with
+    | -2
+    | -1
+    | 1 -> set_upper_cursor erased 1 1
+    | _ -> erased in
+  let lower_moved = match window with
+    | -2
+    | -1
+    | 0 ->
+      if (version interpreter.story) <= 4 then
+        set_lower_cursor upper_moved 1 (upper_moved.height)
+      else
+        set_lower_cursor upper_moved 1 1
+    | _ -> upper_moved in
+  { interpreter with screen = lower_moved }
+
+(* Spec: VAR:238 erase_line value
+Versions 4 and 5: if the value is 1, erase from the current cursor
+position to the end of its line in the current window. If the value
+is anything other than 1, do nothing.
+Version 6: if the value is 1, erase from the current cursor position to the
+end of the its line in the current window. If not, erase the given number of
+pixels minus one across from the cursor (clipped to stay inside the right
+margin). The cursor does not move. *)
+
+let handle_erase_line value interpreter =
+  if value = 1 then
+    { interpreter with screen = erase_line interpreter.screen }
+  else
+    interpreter
+
+(* Spec: VAR:239 set_cursor line column
+                 set_cursor line column window
+Move cursor in the current window to the position (x,y) (in units)
+relative to (1,1) in the top left.
+(In Version 6 the window is supplied and need not be the current one.
+Also, if the cursor would lie outside the current margin settings, it
+is moved to the left margin of the current line.)
+
+In Version 6, set_cursor -1 turns the cursor off, and either
+set_cursor -2 or set_cursor -2 0 turn it back on. It is not known what,
+if anything, this second argument means: in all known cases it is 0. *)
+
+let handle_set_cursor2 line column interpreter =
+  (* Spec 8.7.2.3
+  When the upper window is selected, its cursor position can be moved with
+  set_cursor. The opcode has no effect when the lower window is selected.
+  It is illegal to move the cursor outside the current size of the upper
+  window. *)
+  match interpreter.screen.selected_window with
+  | Lower_window -> interpreter
+  | Upper_window ->
+    { interpreter with screen = set_cursor interpreter.screen column line }
+
+let handle_set_cursor3 line column window interpreter =
+  failwith "TODO: set_cursor with window not yet implemented"
+
+(* Spec: VAR:240 get_cursor array
+Puts the current cursor row into the word 0 of the given array, and the
+current cursor column into word 1. (The array is not a table and has no
+size information in its initial entry.) *)
+
+let handle_get_cursor arr interpreter =
+  let arr = unsigned_word arr in
+  let (x, y) = get_active_cursor interpreter.screen in
+  let story = write_word interpreter.story arr y in
+  let story = write_word story (arr + 2) x in
+  { interpreter with story }
 
 
 
@@ -1163,20 +1325,6 @@ let handle_store_and_branch interpreter instruction result =
 
 
 
-
-
-
-let handle_pull interpreter instruction =
-  (* TODO: Variadic in v6 *)
-  match instruction.operands with
-  | [variable_operand] ->
-    let (variable, variable_interpreter) = read_operand interpreter variable_operand in
-    let target = decode_variable variable in
-    let value = peek_stack variable_interpreter in
-    let popped_interpreter = pop_stack interpreter in
-    let store_interpreter = write_variable popped_interpreter target value in
-    interpret_branch store_interpreter instruction 0
-  | _ -> failwith "pull requires a variable "
 
 
 
@@ -1271,17 +1419,6 @@ let step_instruction interpreter =
 
 
 
-
-
-  let handle_print_char x interp =
-    interpreter_print interp (Printf.sprintf "%c" (char_of_int x)) in
-
-  let handle_print_num x interp =
-    interpreter_print interp (Printf.sprintf "%d" (signed_word x)) in
-
-  let handle_push x interp =
-    push_stack interp x in
-
   let handle_output_stream_1 stream interp =
     let stream = signed_word stream in
     let new_interpreter = match stream with
@@ -1317,86 +1454,7 @@ let step_instruction interpreter =
     (* TODO: sound_effect not yet implemented; treat as a no-op for now. *)
     interpreter in
 
-  let handle_set_window window interpreter =
-    let w =
-      match window with
-      | 0 -> Lower_window
-      | 1 -> Upper_window
-      | _ -> failwith "Unexpected window in set_window" in
-    { interpreter with screen = set_window interpreter.screen w } in
 
-  let handle_erase_line value interpreter =
-
-  (* Spec:
-  Versions 4 and 5: if the value is 1, erase from the current cursor
-  position to the end of its line in the current window. If the value
-  is anything other than 1, do nothing. *)
-
-  if value = 1 then
-    { interpreter with screen = erase_line interpreter.screen }
-  else
-    interpreter in
-
-  let handle_erase_window window interp =
-    (* Spec:
-
-      Erases window with given number (to background colour); or
-      if -1 it unsplits the screen and clears the lot; or if -2 it clears
-      the screen without unsplitting it. In cases -1 and -2, the cursor may
-      move *)
-
-    (* In Versions 5 and later, the cursor for the window being erased should
-      be moved to the top left. *)
-
-    (* In Version 4, the lower window's cursor moves to its bottom left,
-       while the upper window's cursor moves to top left *)
-    let window = signed_word window in
-    let unsplit = match window with
-      | -2 -> interp.screen
-      | -1 -> Screen.split_window interp.screen 0
-      | _ -> interp.screen in
-    let erased = match window with
-      | -2
-      | -1 -> erase_all unsplit
-      | 0 -> erase_lower unsplit
-      | 1 -> erase_upper unsplit
-      | _ -> failwith "unexpected window number in erase_window" in
-    let upper_moved = match window with
-      | -2
-      | -1
-      | 1 -> set_upper_cursor erased 1 1
-      | _ -> erased in
-    let lower_moved = match window with
-      | -2
-      | -1
-      | 0 ->
-        if (version interp.story) <= 4 then
-          set_lower_cursor upper_moved 1 (upper_moved.height)
-        else
-          set_lower_cursor upper_moved 1 1
-      | _ -> upper_moved in
-    { interp with screen = lower_moved } in
-
-  let handle_set_cursor line column interp =
-    (* Spec 8.7.2.3
-    When the upper window is selected, its cursor position can be moved with
-    set_cursor. The opcode has no effect when the lower window is selected.
-    It is illegal to move the cursor outside the current size of the upper
-    window. *)
-    match interp.screen.selected_window with
-    | Lower_window -> interp
-    | Upper_window ->
-      { interp with screen = set_cursor interp.screen column line } in
-
-  let handle_get_cursor array interpreter =
-    (* Spec:
-    Puts the current cursor row into the word 0 of the given array, and the
-    current cursor column into word 1. (The array is not a table and has no
-    size information in its initial entry.) *)
-    let (x, y) = get_active_cursor interpreter.screen in
-    let story1 = write_word interpreter.story array y in
-    let story2 = write_word story1 (array + 2) x in
-    { interpreter with story = story2 } in
 
   let handle_buffer_mode flag interpreter =
     (* Spec:
@@ -1461,14 +1519,6 @@ let step_instruction interpreter =
 
 
 
-  let handle_random n interpreter =
-    if n = 0 then
-      (0, { interpreter with random = Randomness.make_random()})
-    else if n < 0 then
-      (0, { interpreter with random = Randomness.make_seeded n })
-    else
-      let (result, random) = Randomness.next interpreter.random n in
-      (result, { interpreter with random }) in
 
 
 
@@ -1579,10 +1629,20 @@ let step_instruction interpreter =
   | (VAR_227, [obj; prop; value]) -> effect (handle_putprop obj prop value)
   | (VAR_228, [text; parse]) -> handle_sread2 text parse interpreter instruction
   | (VAR_228, [text; parse; time; routine]) -> handle_sread4 text parse time routine interpreter instruction
-
+  | (VAR_229, [code]) -> effect (handle_print_char code)
+  | (VAR_230, [number]) -> effect (handle_print_num number)
+  | (VAR_231, [range]) -> interpret_instruction (handle_random range)
+  | (VAR_232, [x]) -> effect (handle_push x)
+  | (VAR_233, []) -> interpret_instruction handle_pull0
+  | (VAR_233, [x]) -> interpret_instruction (handle_pull1 x)
   | (VAR_234, [lines]) -> effect (handle_split_window lines)
-
+  | (VAR_235, [window]) -> effect (handle_set_window window)
   | (VAR_236, routine :: args) -> handle_call routine args arguments_interp instruction
+  | (VAR_237, [window]) -> effect (handle_erase_window window)
+  | (VAR_238, [x]) -> effect (handle_erase_line x)
+  | (VAR_239, [line; column]) -> effect (handle_set_cursor2 line column)
+  | (VAR_239, [line; column; window]) -> effect (handle_set_cursor3 line column window)
+  | (VAR_240, [arr]) -> effect (handle_get_cursor arr)
 
   | (VAR_248, [x]) -> value (handle_not x)
   | (VAR_249, routine :: args) -> handle_call routine args arguments_interp instruction
@@ -1590,19 +1650,11 @@ let step_instruction interpreter =
 
   | _ ->
 
+
+
+
 (
   match instruction.opcode with
-
-  | VAR_229 -> handle_op1_effect handle_print_char
-  | VAR_230 -> handle_op1_effect handle_print_num
-  | VAR_231 -> handle_op1 handle_random
-  | VAR_232 -> handle_op1_effect handle_push
-  | VAR_233 -> handle_pull interpreter instruction
-  | VAR_235 -> handle_op1_effect handle_set_window
-  | VAR_237 -> handle_op1_effect handle_erase_window
-  | VAR_238 -> handle_op1_effect handle_erase_line
-  | VAR_239 -> handle_op2_effect handle_set_cursor
-  | VAR_240 -> handle_op1_effect handle_get_cursor
   | VAR_241 -> handle_op1_effect handle_set_text_style
   | VAR_242 -> handle_op1_effect handle_buffer_mode
   | VAR_243 -> handle_output_stream ()

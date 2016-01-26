@@ -8,7 +8,7 @@ type t =
   z : Int32.t
 }
 
-(* Produces a non-negative random integer less than n,
+(* Produces a non-negative random integer between 1 and n,
 and steps the generator. *)
 let next r n =
   let xor = Int32.logxor in
@@ -22,7 +22,7 @@ let next r n =
   let y = r.z in
   let z = r.w in
   let w = xor (xor (xor r.w (sr r.w 19)) t) (sr t 8) in
-  let r = 1 + (to_int (rem w (of_int n)) + n) mod n in
+  let r = 1 + ((to_int (rem w (of_int n)) + n) mod n) in
   (r, { w; x; y; z })
 
 let make_seeded seed =
