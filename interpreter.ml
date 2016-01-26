@@ -43,6 +43,8 @@ type t =
   commands_selected : bool;
 
   (* TODO: Other input streams *)
+  text_address : int;
+  parse_address : int;
   input : string;
   input_max : int;
 }
@@ -69,6 +71,8 @@ let make story screen =
     commands_selected = false;
     memory_table = [];
     memory_selected = false;
+    text_address = 0;
+    parse_address = 0;
     input = "";
     input_max = 0
 }
@@ -217,6 +221,11 @@ let deselect_memory_stream interpreter =
   | [_] -> { interpreter with memory_selected = false; memory_table = [] }
   | _ :: t -> { interpreter with memory_selected = true; memory_table = t }
 
+let write_command interpreter input =
+  if interpreter.commands_selected then
+    {interpreter with commands = (input :: interpreter.commands) }
+  else interpreter
+
 (* TODO: Rename to just print *)
 let interpreter_print interpreter text =
   (* TODO: Consider building an output stream manager to provide an
@@ -225,7 +234,7 @@ let interpreter_print interpreter text =
   selected stream *)
   if interpreter.memory_selected then
     let table = List.hd interpreter.memory_table in
-    let new_story = write_length_prefixed_string interpreter.story table text in
+    let new_story = write_length_word_prefixed_string interpreter.story table text in
     { interpreter with story = new_story }
   else
     let new_transcript =
@@ -1011,6 +1020,186 @@ let handle_split_window lines interpreter =
   let lines = unsigned_word lines in
   split_window interpreter lines
 
+(* Spec: VAR:228 sread text parse
+                 sread text parse time routine
+                 aread text parse time routine -> (result)
+
+This is by far the most complex opcode; rather than putting
+the specification details here I'll put them inline. *)
+
+let handle_sread2 text_addr parse_addr interpreter instruction =
+  (* TODO: make a wrapper type for pointer-to-text-buffer *)
+  let text_addr = unsigned_word text_addr in
+  let parse_addr = unsigned_word parse_addr in
+  (* This instruction is broken up into two halves. The first determines the size of
+  the text buffer needed and then gives back an interpreter set to "I need input".
+  The second half (above) does the actual work once the host has provided the data. *)
+  (* Spec:
+  This opcode reads a whole command from the keyboard (no prompt is automatically displayed).
+  It is legal for this to be called with the cursor at any position on any window.
+  In Versions 1 to 3, the status line is automatically redisplayed first.  *)
+  let interpreter = set_status_line interpreter in
+  (* Spec:
+  In Versions 1 to 4, byte 0 of the text-buffer should initially contain the
+  maximum number of letters which can be typed, minus 1 (the interpreter should
+  not accept more than this).
+  -----
+  This part of the spec is extraordinarily hard to understand. Let me try to
+  suss it out.  Let's suppose WOLOG we want to allow 100 user-supplied
+  characters in the buffer.  So the whole buffer will need to be 102 bytes long.
+  Suppose the user has typed in a 100 character string. The buffer layout is:
+  * 1 byte containing some number, call it L
+  * 100 bytes of user data
+  * 1 byte of zero terminator
+  Now the question is: what is the number L, stored in the length byte?
+  The spec says that L is equal to the maximum number of letters which
+  can be typed -- 100 -- minus 1 -- 99.
+  This seems crazy. The spec is almost certainly wrong here. The author
+  intended to write PLUS ONE, not MINUS ONE.  Under that interpretation,
+  L is equal to the maximum number of letters which can be typed -- 100 --
+  plus 1 -- 101 -- which gives the actual number of valid bytes that are
+  beyond the length byte.
+
+  The spec could be more clearly worded by saying:
+
+  * Byte zero contains L, the maximum number of characters which may be written
+  into the buffer starting at byte one. Since the characters must be zero-terminated,
+  the maximum number of characters which the interpreter can accept is L - 1.
+
+  Things are seemingly much more straighforward for version 5, but we'll soon
+  see that no, it's just as confusing there.
+  ----
+  Spec:
+  In Versions 5 and later, byte 0 of the text-buffer should initially contain
+  the maximum number of letters which can be typed (the interpreter should
+  not accept more than this).    *)
+
+  let maximum_letters = read_byte interpreter.story text_addr in
+  let maximum_letters =
+    if (version interpreter.story) <= 4 then maximum_letters - 1
+    else maximum_letters in
+
+  (* At this point set the state to "needs input" and return that interpreter.
+  The host will get the input and call back to complete the process. *)
+  { interpreter with
+      state = Waiting_for_input;
+      text_address = text_addr;
+      parse_address = parse_addr;
+      input_max = maximum_letters }
+  (* end handle_sread *)
+
+let handle_sread4 text parse time routine interpreter instruction =
+  (* TODO: The time routine feature is not yet implemented. Just ignore
+  it for now. *)
+  (* Spec:
+  In Version 4 and later, if the operands time and routine are supplied
+  (and non-zero) then the routine call routine() is made every time/10 seconds
+  during the keyboard-reading process. If this routine returns true, all input
+  is erased (to zero) and the reading process is terminated at once.
+  (The terminating character code is 0.) The routine is permitted to print to
+  the screen even if it returns false to signal "carry on": the interpreter
+  should notice and redraw the input line so far, before input continues. *)
+  handle_sread2 text parse interpreter instruction
+
+let complete_sread text_addr parse_addr input interpreter instruction =
+  (* Spec: The text typed is reduced to lower case *)
+  (* Note: it is not clear from reading the spec whether this applies just
+  to versions 1-4, or all versions. Let's assume all. *)
+  let text = String.lowercase input in
+  let story = interpreter.story in
+  let maximum_letters = read_byte story text_addr in
+  let maximum_letters =
+    if (version interpreter.story) <= 4 then maximum_letters - 1
+    else maximum_letters in
+  let trimmed = truncate text maximum_letters in
+  (* Now we have to write the string into story memory. This is a bit tricky. *)
+  let story =
+    if (version story) <= 4 then
+      (* Spec: In Versions 1 to 4, ...  stored in bytes 1 onward, with a zero
+      terminator (but without any other terminator, such as a carriage return code).
+      ----
+      This seems straighforward. We write the string starting at byte one,
+      and terminate it with a zero. *)
+      write_string_zero_terminate story (text_addr + 1) trimmed
+    else
+      (* Spec: In Versions 5 and later, ... the interpreter stores the number of
+      characters actually typed in byte 1 (not counting the terminating character),
+      and the characters themselves in bytes 2 onward (not storing the
+      terminating character).
+        Moreover, if byte 1 contains a positive value at the start of the input,
+      then read assumes that number of characters are left over from an
+      interrupted previous input, and writes the new characters
+      after those already there. Note that the interpreter does not redisplay
+      the characters left over: the game does this, if it wants to.
+      ---
+      This part of the specification is again, very confusingly written. I think
+      the correct interpretation for version 5 is:
+      * the text buffer consists of two lead bytes and L characters.
+      * the maximum number of user-supplied characters which may *ever*
+        be written is L, and it is stored in byte 0
+      * the number of user-supplied characters *currently* written
+        is C and is in byte 1
+      * When writing new text in, the new text is written in starting
+        C + 2 bytes from the first lead byte. The second lead byte is
+        then updated so that it always contains the actual number of
+        user-supplied characters in the buffer. *)
+        let current_letters = read_byte story (text_addr + 1) in
+        let story = write_string story (text_addr + current_letters + 2) trimmed in
+        let length = String.length text in
+        write_byte story (text_addr + 1) (current_letters + length) in
+
+
+
+
+
+
+
+
+
+
+
+  (* Spec:
+  Next, lexical analysis is performed on the text (except that in Versions 5
+  and later, if parsebuffer is zero then this is omitted). *)
+  let story =
+    if parse_addr = 0 then
+      story
+    else
+      (* Spec:
+       Initially, byte 0  of the parse-buffer should hold the maximum
+       number of textual words which can be parsed. (If this is n, the buffer
+       must be at least 2 + 4*n bytes long to hold the results of the analysis.*)
+      let maximum_parse = read_byte story parse_addr in
+      (* Spec: The interpreter divides the text into words and looks them up in the
+         dictionary, as described in section 13. *)
+      let tokens = Tokeniser.tokenise story trimmed in
+      (* Spec: The number of words is written in byte 1 *)
+      let count = min maximum_parse (List.length tokens) in
+      let story = write_byte story (parse_addr + 1) count in
+      (* Spec: one 4-byte block is written for each word, from byte 2 onwards
+      (except that it should stop before going beyond the maximum number of words
+      specified). *)
+      Tokeniser.write_tokens tokens (parse_addr + 2) maximum_parse story in
+
+  let interpreter = { interpreter with state = Running } in
+  let interpreter = { interpreter with story } in
+  let interpreter = write_command interpreter input in
+    (* Spec: If input was terminated in the usual way, by the player typing a carriage return, then a carriage
+    return is printed (so the cursor moves to the next line). If it was interrupted, the cursor is left at
+    the rightmost end of the text typed in so far.*)
+  let interpreter = interpreter_print interpreter (input ^ "\n") in
+  let interpreter = { interpreter with screen = fully_scroll interpreter.screen } in
+  (* Spec:  In Version 5 and later, this is a store instruction: the return
+    value is the terminating character (note that the user pressing his "enter"
+    key may cause either 10 or 13 to be returned; the author recommends that
+    interpreters return 10).
+    A timed-out input returns 0. *)
+  let result = 10 in
+  let interpreter = interpret_store interpreter instruction.store result in
+  interpret_branch interpreter instruction result
+  (* End of complete_sread *)
+
+
 
 
 
@@ -1051,171 +1240,6 @@ let handle_pull interpreter instruction =
 
 
 
-let complete_sread interpreter instruction input =
-  (* TODO: Get word separator list from story *)
-
-  (* Returns a list of tuples containing each word, the start location
-  in the input string and the address of the matching dictionary word. *)
-  let tokenise text interp =
-    let length = String.length text in
-
-    let rec find_space_or_end i =
-      if i = length then i
-      else if text.[i] = ' ' then i
-      else find_space_or_end (i + 1) in
-
-    let rec skip_spaces i =
-      if i = length then i
-      else if text.[i] = ' ' then skip_spaces (i + 1)
-      else i in
-
-    let rec token start =
-      if start = length then
-        None
-      else
-        let end_of_token = find_space_or_end start in
-        let token_text = String.sub text start (end_of_token - start) in
-        let dictionary_address = dictionary_lookup interp.story token_text in
-        Some (token_text, start, dictionary_address) in
-
-    let rec aux i acc =
-      match token i with
-      | None -> acc
-      | Some (tok, start, addr) ->
-        let token_length = String.length tok in
-        let next_non_space = skip_spaces (i + token_length) in
-        let new_acc = (tok, start, addr) :: acc in
-        aux next_non_space new_acc in
-      List.rev (aux (skip_spaces 0) []) in
-      (* End of tokenise*)
-
-  (* We are no longer waiting for input *)
-  let running_interpreter = { interpreter with state = Running } in
-
-  let (text_address, parse_address, operands_interpreter) =
-    match instruction.operands with
-    | [x_operand; y_operand] ->
-      let (x, x_interpreter) = read_operand running_interpreter x_operand in
-      let (y, y_interpreter) = read_operand x_interpreter y_operand in
-      (x, y, y_interpreter)
-    | _ -> failwith (Printf.sprintf "instruction at %04x must have two operands" instruction.address ) in
-
-  let text = String.lowercase input in
-  let maximum_letters = read_byte operands_interpreter.story text_address in
-  let trimmed = truncate text maximum_letters in
-  let copied_story =
-    write_string operands_interpreter.story (text_address + 1) trimmed in
-  let string_copied_interpreter =
-    { operands_interpreter with story = copied_story} in
-
-  (*
-  TODO: This section only relevant to V4 and greater
-
-  In Versions 5 and later, byte 0 of the text-buffer should initially contain the maximum number
-  of letters which can be typed (the interpreter should not accept more than this). The interpreter
-  stores the number of characters actually typed in byte 1 (not counting the terminating character),
-  and the characters themselves in bytes 2 onward (not storing the terminating character). (Some
-  interpreters wrongly add a zero byte after the text anyway, so it is wise for the buffer to contain
-  at least n+3 bytes.)
-
-  Moreover, if byte 1 contains a positive value at the start of the input, then read assumes that
-  number of characters are left over from an interrupted previous input, and writes the new characters
-  after those already there. Note that the interpreter does not redisplay the characters left
-  over: the game does this, if it wants to. This is unfortunate for any interpreter wanting to give input
-  text a distinctive appearance on-screen, but 'Beyond Zork', 'Zork Zero' and 'Shogun' clearly
-  require it. ("Just a tremendous pain in my butt" -- Andrew Plotkin; "the most unfortunate feature
-  of the Z-machine design" -- Stefan Jokisch.)
-
-  In Version 4 and later, if the operands time and routine are supplied (and non-zero) then the
-  routine call routine() is made every time/10 seconds during the keyboard-reading process. If this
-  routine returns true, all input is erased (to zero) and the reading process is terminated at once.
-  (The terminating character code is 0.) The routine is permitted to print to the screen even if it
-  returns false to signal "carry on": the interpreter should notice and redraw the input line so far,
-  before input continues. (Frotz notices by looking to see if the cursor position is at the left-hand
-  margin after the interrupt routine has returned.)
-
-    *)
-
-  (*
-  If input was terminated in the usual way, by the player typing a carriage return, then a carriage
-  return is printed (so the cursor moves to the next line). If it was interrupted, the cursor is left at
-  the rightmost end of the text typed in so far.*)
-
-  let commands_interpreter =
-    if string_copied_interpreter.commands_selected then
-      {string_copied_interpreter with
-        commands = input :: string_copied_interpreter.commands }
-    else string_copied_interpreter in
-  let printed_interpreter =
-    interpreter_print commands_interpreter (input ^ "\n") in
-  let new_screen_interpreter = { printed_interpreter with
-    screen = fully_scroll printed_interpreter.screen } in
-
-  (*
-  Next, lexical analysis is performed on the text (except that in Versions 5 and later, if parsebuffer
-  is zero then this is omitted). Initially, byte 0 of the parse-buffer should hold the maximum
-  number of textual words which can be parsed. (If this is n, the buffer must be at least 2 +
-  4*n bytes long to hold the results of the analysis.)
-  *)
-
-  let maximum_parse = read_byte new_screen_interpreter.story parse_address in
-
-  if maximum_parse < 1 then failwith "bad parse buffer in sread";
-
-  (*
-
-  The interpreter divides the text into words and looks them up in the dictionary
-
-  The number of words is written in byte 1 and one 4-byte block is written for each word, from
-  byte 2 onwards (except that it should stop before going beyond the maximum number of words
-  specified).
-
-  Each block consists of the byte address of the word in the dictionary, if it is in the
-  dictionary, or 0 if it isn't; followed by a byte giving the number of letters in the word; and finally
-  a byte giving the position in the text-buffer of the first letter of the word.
-
-  In Version 5 and later, this is a store instruction: the return value is the terminating character
-  (note that the user pressing his "enter" key may cause either 10 or 13 to be returned; the author
-  recommends that interpreters return 10).
-
-  A timed-out input returns 0.
-
-  Versions 1 and 2 and early Version 3 games mistakenly write the parse buffer length 240 into
-  byte 0 of the parse buffer: later games fix this bug and write 59, because 2+4*59 = 238 so that 59
-  is the maximum number of textual words which can be parsed into a buffer of length 240 bytes.
-  Old versions of the Inform 5 library commit the same error. Neither mistake has very serious
-  consequences.
-
-  *)
-
-  let tokens = tokenise trimmed new_screen_interpreter in
-
-  let rec write_tokens items address count writing_tokens_interpreter =
-    match items with
-    | [] -> (count, writing_tokens_interpreter)
-    | (tok, text_offset, dictionary_address) :: tail ->
-      if count = maximum_parse then
-        (count, writing_tokens_interpreter)
-      else
-        let write_story = writing_tokens_interpreter.story in
-        let addr_story = write_word write_story address dictionary_address in
-        let len_story =
-          write_byte addr_story (address + 2) (String.length tok) in
-        let offset_story =
-          write_byte len_story (address + 3) (text_offset + 1) in
-        let new_interpreter =
-          { writing_tokens_interpreter with story = offset_story } in
-        write_tokens tail (address + 4) (count + 1) new_interpreter in
-
-  let (count, tokens_written_interpreter) =
-    write_tokens tokens (parse_address + 2) 0 new_screen_interpreter in
-  (* TODO: Make a write byte that takes interpreters *)
-  let length_copied_story =
-    write_byte tokens_written_interpreter.story (parse_address + 1) count in
-  let length_copied_interpreter =
-    { tokens_written_interpreter with story = length_copied_story } in
-  handle_store_and_branch length_copied_interpreter instruction 0
-  (* End of complete_sread *)
 
 let handle_read_char interpreter instruction =
   (* TODO: Support for time routine *)
@@ -1228,62 +1252,6 @@ let complete_read_char interpreter instruction input =
     let running_interpreter = { interpreter with state = Running } in
     handle_store_and_branch running_interpreter instruction (int_of_char input)
 
-let handle_sread interpreter instruction =
-  (* TODO: Variadic instruction *)
-
-  (* This instruction is broken up into two halves. The first determines the size of
-  the text buffer needed and then gives back an interpreter set to "I need input".
-  The second half (above) does the actual work once the host has provided the data.
-
-  Note that we are doing something unusual here. We potentially pop two values
-  off the stack, but we discard the mutated interpreter state. We will simply
-  compute the values again in the original interpreter on the completion side
-  of the instruction! Immutable data structures for the win! *)
-
-  let (text_address, _) =
-    match instruction.operands with
-    | [x_operand; y_operand] -> read_operand interpreter x_operand
-    | _ -> failwith (Printf.sprintf "instruction at %04x must have two operands" instruction.address ) in
-
-  (* SPEC
-  This opcode reads a whole command from the keyboard (no prompt is automatically displayed).
-  It is legal for this to be called with the cursor at any position on any window.
-  In Versions 1 to 3, the status line is automatically redisplayed first.
-  *)
-
-  let status_interpreter = set_status_line interpreter in
-
-  (* SPEC
-
-  A sequence of characters is read in from the current input stream until a carriage return (or, in
-  Versions 5 and later, any terminating character) is found.
-
-  In Versions 1 to 4, byte 0 of the text-buffer should initially contain the maximum number of
-  letters which can be typed, minus 1 (the interpreter should not accept more than this).
-
-  The text typed is reduced to lower case (so that it can tidily be printed back by the program if need be)
-  and stored in bytes 1 onward, with a zero terminator (but without any other terminator, such as a
-  carriage return code). (This means that if byte 0 contains n then the buffer must contain n+1
-  bytes, which makes it a string array of length n in Inform terminology.)
-  *)
-
-  let maximum_letters = read_byte status_interpreter.story text_address in
-
-  (*
-  Interpreters are asked to halt with a suitable error message if the text or parse buffers have
-  length of less than 3 or 6 bytes, respectively: this sometimes occurs due to a previous array being
-  overrun, causing bugs which are very difficult to find.
-  *)
-
-  if maximum_letters < 3 then failwith "bad text buffer in sread";
-
-  (* TODO: At this point set the state to "needs input" and return that interpreter.
-  The host will get the input and call back to complete the process. *)
-
-  { status_interpreter with
-      state = Waiting_for_input ;
-      input_max = maximum_letters }
-  (* end handle_sread *)
 
 
 (* Move the interpreter on to the next instruction *)
@@ -1667,6 +1635,8 @@ let step_instruction interpreter =
   | (VAR_225, [arr; ind; value]) -> effect (handle_storew arr ind value)
   | (VAR_226, [arr; ind; value]) -> effect (handle_storeb arr ind value)
   | (VAR_227, [obj; prop; value]) -> effect (handle_putprop obj prop value)
+  | (VAR_228, [text; parse]) -> handle_sread2 text parse interpreter instruction
+  | (VAR_228, [text; parse; time; routine]) -> handle_sread4 text parse time routine interpreter instruction
 
   | (VAR_234, [lines]) -> effect (handle_split_window lines)
 
@@ -1681,7 +1651,6 @@ let step_instruction interpreter =
 (
   match instruction.opcode with
 
-  | VAR_228 -> handle_sread interpreter instruction
   | VAR_229 -> handle_op1_effect handle_print_char
   | VAR_230 -> handle_op1_effect handle_print_num
   | VAR_231 -> handle_op1 handle_random
@@ -1765,8 +1734,8 @@ let step_with_input interpreter key =
   let instruction =
     decode_instruction interpreter.story interpreter.program_counter in
   let handle_enter () =
-    let blank_input = { interpreter with input = "" } in
-    complete_sread blank_input instruction interpreter.input in
+    let blank_input = { interpreter with input = ""; input_max = 0; text_address = 0; parse_address = 0 } in
+    complete_sread interpreter.text_address interpreter.parse_address interpreter.input blank_input instruction  in
   let handle_backspace () =
     if length = 0 then
       interpreter

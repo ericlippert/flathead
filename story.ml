@@ -50,25 +50,35 @@ let write_word story address value =
 let write_byte story address value =
   { memory = Memory.write_byte story.memory address value }
 
-(* Writes a series of bytes into memory. Does not zstring encode them.
-   Does zero-byte terminate them. *)
+(* Writes bytes into memory; no zstring encoding, no zero
+termination, no length. *)
 let write_string story address text =
   let length = String.length text in
   let rec aux i s =
     if i = length then s
     else aux (i + 1) (write_byte s (address + i) (int_of_char text.[i])) in
-  let copied = aux 0 story in
+  aux 0 story
+
+(* Writes a series of bytes into memory. Does not zstring encode them.
+   Does zero-byte terminate them. *)
+let write_string_zero_terminate story address text =
+  let length = String.length text in
+  let copied = write_string story address text in
   write_byte copied (address + length) 0
 
 (* Writes a series of bytes into memory; no zero terminator,
-prefixed by length *)
-let write_length_prefixed_string story address text =
+prefixed by two bytes of length *)
+let write_length_word_prefixed_string story address text =
+  let copied = write_string story (address + 2) text in
   let length = String.length text in
-  let rec aux i s =
-    if i = length then s
-    else aux (i + 1) (write_byte s (address + 2 + i) (int_of_char text.[i])) in
-  let copied = aux 0 story in
   write_word copied address length
+
+(* Writes a series of bytes into memory; no zero terminator,
+prefixed by one byte of length *)
+let write_length_byte_prefixed_string story address text =
+  let copied = write_string story (address + 1) text in
+  let length = String.length text in
+  write_byte copied address length
 
 (* Debugging method for displaying a raw block of memory. *)
 let display_story_bytes story address length =
