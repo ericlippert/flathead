@@ -1,5 +1,4 @@
 open Utility
-open Window
 
 type status_line =
   Status of string option
@@ -21,38 +20,39 @@ type t =
 let make height width =
   {
     status = Status None;
-    upper_window = Window.make 0 width 1 1 Word_wrap_disabled Scroll_disabled More_disabled;
-    lower_window = Window.make height width 1 height Word_wrap_enabled Scroll_enabled More_enabled;
+    upper_window = Window.make 0 width 1 1 Window.Word_wrap_disabled Window.Scroll_disabled Window.More_disabled;
+    lower_window = Window.make height width 1 height Window.Word_wrap_enabled Window.Scroll_enabled Window.More_enabled;
     height;
     width;
     selected_window = Lower_window
   }
 
 let screen_lines screen =
-  Deque.merge screen.upper_window.lines screen.lower_window.lines
+  Window.merge screen.upper_window screen.lower_window
 
 let erase_upper screen =
-  { screen with upper_window = erase screen.upper_window }
+  { screen with upper_window = Window.erase screen.upper_window }
 
 let erase_lower screen =
-  { screen with lower_window = erase screen.lower_window }
+  { screen with lower_window = Window.erase screen.lower_window }
 
 let erase_all screen =
   erase_upper (erase_lower screen)
 
 let upper_cursor screen =
-  screen.upper_window.cursor
+  Window.cursor screen.upper_window
 
 let lower_cursor screen =
-  let (x, y) = screen.lower_window.cursor in
-  (x, y + screen.upper_window.height)
+  let (x, y) = Window.cursor screen.lower_window in
+  (x, y + Window.height screen.upper_window)
 
 let set_upper_cursor screen x y =
   { screen with upper_window = Window.set_cursor screen.upper_window x y }
 
 let set_lower_cursor screen x y =
   { screen with lower_window =
-    Window.set_cursor screen.lower_window x (y - screen.upper_window.height) }
+    let h = Window.height screen.upper_window in
+    Window.set_cursor screen.lower_window x (y - h) }
 
 let set_cursor screen x y =
   match screen.selected_window with
@@ -106,14 +106,10 @@ let split_window screen new_upper_height =
 
   (* Put it all together *)
 
-  let upper_window = { screen.upper_window with
-    lines = new_upper;
-    height = new_upper_height;
-    cursor = (upper_x, upper_y) } in
-  let lower_window = { screen.lower_window with
-    lines = new_lower;
-    height = screen.height - new_upper_height;
-    cursor = (lower_x, lower_y - new_upper_height)} in
+  let upper_window = Window.set_lines screen.upper_window new_upper in
+  let upper_window = Window.set_cursor upper_window upper_x upper_y in
+  let lower_window = Window.set_lines screen.lower_window new_lower in
+  let lower_window = Window.set_cursor lower_window lower_x (lower_y - new_upper_height) in
   { screen with upper_window; lower_window; selected_window }
 
 let set_window screen w =
@@ -137,10 +133,10 @@ let fully_scroll screen =
   { screen with lower_window = Window.fully_scroll screen.lower_window }
 
 let needs_scroll screen =
-  screen.lower_window.pending != Nothing_pending
+  Window.has_pending screen.lower_window
 
 let needs_more screen =
-  screen.lower_window.needs_more
+  Window.needs_more screen.lower_window
 
 let more screen =
   { screen with lower_window = Window.more screen.lower_window }
@@ -157,9 +153,9 @@ match screen.selected_window with
 
 let get_active_cursor screen =
   match screen.selected_window with
-  | Lower_window -> screen.lower_window.cursor
-  | Upper_window -> screen.upper_window.cursor
+  | Lower_window -> Window.cursor screen.lower_window
+  | Upper_window -> Window.cursor screen.upper_window
 
 let set_word_wrap screen can_wrap =
-  let lower_window = { screen.lower_window with can_wrap } in
+  let lower_window = Window.set_can_wrap screen.lower_window can_wrap in
   { screen with lower_window }

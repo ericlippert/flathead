@@ -213,3 +213,25 @@ let more window =
 
 let clear_more window =
   { window with scroll_count = 0; needs_more = false }
+
+(* Produces a deque of the merged window lines *)
+let merge w1 w2 =
+  Deque.merge w1.lines w2.lines
+
+let cursor window =
+  window.cursor
+
+let height window =
+  window.height
+
+let set_lines window new_lines =
+  { window with lines = new_lines; height = Deque.length new_lines }
+
+let has_pending window =
+  window.pending != Nothing_pending
+
+let needs_more window =
+  window.needs_more
+
+let set_can_wrap window can_wrap =
+  { window with can_wrap }
