@@ -464,7 +464,8 @@ let handle_get_prop obj prop interpreter =
 let handle_get_prop_addr obj prop interpreter =
   let obj = Object obj in
   let prop = Property prop in
-  Object.property_address interpreter.story obj prop
+  let (Property_data addr) = Object.property_address interpreter.story obj prop in
+  addr
 
 (* Spec: 2OP:19 get_next_prop object property -> (result)
   Gives the number of the next property provided by the quoted object.

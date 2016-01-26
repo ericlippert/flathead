@@ -2,6 +2,8 @@ open Story
 open Utility
 open Type
 
+let invalid_data = Property_data 0
+
 let default_property_table_size story =
   if (version story) <= 3 then 31 else 63
 
@@ -194,11 +196,12 @@ let insert story new_child new_parent =
    property number and the number of bytes in the property value.
    This block begins after the length-prefixed object name. *)
 
-(* Takes the address of a property data block -- past the string.
+(* Takes the address of a property block -- past the string,
+pointing to the block header.
 Returns the length of the header, the length of the data, and the
 property number. *)
 
-let decode_property_data story address =
+let decode_property_data story (Property_address address) =
   let b = read_byte story address in
   if b = 0 then
     (0, 0, invalid_property)
@@ -226,20 +229,22 @@ let decode_property_data story address =
 (* This method produces a list of (number, data_length, data_address) tuples *)
 let property_addresses story obj =
   let rec aux acc address =
-    let b = read_byte story address in
+    let (Property_address addr) = address in
+    let b = read_byte story addr in
     if b = 0 then
       acc
     else
       let (header_length, data_length, prop) =
         decode_property_data story address in
       let this_property =
-        (prop, data_length, address + header_length) in
-      let next_addr = address + header_length + data_length in
+        (prop, data_length, Property_data (addr + header_length)) in
+      let next_addr = Property_address (addr + header_length + data_length) in
       aux (this_property :: acc) next_addr in
   let (Property_header header) = property_header_address story obj in
   let property_name_address = header in
   let property_name_word_length = read_byte story property_name_address in
-  let first_property_address = property_name_address + 1 + property_name_word_length * 2 in
+  let first_property_address =
+    Property_address (property_name_address + 1 + property_name_word_length * 2) in
   aux [] first_property_address
 
 (* Given the adddress of the data block, how long is it?  In version 3
@@ -266,7 +271,7 @@ let property_length_from_address story address =
 let property_address story obj prop =
   let rec aux addresses =
     match addresses with
-    | [] -> 0
+    | [] -> invalid_data
     | (number, _, address) :: tail ->
       if number = prop then address
       else aux tail in
@@ -282,7 +287,7 @@ let property story obj prop =
   let rec aux addresses =
     match addresses with
     | [] -> default_property_value story prop
-    | (number, length, address) :: tail ->
+    | (number, length, (Property_data address)) :: tail ->
       if number = prop then (
         if length = 1 then
           read_byte story address
@@ -313,16 +318,17 @@ let next_property story obj (Property prop) =
 let write_property story obj prop value =
   let rec aux addresses =
     match addresses with
-    | [] -> (0, 0)
+    | [] -> (invalid_data, 0)
     | (number, length, address) :: tail ->
       if number = prop then (address, length)
       else aux tail in
   let (address, length) = aux (property_addresses story obj) in
-  if address = 0 then failwith "invalid property";
+  if address = invalid_data then failwith "invalid property";
+  let (Property_data address) = address in
   match length with
   | 1 -> write_byte story address value
   | 2 -> write_word story address value
-  | _ -> failwith "property cannot be set";;
+  | _ -> failwith "property cannot be set"
 
 (* Debugging method for displaying the property numbers and
    values for a given object *)
