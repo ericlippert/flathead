@@ -194,7 +194,7 @@ let draw_interpreter debugger =
   let interpreter = debugger.interpreter in
   let screen = interpreter.screen in
   if interpreter.state = Waiting_for_input then
-    draw_screen (fully_scroll (print screen interpreter.input))
+    draw_screen (fully_scroll (Screen.print screen interpreter.input))
   else if interpreter.has_new_output || (debugger.state = Paused) || (debugger.state = Halted) then
     let screen_to_draw =
       if needs_more debugger then

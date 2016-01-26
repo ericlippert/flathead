@@ -227,7 +227,7 @@ let write_command interpreter input =
   else interpreter
 
 (* TODO: Rename to just print *)
-let interpreter_print interpreter text =
+let print interpreter text =
   (* TODO: Consider building an output stream manager to provide an
   abstraction of this logic.  *)
   (* If output stream 3 is selected then no output goes to any other
@@ -643,7 +643,7 @@ let handle_print_addr addr interpreter =
   (* TODO: Add wrapper type for string addresses *)
   let addr = unsigned_word addr in
   let text = read_zstring interpreter.story addr in
-  interpreter_print interpreter text
+  print interpreter text
 
 (* Spec: 1OP:137 remove_obj object
 Detach the object from its parent, so that it no longer has any parent.
@@ -660,7 +660,7 @@ let handle_remove_obj obj interpreter =
 let handle_print_obj obj interpreter =
   let obj = Object obj in
   let text = object_name interpreter.story obj in
-  interpreter_print interpreter text
+  print interpreter text
 
 (* Spec: 1OP:139 ret value
   Returns from the current routine with the value given *)
@@ -694,7 +694,7 @@ let handle_print_paddr packed_address interpreter =
   let packed_address = unsigned_word packed_address in
   let address = decode_string_packed_address interpreter.story packed_address in
   let text = read_zstring interpreter.story address in
-  interpreter_print interpreter text
+  print interpreter text
 
 (* Spec: 1OP:142 load (variable) -> (result)
   The value of the variable referred to by the operand is stored in the result. *)
@@ -738,7 +738,7 @@ let handle_rfalse interpreter instruction =
 
 let handle_print interpreter instruction =
   let printed_interpreter = match instruction.text with
-  | Some text -> interpreter_print interpreter text
+  | Some text -> print interpreter text
   | None -> interpreter in
   interpret_branch printed_interpreter instruction 0
 
@@ -749,7 +749,7 @@ let handle_print interpreter instruction =
 let handle_print_ret interpreter instruction =
   let printed_interpreter =
     match instruction.text with
-    | Some text -> interpreter_print interpreter (text ^ "\n")
+    | Some text -> print interpreter (text ^ "\n")
     | None -> interpreter in
   interpret_return printed_interpreter instruction 1
 
@@ -937,7 +937,7 @@ let handle_quit interpreter instruction =
   Print carriage return. *)
 
 let handle_new_line interpreter =
-  interpreter_print interpreter "\n"
+  print interpreter "\n"
 
 (* Spec: 0OP:188 show_status
   (In Version 3 only.) Display and update the status line now (don't
@@ -1124,7 +1124,7 @@ let complete_sread text_addr parse_addr input interpreter instruction =
     (* Spec: If input was terminated in the usual way, by the player typing a carriage return, then a carriage
     return is printed (so the cursor moves to the next line). If it was interrupted, the cursor is left at
     the rightmost end of the text typed in so far.*)
-  let interpreter = interpreter_print interpreter (input ^ "\n") in
+  let interpreter = print interpreter (input ^ "\n") in
   let interpreter = { interpreter with screen = fully_scroll interpreter.screen } in
   (* Spec:  In Version 5 and later, this is a store instruction: the return
     value is the terminating character (note that the user pressing his "enter"
@@ -1143,7 +1143,7 @@ let complete_sread text_addr parse_addr input interpreter instruction =
 
 let handle_print_char code interpreter =
   let text = string_of_char (char_of_int code) in
-  interpreter_print interpreter text
+  print interpreter text
 
 (* Spec: VAR:230 print_num value
   Print (signed) number in decimal. *)
@@ -1151,7 +1151,7 @@ let handle_print_char code interpreter =
 let handle_print_num value interpreter =
   let value = signed_word value in
   let text = Printf.sprintf "%d" value in
-  interpreter_print interpreter text
+  print interpreter text
 
 (* Spec: VAR:231 random range -> (result)
   If range is positive, returns a uniformly random number between 1 and
@@ -1464,7 +1464,7 @@ let handle_tokenise2 text parse interpreter =
   failwith "TODO: tokenise not implemented"
 
 let handle_tokenise4 text parse dictionary flag interpreter =
-  failwith "TODO: tokenise not implemented"
+  failwith "TODO: tokenise text parse dictionary flag not implemented"
 
 (* Spec: VAR:252 encode_text zsciitext length from codedtext
   Translates a ZSCII word to Z-encoded text format (stored at coded-text),
