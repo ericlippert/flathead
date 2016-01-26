@@ -1,4 +1,5 @@
 open Utility
+open Type
 
 type opcode_form =
   | Long_form
@@ -11,20 +12,6 @@ type operand_count =
   | OP1
   | OP2
   | VAR
-
-type local_variable =
-  Local of int
-
-type global_variable =
-  Global of int
-
-type variable_location =
-  | Stack
-  | Local_variable of local_variable
-  | Global_variable of global_variable
-
-type instruction_address =
-  Instruction of int
 
 let decode_variable n =
   let maximum_local = 15 in
@@ -383,8 +370,8 @@ type instruction_reader =
 {
   word_reader : int -> int;
   byte_reader : int -> int;
-  zstring_reader : Zstring.zstring_address -> string;
-  zstring_length : Zstring.zstring_address -> int
+  zstring_reader : zstring_address -> string;
+  zstring_length : zstring_address -> int
 }
 
 (* Takes the address of an instruction and produces the instruction *)
@@ -677,7 +664,7 @@ let decode
   let branch_code_address = store_address + store_length in
   let branch = decode_branch branch_code_address opcode ver in
   let branch_length = get_branch_length branch_code_address opcode ver in
-  let text_address = Zstring.Address (branch_code_address + branch_length) in
+  let text_address = Zstring (branch_code_address + branch_length) in
   let text = decode_text text_address opcode in
   let text_length = get_text_length text_address opcode in
   let length =

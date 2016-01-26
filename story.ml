@@ -4,37 +4,16 @@ these functions just provide structure around that memory. *)
 
 open Utility
 open Instruction
+open Type
 
 type t =
 {
   memory : Memory.t
 }
 
-type object_number =
-  Object of int
-
+(* TODO: Move these somewhere more appropriate *)
 let invalid_object = Object 0
-
-type property_number =
-  Property of int
-
 let invalid_property = Property 0
-
-type dictionary_number =
-  Dictionary of int
-
-type attribute_number =
-  Attribute of int
-
-type routine_address =
-  Routine of int
-
-type packed_routine_address =
-  Packed_routine of int
-
-type packed_zstring_address =
-  Packed_zstring of int
-
 
 (* *)
 (* Dealing with memory *)
@@ -292,12 +271,12 @@ let decode_string_packed_address story (Packed_zstring packed) =
   match version story with
   | 1
   | 2
-  | 3 -> Zstring.Address (packed * 2)
+  | 3 -> Zstring (packed * 2)
   | 4
-  | 5 -> Zstring.Address (packed * 4)
+  | 5 -> Zstring (packed * 4)
   | 6
-  | 7 -> Zstring.Address (packed * 4 + (string_offset story))
-  | 8 -> Zstring.Address (packed * 8)
+  | 7 -> Zstring (packed * 4 + (string_offset story))
+  | 8 -> Zstring (packed * 8)
   | _ -> failwith "bad version"
 
 let load_story filename =
@@ -320,13 +299,13 @@ let load_story filename =
 
 let abbreviation_table_length = 96
 
-let abbreviation_address story (Zstring.Abbreviation n) =
+let abbreviation_address story (Abbreviation n) =
   if n < 0 || n >= abbreviation_table_length then
     failwith "bad offset into abbreviation table"
   else
     let abbr_addr = (abbreviations_table_base story) + (n * 2) in
     let word_addr = read_word story abbr_addr in
-    Zstring.Address (decode_word_address word_addr)
+    Zstring (decode_word_address word_addr)
 
 (* gives the length in bytes of the encoded zstring, not the decoded string *)
 let zstring_length story address =
@@ -345,9 +324,9 @@ let display_zchar_bytes story offset length =
 (* Debugging helper *)
 let display_abbreviation_table story =
   let to_string i =
-    let address = abbreviation_address story (Zstring.Abbreviation i) in
+    let address = abbreviation_address story (Abbreviation i) in
     let value = read_zstring story address in
-    let (Zstring.Address address) = address in
+    let (Zstring address) = address in
     Printf.sprintf "%02x: %04x  %s\n" i address value in
   accumulate_strings_loop to_string 0 abbreviation_table_length
 

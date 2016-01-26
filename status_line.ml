@@ -2,6 +2,7 @@ open Story
 open Screen
 open Utility
 open Instruction
+open Type
 
 let empty = Status None
 

@@ -6,6 +6,7 @@
 open Utility
 open Iff
 open Instruction
+open Type
 
 type t =
 {

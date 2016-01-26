@@ -1,6 +1,7 @@
 open Story
 open Instruction
 open Utility
+open Type
 
 (* Any given instruction in a routine either goes on to the next instruction,
 when it is done, or branches to another instruction when it is done, or terminates

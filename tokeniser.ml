@@ -1,10 +1,12 @@
 open Story
+open Type
 
 type token =
 {
   token_text : string;
   start : int; (* Offset in the input text *)
-  dictionary_address : Dictionary.dictionary_address}
+  dictionary_address : dictionary_address
+}
 
 (* TODO: Get word separator list from story *)
 
@@ -62,7 +64,7 @@ let write_tokens items address max_parse story =
       if count = max_parse then
         story
       else
-        let (Dictionary.Address dictionary_address) = dictionary_address in
+        let (Dictionary_address dictionary_address) = dictionary_address in
         let story = write_word story address dictionary_address in
         let story = write_byte story (address + 2) (String.length token_text) in
         let story = write_byte story (address + 3) (start + text_buffer_offset) in

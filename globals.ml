@@ -1,6 +1,7 @@
 open Story
 open Instruction
 open Utility
+open Type
 
 let first_global = 16
 let last_global = 255

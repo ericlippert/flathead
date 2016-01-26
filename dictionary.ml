@@ -1,10 +1,8 @@
 open Story
 open Utility
+open Type
 
-type dictionary_address =
-  Address of int
-
-let invalid_address = Address 0
+let invalid_address = Dictionary_address 0
 
 (* The table is laid out as follows. First there is a header:
 
@@ -48,11 +46,11 @@ let table_base story =
 let entry_address story (Dictionary dictionary_number) =
   let base = table_base story in
   let entry_length = entry_length story in
-  Address (base + dictionary_number * entry_length)
+  Dictionary_address (base + dictionary_number * entry_length)
 
 let entry story dictionary_number =
-  let (Address addr) = entry_address story dictionary_number in
-  read_zstring story (Zstring.Address addr)
+  let (Dictionary_address addr) = entry_address story dictionary_number in
+  read_zstring story (Zstring addr)
 
 (* Takes a string and finds the address of the corresponding zstring
   in the dictionary *)

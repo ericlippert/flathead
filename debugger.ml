@@ -2,6 +2,7 @@ open Utility
 open Graphics
 open Screen
 open Instruction
+open Type
 open Interpreter;;
 
 open_graph "";;

@@ -1,10 +1,7 @@
 open Utility
+open Type
 
-type abbreviation_number =
-  Abbreviation of int
 
-type zstring_address =
-  Address of int
 
 type string_mode =
   | Alphabet of int
@@ -25,13 +22,13 @@ let alphabet_table = [|
   "8"; "9"; "."; ","; "!"; "?"; "_"; "#"; "'"; "\""; "/"; "\\"; "-"; ":"; "("; ")" |]
 
 (* gives the length in bytes of the encoded zstring, not the decoded string *)
-let length word_reader (Address address) =
+let length word_reader (Zstring address) =
   let rec aux len current =
     if fetch_bit bit15 (word_reader current) then len + 2
     else aux (len + 2) (current + 2) in
   aux 0 address
 
-let rec read word_reader abbrv_reader (Address address) =
+let rec read word_reader abbrv_reader (Zstring address) =
   (* TODO: Only processes version 3 strings *)
 
   (* zstrings encode three characters into two-byte words.

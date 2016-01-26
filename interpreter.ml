@@ -5,6 +5,7 @@ open Window
 open Screen
 open Iff
 open Quetzal
+open Type
 
 type state =
   | Running
@@ -645,7 +646,7 @@ let handle_dec variable interpreter =
 
 let handle_print_addr addr interpreter =
   (* TODO: Add wrapper type for string addresses *)
-  let addr = Zstring.Address addr in
+  let addr = Zstring addr in
   let text = read_zstring interpreter.story addr in
   print interpreter text
 

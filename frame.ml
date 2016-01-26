@@ -2,6 +2,7 @@ open Utility
 open Iff
 open Story
 open Instruction
+open Type
 
 type t =
 {
