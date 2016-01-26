@@ -27,13 +27,16 @@ let width screen =
 let height screen =
   screen.height
 
+let status screen =
+  screen.status
+
 let set_status screen status =
   { screen with status }
 
 let selected_window screen =
   screen.selected_window
 
-let screen_lines screen =
+let lines screen =
   Window.merge screen.upper_window screen.lower_window
 
 let erase_upper screen =
@@ -70,7 +73,7 @@ let split_window screen new_upper_height =
   change what window is selected and where the cursor is. *)
 
   (* First figure out what lines go in which window. *)
-  let (new_upper, new_lower) = Deque.split (screen_lines screen) new_upper_height in
+  let (new_upper, new_lower) = Deque.split (lines screen) new_upper_height in
 
   (* If the lower window is selected when the screen is split then the
     upper window cursor is reset to 1, 1. *)

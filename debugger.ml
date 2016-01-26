@@ -1,8 +1,8 @@
-open Utility
 open Graphics
-open Screen
-open Instruction
+open Utility
 open Type;;
+
+(* TODO: Wrapper types around pixel height / width vs character height / width *)
 
 open_graph "";;
 auto_synchronize false;;
@@ -40,7 +40,9 @@ type t =
 
 (* Extra line for status *)
 let screen_extent screen =
-  (10, 10, screen.width * text_width, (screen.height + 1) * text_height);;
+  let w = Screen.width screen in
+  let h = Screen.height screen in
+  (10, 10, w * text_width, (h + 1) * text_height);;
 
 let make interpreter =
   let screen = Interpreter.screen interpreter in
@@ -82,11 +84,12 @@ let clear_screen screen =
 let draw_status screen =
   let (x, y, _, _) = screen_extent screen in
   let status_color = blue in
-  match screen.status with
+  match Screen.status screen with
   | Status None  -> ()
   | Status Some status -> (
     set_color status_color;
-    draw_string_at status x (y + text_height * screen.height) )
+    let h = Screen.height screen in
+    draw_string_at status x (y + text_height * h) )
 
 let rec draw_screen screen =
   clear_screen screen;
@@ -94,8 +97,9 @@ let rec draw_screen screen =
   set_color foreground;
   let (x, y, _, _) = screen_extent screen in
   let rec aux n =
-    if n < screen.height then (
-      let text = Deque.peek_front_at (screen_lines screen) n in
+    let h = Screen.height screen in
+    if n < h then (
+      let text = Deque.peek_front_at (Screen.lines screen) n in
       let text_y = y + text_height * n in
       draw_string_at text x text_y;
       aux (n + 1)) in
@@ -148,13 +152,13 @@ let draw_undo_redo debugger =
   let window_y = screen_y in
   let instruction_width = 60 in
   let window_w = text_width * instruction_width in
-  let window_h = text_height * screen.height in
+  let window_h = text_height * (Screen.height screen) in
   let draw_line interp n =
     let instr = Interpreter.display_current_instruction interp in
     let text = trim_to_length instr instruction_width in
     draw_string_at text window_x (window_y + text_height * n) in
   let rec draw_undo undo n =
-    if n < screen.height then
+    if n < (Screen.height screen) then
       match undo with
       | [] -> ()
       | h :: t -> (
@@ -170,11 +174,12 @@ let draw_undo_redo debugger =
   set_color background;
   fill_rect window_x window_y window_w window_h;
   set_color undo_color;
-  draw_undo debugger.undo_stack (screen.height / 2 + 1);
+  let h = Screen.height screen in
+  draw_undo debugger.undo_stack ( h / 2 + 1);
   set_color current_color;
-  draw_line debugger.interpreter (screen.height / 2);
+  draw_line debugger.interpreter (h / 2);
   set_color redo_color;
-  draw_redo debugger.redo_stack (screen.height / 2 - 1);
+  draw_redo debugger.redo_stack (h / 2 - 1);
   set_color foreground;
   synchronize()
 
@@ -202,11 +207,11 @@ let draw_interpreter debugger =
   let input = Interpreter.input interpreter in
   let has_new_output = Interpreter.has_new_output interpreter in
   if state = Interpreter.Waiting_for_input then
-    draw_screen (fully_scroll (Screen.print screen input))
+    draw_screen (Screen.fully_scroll (Screen.print screen input))
   else if has_new_output || (debugger.state = Paused) || (debugger.state = Halted) then
     let screen_to_draw =
       if needs_more debugger then
-        more screen
+        Screen.more screen
       else
         screen in
     draw_screen screen_to_draw
@@ -337,7 +342,7 @@ let halt debugger =
     let screen = Interpreter.screen debugger.interpreter in
     let (screen_x, screen_y, screen_w, screen_h) = screen_extent screen in
     let x = screen_x + screen_w + 10 in
-    draw_before_current_after before current (List.rev after) x screen_y 60 screen.height
+    draw_before_current_after before current (List.rev after) x screen_y 60 (Screen.height screen)
 
 (* TODO: Most of the methods in this module can be local to run *)
 
