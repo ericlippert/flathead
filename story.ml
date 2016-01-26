@@ -946,34 +946,6 @@ let display_all_routines story =
     (display_routine story r) ^ "\n\n" in
   accumulate_strings to_string routines
 
-(* *)
-(* Globals *)
-(* *)
-
-let first_global = 16
-let last_global = 255
-
-(* Note that globals are indexed starting at 16 *)
-let read_global story (Global global_number) =
-  if global_number < first_global || global_number > last_global then
-    failwith "global variable index out of range"
-  else
-    let base = global_variables_table_base story in
-    let offset = (global_number - first_global) * 2 in
-    read_word story (base + offset)
-
-let display_globals story =
-  let to_string g =
-    Printf.sprintf "%02x %04x\n" (g - first_global) (read_global story (Global g)) in
-  accumulate_strings_loop to_string 16 256
-
-let write_global story (Global global_number) value =
-  if global_number < first_global || global_number > last_global then
-      failwith "global variable index out of range"
-  else
-    let base = global_variables_table_base story in
-    let offset = (global_number - first_global) * 2 in
-    write_word story (base + offset) value
 
 (* *)
 (* Serialization *)

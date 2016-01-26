@@ -11,14 +11,14 @@ let make story =
   let turn_count_global = Global 18 in (* also minutes *)
 
   let current_object () =
-    Object (read_global story current_object_global) in
+    Object (Globals.read story current_object_global) in
   let current_object_name () =
     let c = current_object () in
     if c = invalid_object then ""
     else object_name story c in
   let status_globals () =
-    let score = signed_word (read_global story current_score_global) in
-    let turn = read_global story turn_count_global in
+    let score = signed_word (Globals.read story current_score_global) in
+    let turn = Globals.read story turn_count_global in
     (score, turn) in
   let build_status_line right =
     let right_length = String.length right in

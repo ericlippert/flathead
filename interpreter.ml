@@ -105,10 +105,10 @@ let write_local interpreter local value =
   { interpreter with frames = Frameset.write_local interpreter.frames local value }
 
 let read_global interpreter global =
-  Story.read_global interpreter.story global
+  Globals.read interpreter.story global
 
 let write_global interpreter global value =
-  { interpreter with story = write_global interpreter.story global value }
+  { interpreter with story = Globals.write interpreter.story global value }
 
 let read_variable interpreter variable =
   match variable with
