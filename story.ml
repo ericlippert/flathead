@@ -3,7 +3,6 @@ story file itself. All state in the story file is in memory;
 these functions just provide structure around that memory. *)
 
 open Utility
-open Instruction
 open Type
 
 type t =
@@ -294,55 +293,8 @@ let load_story filename =
   { memory = Memory.make dynamic static };;
 
 (* *)
-(* Abbreviation table and string decoding *)
-(* *)
-
-let abbreviation_table_length = 96
-
-let abbreviation_address story (Abbreviation n) =
-  if n < 0 || n >= abbreviation_table_length then
-    failwith "bad offset into abbreviation table"
-  else
-    let abbr_addr = (abbreviations_table_base story) + (n * 2) in
-    let word_addr = read_word story abbr_addr in
-    Zstring (decode_word_address word_addr)
-
-(* gives the length in bytes of the encoded zstring, not the decoded string *)
-let zstring_length story address =
-  Zstring.length (read_word story) address
-
-let rec read_zstring story address =
-  let read_abbrv a =
-    let abbr_addr = abbreviation_address story a in
-    read_zstring story abbr_addr in
-  Zstring.read (read_word story) read_abbrv address
-
-(* Debugging helper *)
-let display_zchar_bytes story offset length =
-  Zstring.display_bytes (read_word story) offset length
-
-(* Debugging helper *)
-let display_abbreviation_table story =
-  let to_string i =
-    let address = abbreviation_address story (Abbreviation i) in
-    let value = read_zstring story address in
-    let (Zstring address) = address in
-    Printf.sprintf "%02x: %04x  %s\n" i address value in
-  accumulate_strings_loop to_string 0 abbreviation_table_length
-
-(* *)
 (* Bytecode *)
 (* *)
-
-let decode_instruction story address =
-  let reader =
-    {
-      word_reader = read_word story;
-      byte_reader = read_byte story;
-      zstring_reader = read_zstring story;
-      zstring_length = zstring_length story
-    } in
-  Instruction.decode reader address (version story)
 
 let maximum_local = 15
 

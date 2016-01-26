@@ -22,13 +22,24 @@ let alphabet_table = [|
   "8"; "9"; "."; ","; "!"; "?"; "_"; "#"; "'"; "\""; "/"; "\\"; "-"; ":"; "("; ")" |]
 
 (* gives the length in bytes of the encoded zstring, not the decoded string *)
-let length word_reader (Zstring address) =
+let length story (Zstring address) =
   let rec aux len current =
-    if fetch_bit bit15 (word_reader current) then len + 2
+    if fetch_bit bit15 (Story.read_word story current) then len + 2
     else aux (len + 2) (current + 2) in
   aux 0 address
 
-let rec read word_reader abbrv_reader (Zstring address) =
+let abbreviation_table_length = 96
+
+let abbreviation_address story (Abbreviation n) =
+  if n < 0 || n >= abbreviation_table_length then
+    failwith "bad offset into abbreviation table"
+  else
+    let abbr_addr = (Story.abbreviations_table_base story) + (n * 2) in
+    let word_addr = Story.read_word story abbr_addr in
+    (* TODO: This is the only place decode_word_address is called; move it here *)
+    Zstring (Story.decode_word_address word_addr)
+
+let rec read story (Zstring address) =
   (* TODO: Only processes version 3 strings *)
 
   (* zstrings encode three characters into two-byte words.
@@ -56,7 +67,11 @@ let rec read word_reader abbrv_reader (Zstring address) =
     | (Alphabet _, 5) -> ("", Alphabet 2)
     | (Alphabet 2, 6) -> ("", Leading)
     | (Alphabet a, _) -> (alphabet_table.(a * 32 + zchar), Alphabet 0)
-    | (Abbrev Abbreviation a, _) -> (abbrv_reader (Abbreviation (a + zchar)), Alphabet 0)
+    | (Abbrev Abbreviation a, _) ->
+      let abbrv = Abbreviation (a + zchar) in
+      let addr = abbreviation_address story abbrv in
+      let str = read story addr in
+      (str, Alphabet 0)
     | (Leading, _) -> ("", (Trailing zchar))
     | (Trailing high, _) ->
       let s = string_of_char (Char.chr (high * 32 + zchar)) in
@@ -64,7 +79,7 @@ let rec read word_reader abbrv_reader (Zstring address) =
 
   let rec aux acc mode1 current_address =
     let zchar_bit_size = size5 in
-    let word = word_reader current_address in
+    let word = Story.read_word story current_address in
     let is_end = fetch_bit bit15 word in
     let zchar1 = fetch_bits bit14 zchar_bit_size word in
     let zchar2 = fetch_bits bit9 zchar_bit_size word in
@@ -80,11 +95,11 @@ let rec read word_reader abbrv_reader (Zstring address) =
 (* A debugging method for looking at memory broken up into the
 1 / 5 / 5 / 5 bit chunks used by zstrings. *)
 
-let display_bytes word_reader offset length =
+let display_bytes story offset length =
   let rec aux i acc =
     if i > length then acc
     else (
-      let word = word_reader (offset + i) in
+      let word = Story.read_word story (offset + i) in
       let is_end = fetch_bits bit15 size1 word in
       let zchar1 = fetch_bits bit14 size5 word in
       let zchar2 = fetch_bits bit9 size5 word in
@@ -92,3 +107,12 @@ let display_bytes word_reader offset length =
       let s = Printf.sprintf "%04x(%01x %02x %02x %02x) " word is_end zchar1 zchar2 zchar3 in
       aux (i + 2) (acc ^ s)) in
     aux 0 ""
+
+(* Debugging helper *)
+let display_abbreviation_table story =
+  let to_string i =
+    let address = abbreviation_address story (Abbreviation i) in
+    let value = read story address in
+    let (Zstring address) = address in
+    Printf.sprintf "%02x: %04x  %s\n" i address value in
+  accumulate_strings_loop to_string 0 abbreviation_table_length

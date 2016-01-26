@@ -10,7 +10,7 @@ in this routine? Note that this could miss instructions if a jump is made to a l
 read from a variable. *)
 let all_reachable_addresses_in_routine story instr_address =
   let immediately_reachable_addresses address =
-    let instr = decode_instruction story address in
+    let instr = decode story address in
     let next =
       if continues_to_following instr.opcode then [Instruction.following instr]
       else [] in
@@ -23,7 +23,7 @@ let display_reachable_instructions story address =
   let reachable = all_reachable_addresses_in_routine story address in
   let sorted = List.sort compare reachable in
   let to_string addr =
-    let instr = decode_instruction story addr in
+    let instr = decode story addr in
     Instruction.display instr (version story)  in
   accumulate_strings to_string sorted
 
@@ -50,7 +50,7 @@ let call_address story instr =
 let reachable_routines_in_routine story instr_address =
   let reachable_instrs = all_reachable_addresses_in_routine story instr_address in
   let option_fold routines instr_addr =
-    let instr = decode_instruction story instr_addr in
+    let instr = decode story instr_addr in
     match call_address story instr with
     | None -> routines
     | Some routine_address -> routine_address :: routines in

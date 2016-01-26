@@ -50,7 +50,7 @@ let entry_address story (Dictionary dictionary_number) =
 
 let entry story dictionary_number =
   let (Dictionary_address addr) = entry_address story dictionary_number in
-  read_zstring story (Zstring addr)
+  Zstring.read story (Zstring addr)
 
 (* Takes a string and finds the address of the corresponding zstring
   in the dictionary *)

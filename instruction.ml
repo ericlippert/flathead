@@ -363,21 +363,16 @@ let display instr ver =
     start_addr name operands store branch text
   (* End of display_instruction *)
 
-(* The instruction decoder doesn't need a story per se but it does
-need some of the services a story provides. *)
 
-type instruction_reader =
-{
-  word_reader : int -> int;
-  byte_reader : int -> int;
-  zstring_reader : zstring_address -> string;
-  zstring_length : zstring_address -> int
-}
 
 (* Takes the address of an instruction and produces the instruction *)
-let decode
-  { word_reader; byte_reader; zstring_reader; zstring_length }
-  (Instruction address) ver =
+let decode story (Instruction address) =
+  (* TODO: This could stand to be cleaned up a bit *)
+  let ver = (Story.version story) in
+  let word_reader = Story.read_word story in
+  let byte_reader = Story.read_byte story in
+  let zstring_reader = Zstring.read story in
+  let zstring_length = Zstring.length story in
 
   (* Spec 4.3:
 

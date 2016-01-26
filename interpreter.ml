@@ -197,7 +197,7 @@ let set_status_line interpreter =
 
 let display_current_instruction interpreter =
   let address = interpreter.program_counter in
-  let instruction = Story.decode_instruction interpreter.story address in
+  let instruction = decode interpreter.story address in
   Instruction.display instruction (version interpreter.story)
 
 (* Debugging method *)
@@ -648,7 +648,7 @@ let handle_dec variable interpreter =
 let handle_print_addr addr interpreter =
   (* TODO: Add wrapper type for string addresses *)
   let addr = Zstring addr in
-  let text = read_zstring interpreter.story addr in
+  let text = Zstring.read interpreter.story addr in
   print interpreter text
 
 (* Spec: 1OP:137 remove_obj object
@@ -698,7 +698,7 @@ let handle_jump offset interpreter instruction =
 let handle_print_paddr packed_address interpreter =
   let packed_address = Packed_zstring packed_address in
   let address = decode_string_packed_address interpreter.story packed_address in
-  let text = read_zstring interpreter.story address in
+  let text = Zstring.read interpreter.story address in
   print interpreter text
 
 (* Spec: 1OP:142 load (variable) -> (result)
@@ -865,7 +865,7 @@ let handle_restore interpreter instruction =
     with result 2. See comments in handle_save that describe what is going
     on here. *)
   let save_pc = Instruction (program_counter - 1) in
-  let save_instruction = decode_instruction new_story save_pc in
+  let save_instruction = decode new_story save_pc in
   if save_instruction.opcode != OP0_181 then
     failwith "Restored PC is not on save instruction";
   let new_interpreter = { interpreter with
@@ -1611,7 +1611,7 @@ let handle_save_undo interpreter =
 
 (* Move the interpreter on to the next instruction *)
 let step_instruction interpreter =
-  let instruction = decode_instruction interpreter.story interpreter.program_counter in
+  let instruction = decode interpreter.story interpreter.program_counter in
   let (arguments, interpreter) = operands_to_arguments interpreter instruction.operands in
   let interpret_instruction = interpret_instruction interpreter instruction in
   let value = interpret_value_instruction interpreter instruction in
@@ -1791,7 +1791,7 @@ let step_with_input interpreter key =
   let key_text = string_of_char key in
   let length = String.length interpreter.input in
   let instruction =
-    decode_instruction interpreter.story interpreter.program_counter in
+    decode interpreter.story interpreter.program_counter in
   let handle_enter () =
     let blank_input = { interpreter with input = ""; input_max = 0; text_address = 0; parse_address = 0 } in
     complete_sread interpreter.text_address interpreter.parse_address interpreter.input blank_input instruction  in

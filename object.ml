@@ -147,7 +147,7 @@ let name story n =
   let (Property_header addr) = property_header_address story n in
   let length = read_byte story addr in
   if length = 0 then "<unnamed>"
-  else read_zstring story (Zstring (addr + 1))
+  else Zstring.read story (Zstring (addr + 1))
 
 let find_previous_sibling story obj =
   let rec aux current =
