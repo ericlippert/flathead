@@ -641,7 +641,7 @@ let handle_dec variable interpreter =
 
 let handle_print_addr addr interpreter =
   (* TODO: Add wrapper type for string addresses *)
-  let addr = unsigned_word addr in
+  let addr = Zstring.Address addr in
   let text = read_zstring interpreter.story addr in
   print interpreter text
 
@@ -690,8 +690,7 @@ let handle_jump offset interpreter instruction =
   Print the (Z-encoded) string at the given packed address in high memory. *)
 
 let handle_print_paddr packed_address interpreter =
-  (* TODO: Wrapper type for string packed / unpacked addresses *)
-  let packed_address = unsigned_word packed_address in
+  let packed_address = Packed_zstring packed_address in
   let address = decode_string_packed_address interpreter.story packed_address in
   let text = read_zstring interpreter.story address in
   print interpreter text

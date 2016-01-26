@@ -32,6 +32,9 @@ type routine_address =
 type packed_routine_address =
   Packed_routine of int
 
+type packed_zstring_address =
+  Packed_zstring of int
+
 
 (* *)
 (* Dealing with memory *)
@@ -147,6 +150,8 @@ let initial_program_counter story =
   read_word story initial_program_counter_offset
 
 let dictionary_base story =
+  (* Spec: The dictionary table is held in static memory and its byte address
+    is stored in the word at $08 in the header. *)
   let dictionary_base_offset = 8 in
   read_word story dictionary_base_offset
 
@@ -282,16 +287,16 @@ let decode_routine_packed_address story (Packed_routine packed) =
   | 8 -> Routine (packed * 8)
   | _ -> failwith "bad version"
 
-let decode_string_packed_address story packed =
+let decode_string_packed_address story (Packed_zstring packed) =
   match version story with
   | 1
   | 2
-  | 3 -> packed * 2
+  | 3 -> Zstring.Address (packed * 2)
   | 4
-  | 5 -> packed * 4
+  | 5 -> Zstring.Address (packed * 4)
   | 6
-  | 7 -> packed * 4 + (string_offset story)
-  | 8 -> packed * 8
+  | 7 -> Zstring.Address (packed * 4 + (string_offset story))
+  | 8 -> Zstring.Address (packed * 8)
   | _ -> failwith "bad version"
 
 let load_story filename =
@@ -320,7 +325,7 @@ let abbreviation_address story (Zstring.Abbreviation n) =
   else
     let abbr_addr = (abbreviations_table_base story) + (n * 2) in
     let word_addr = read_word story abbr_addr in
-    decode_word_address word_addr
+    Zstring.Address (decode_word_address word_addr)
 
 (* gives the length in bytes of the encoded zstring, not the decoded string *)
 let zstring_length story address =
@@ -341,6 +346,7 @@ let display_abbreviation_table story =
   let to_string i =
     let address = abbreviation_address story (Zstring.Abbreviation i) in
     let value = read_zstring story address in
+    let (Zstring.Address address) = address in
     Printf.sprintf "%02x: %04x  %s\n" i address value in
   accumulate_strings_loop to_string 0 abbreviation_table_length
 
@@ -492,7 +498,7 @@ let object_name story n =
   let addr = object_property_address story n in
   let length = read_byte story addr in
   if length = 0 then "<unnamed>"
-  else read_zstring story (addr + 1)
+  else read_zstring story (Zstring.Address (addr + 1))
 
 let find_previous_sibling story child =
   let rec aux current =
@@ -741,6 +747,16 @@ let display_object_tree story =
 (* Dictionary *)
 (* *)
 
+(* The table is laid out as follows. First there is a header:
+
+byte giving the number of word separators
+the word separators, one byte each
+byte giving the number of bytes in each dictionary entry
+word giving the number of table entries which follow
+
+Each entry is either 4 (in V1-3) or 6 (otherwise) bytes of zstring data,
+followed by enough bytes to make up the size of the dictionary entry. *)
+
 let word_separators_count story =
   read_byte story (dictionary_base story)
 
@@ -777,7 +793,7 @@ let dictionary_entry_address story (Dictionary dictionary_number) =
 
 let dictionary_entry story dictionary_number =
   let addr = dictionary_entry_address story dictionary_number in
-  read_zstring story addr
+  read_zstring story (Zstring.Address addr)
 
 (* Takes a string and finds the address of the corresponding zstring
   in the dictionary *)
