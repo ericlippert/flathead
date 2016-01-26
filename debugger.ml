@@ -2,8 +2,7 @@ open Utility
 open Graphics
 open Screen
 open Instruction
-open Type
-open Interpreter;;
+open Type;;
 
 open_graph "";;
 auto_synchronize false;;
@@ -44,7 +43,8 @@ let screen_extent screen =
   (10, 10, screen.width * text_width, (screen.height + 1) * text_height);;
 
 let make interpreter =
-  let (x, y, _, h) = screen_extent interpreter.screen in
+  let screen = Interpreter.screen interpreter in
+  let (x, y, _, h) = screen_extent screen in
   let margin = 20 in
   let gap = 10 in
   let button_y = y + h + gap in
@@ -142,18 +142,19 @@ let draw_undo_redo debugger =
   let redo_color = blue in
   let current_color = black in
   let interpreter = debugger.interpreter in
-  let (screen_x, screen_y, screen_w, screen_h) = screen_extent interpreter.screen in
+  let screen = Interpreter.screen interpreter in
+  let (screen_x, screen_y, screen_w, screen_h) = screen_extent screen in
   let window_x = screen_x + screen_w + 10 in
   let window_y = screen_y in
   let instruction_width = 60 in
   let window_w = text_width * instruction_width in
-  let window_h = text_height * interpreter.screen.height in
+  let window_h = text_height * screen.height in
   let draw_line interp n =
-    let instr = display_current_instruction interp in
+    let instr = Interpreter.display_current_instruction interp in
     let text = trim_to_length instr instruction_width in
     draw_string_at text window_x (window_y + text_height * n) in
   let rec draw_undo undo n =
-    if n < interpreter.screen.height then
+    if n < screen.height then
       match undo with
       | [] -> ()
       | h :: t -> (
@@ -169,16 +170,18 @@ let draw_undo_redo debugger =
   set_color background;
   fill_rect window_x window_y window_w window_h;
   set_color undo_color;
-  draw_undo debugger.undo_stack (interpreter.screen.height / 2 + 1);
+  draw_undo debugger.undo_stack (screen.height / 2 + 1);
   set_color current_color;
-  draw_line debugger.interpreter (interpreter.screen.height / 2);
+  draw_line debugger.interpreter (screen.height / 2);
   set_color redo_color;
-  draw_redo debugger.redo_stack (interpreter.screen.height / 2 - 1);
+  draw_redo debugger.redo_stack (screen.height / 2 - 1);
   set_color foreground;
   synchronize()
 
 let debugger_push_undo debugger new_interpreter =
-  if new_interpreter.program_counter = debugger.interpreter.program_counter then
+  let new_pc = Interpreter.program_counter new_interpreter in
+  let old_pc = Interpreter.program_counter debugger.interpreter in
+  if new_pc = old_pc then
     { debugger with interpreter = new_interpreter; redo_stack = [] }
   else
     { debugger with interpreter = new_interpreter;
@@ -186,17 +189,21 @@ let debugger_push_undo debugger new_interpreter =
       redo_stack = [] }
 
 let needs_more debugger =
-  Screen.needs_more debugger.interpreter.screen
+  let screen = Interpreter.screen debugger.interpreter in
+  Screen.needs_more screen
 
 let has_keystrokes debugger =
   (String.length debugger.keystrokes) > 0
 
 let draw_interpreter debugger =
   let interpreter = debugger.interpreter in
-  let screen = interpreter.screen in
-  if interpreter.state = Waiting_for_input then
-    draw_screen (fully_scroll (Screen.print screen interpreter.input))
-  else if interpreter.has_new_output || (debugger.state = Paused) || (debugger.state = Halted) then
+  let screen = Interpreter.screen interpreter in
+  let state = Interpreter.state interpreter in
+  let input = Interpreter.input interpreter in
+  let has_new_output = Interpreter.has_new_output interpreter in
+  if state = Interpreter.Waiting_for_input then
+    draw_screen (fully_scroll (Screen.print screen input))
+  else if has_new_output || (debugger.state = Paused) || (debugger.state = Halted) then
     let screen_to_draw =
       if needs_more debugger then
         more screen
@@ -220,7 +227,8 @@ let step_forward debugger =
     redo_stack = t }
   | [] ->
     let interpreter = debugger.interpreter in
-    match interpreter.state with
+    let state = Interpreter.state interpreter in
+    match state with
     | Interpreter.Waiting_for_input ->
       (* If we have pending keystrokes then take the first one off the queue
       and give it to the interpreter. Otherwise just put this on the undo
@@ -230,18 +238,16 @@ let step_forward debugger =
         if debugger.keystrokes = "" then
           (interpreter, debugger.keystrokes)
         else
-          (step_with_input interpreter debugger.keystrokes.[0],
+          (Interpreter.step_with_input interpreter debugger.keystrokes.[0],
           String.sub debugger.keystrokes 1 ((String.length debugger.keystrokes) - 1)) in
       { (debugger_push_undo debugger new_interpreter) with keystrokes = new_keys }
     | Interpreter.Halted -> debugger (* TODO: Exception? *)
     | Interpreter.Running ->
-      let new_interpreter = step interpreter in
+      let new_interpreter = Interpreter.step interpreter in
       debugger_push_undo debugger new_interpreter;;
 
 let waiting_for_input debugger =
-  match debugger.interpreter.state with
-  | Waiting_for_input -> true
-  | _ -> false;;
+  (Interpreter.state debugger.interpreter) = Interpreter.Waiting_for_input
 
 let rec obtain_action debugger should_block =
   (* A keystroke observed with Poll is not removed from the queue
@@ -293,7 +299,8 @@ let maybe_step debugger =
   let should_step =
     match debugger.state with
     | Running -> true
-    | Stepping instruction -> debugger.interpreter.program_counter = instruction
+    | Stepping instruction ->
+      (Interpreter.program_counter debugger.interpreter) = instruction
     | _ -> false in
   if should_step then step_forward debugger
   else debugger
@@ -302,14 +309,18 @@ let halt debugger =
   { debugger with state = Halted }
 
   let draw_routine_listing debugger =
-    let current_instruction = debugger.interpreter.program_counter in
+    let current_instruction = Interpreter.program_counter debugger.interpreter in
     (* This can be zero if we were restored from a save game *)
-    let frame_instruction = (current_frame debugger.interpreter).Frame.called in
+    let frame = Interpreter.current_frame debugger.interpreter in
+    (* TODO: as a fallback we can find the transitive closure of routines and
+    then see if this instruction is in any of them. *)
+    let frame_instruction = Frame.called frame in
     let first_instruction =
       if frame_instruction = Instruction 0 then current_instruction
       else frame_instruction in
-    let story = debugger.interpreter.story in
-    let current = Instruction.display  (Instruction.decode story current_instruction) (Story.version story) in
+    let story = Interpreter.story debugger.interpreter in
+    let instr = Instruction.decode story current_instruction in
+    let current = Instruction.display instr (Story.version story) in
     let reachable = Reachability.all_reachable_addresses_in_routine story first_instruction in
     let sorted = List.sort compare reachable in
     let decode instr =
@@ -323,7 +334,7 @@ let halt debugger =
         else if addr > current_instruction then aux before (text :: after) tail
         else aux before after tail in
     let (before, after) = aux [] [] map in
-    let screen = debugger.interpreter.screen in
+    let screen = Interpreter.screen debugger.interpreter in
     let (screen_x, screen_y, screen_w, screen_h) = screen_extent screen in
     let x = screen_x + screen_w + 10 in
     draw_before_current_after before current (List.rev after) x screen_y 60 screen.height
@@ -333,11 +344,13 @@ let halt debugger =
 let run debugger =
   let rec main_loop debugger =
     (* Put the debugger into the right state, depending on the interpreter *)
+    let interp_state = Interpreter.state debugger.interpreter in
     let debugger =
-      match (debugger.state, debugger.interpreter.state) with
+      match (debugger.state, interp_state) with
       | (_, Interpreter.Halted) -> halt debugger
       | (Stepping instruction, _) ->
-        if debugger.interpreter.program_counter = instruction then debugger
+        let pc = Interpreter.program_counter debugger.interpreter in
+        if pc = instruction then debugger
         else pause debugger
       | _ -> debugger in
 
@@ -362,7 +375,10 @@ let run debugger =
     match action with
     | Pause -> main_loop (pause debugger)
     | StepBackwards -> main_loop (pause (step_reverse debugger))
-    | StepForwards -> main_loop (set_step_instruction debugger debugger.interpreter.program_counter)
+    | StepForwards ->
+      let pc = Interpreter.program_counter debugger.interpreter in
+      let with_step = set_step_instruction debugger pc in
+      main_loop with_step
     | Run -> main_loop (start_running (clear_redo debugger))
     | Quit -> ()
     | Keystroke key -> main_loop (add_keystroke debugger key)

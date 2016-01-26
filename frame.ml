@@ -32,6 +32,14 @@ let make_call_frame story arguments routine_address resume_at store =
     store
   }
 
+let called frame =
+  frame.called
+
+let resume_at frame =
+  frame.resume_at
+
+let store frame =
+  frame.store
 
 let peek_stack frame =
   Evaluation_stack.peek frame.stack

@@ -3,7 +3,7 @@ open Iff
 open Quetzal
 open Type
 
-type state =
+type interpreter_state =
   | Running
   | Waiting_for_input
   | Halted
@@ -21,7 +21,7 @@ type t =
   program_counter : instruction_address;
   frames : Frameset.t;
   random : Randomness.t;
-  state : state;
+  state : interpreter_state;
 
   (* output stream 1 *)
   screen : Screen.t;
@@ -74,6 +74,21 @@ let make story screen =
     input_max = 0
 }
 
+let story interpreter =
+  interpreter.story
+
+let state interpreter =
+  interpreter.state
+
+let screen interpreter =
+  interpreter.screen
+
+let input interpreter =
+  interpreter.input
+
+let has_new_output interpreter =
+  interpreter.has_new_output
+
 let current_frame interpreter =
   Frameset.current_frame interpreter.frames
 
@@ -91,6 +106,9 @@ let pop_stack interpreter =
 
 let push_stack interpreter value =
 { interpreter with frames = Frameset.push_stack interpreter.frames value }
+
+let program_counter interpreter =
+  interpreter.program_counter
 
 let set_program_counter interpreter new_program_counter =
   { interpreter with program_counter = new_program_counter }
@@ -142,10 +160,9 @@ let interpret_store interpreter store result =
   | Some variable -> write_variable interpreter variable result
 
 let interpret_return interpreter instruction value =
-(* TODO: Accessors in frame *)
  let frame = current_frame interpreter in
- let next_pc = frame.Frame.resume_at in
- let store = frame.Frame.store in
+ let next_pc = Frame.resume_at frame in
+ let store = Frame.store frame in
  let pop_frame_interpreter = remove_frame interpreter in
  let result_interpreter = set_program_counter pop_frame_interpreter next_pc in
  interpret_store result_interpreter store value
