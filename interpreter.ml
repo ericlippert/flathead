@@ -48,9 +48,21 @@ type t =
 
 let make story screen =
   (* TODO: Restore these after a restart / restore *)
+
+  let story = Story.set_colours_supported story (Colours_supported false) in
+  let story = Story.set_pictures_supported story (Pictures_supported false) in
+  let story = Story.set_boldface_supported story (Boldface_supported false) in
+  let story = Story.set_italics_supported story (Italics_supported false) in
+  let story = Story.set_status_line_supported story (Status_line_supported true) in
+  let story = Story.set_fixed_pitch_supported story (Fixed_pitch_supported true) in
+  let story = Story.set_screen_split_supported story (Screen_split_supported true) in
+  let story = Story.set_sound_effects_supported story (Sound_effects_supported false) in
+  let story = Story.set_default_is_variable_pitch story (Default_is_variable_pitch false) in
+  let story = Story.set_timed_keyboard_supported story (Timed_keyboard_supported false) in
+
   let story = Story.set_screen_width story (Screen.width screen) in
   let story = Story.set_screen_height story (Screen.height screen) in
-  let story = Story.set_supports_multiple_windows story true in
+
   let pc = Story.initial_program_counter story in
   let initial_frame = Frame.make pc in
   {

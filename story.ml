@@ -68,9 +68,10 @@ let display_story_bytes story address length =
 (* Header *)
 (* *)
 
-(* TODO: Header features beyond v3 *)
-
 let header_size = 64
+
+(* Header byte 0 is the version number, from 1 to 8. *)
+
 let version_offset = 0
 let version story =
   match read_byte story version_offset with
@@ -84,30 +85,30 @@ let version story =
   | 8 -> V8
   | _ -> failwith "unknown version"
 
+(* We often need to know what version we're in, but typically the only
+interesting questions are "are we in v4 or better?" and "are we in v5
+or better?" *)
+
+let v5_or_lower v =
+  match v with
+  | V1  | V2  | V3  | V4 | V5 -> true
+  | V6  | V7  | V8 -> false
+
+let v6_or_higher v =
+  not (v5_or_lower v)
+
 let v4_or_lower v =
   match v with
-  | V1
-  | V2
-  | V3
-  | V4 -> true
-  | V5
-  | V6
-  | V7
-  | V8 -> false
+  | V1  | V2  | V3  | V4 -> true
+  | V5  | V6  | V7  | V8 -> false
 
 let v5_or_higher v =
   not (v4_or_lower v)
 
 let v3_or_lower v =
   match v with
-  | V1
-  | V2
-  | V3 -> true
-  | V4
-  | V5
-  | V6
-  | V7
-  | V8 -> false
+  | V1  | V2  | V3 -> true
+  | V4  | V5  | V6  | V7  | V8 -> false
 
 let v4_or_higher v =
   not (v3_or_lower v)
@@ -123,32 +124,194 @@ let display_version v =
   | V7 -> "7"
   | V8 -> "8"
 
+(* Header byte 1 is flags. *)
+
+let flags1_offset = 1
 let flags1 story =
-  let flags1_offset = 1 in
   read_byte story flags1_offset
 
+let set_flags1 story value =
+  write_byte story flags1_offset value
+
+let flags1_bit story bit =
+  fetch_bit bit (flags1 story)
+
+let set_flags1_bit_to story bit value =
+  set_flags1 story (set_bit_to bit (flags1 story) value)
+
+(* Bit 0 of flags1 indicates whether an interpreter has colours available. *)
+(* It is valid only in version 5 and up. *)
+(* It should be set by the interpreter on a start / restart / restore. *)
+
+let colours_supported_bit = bit0
+
+let colours_supported story =
+  if v4_or_lower (version story) then Colours_supported false
+  else Colours_supported (flags1_bit story colours_supported_bit)
+
+let set_colours_supported story (Colours_supported value) =
+  if v4_or_lower (version story) then story
+  else set_flags1_bit_to story colours_supported_bit value
+
+(* Bit 1 of flags1 indicates whether a version 3 story wants a "score" or a "time"
+status line. This is valid only in version 3; version 1 and 2 stories were
+always "score", and version 4 and above stories draw their own status lines
+in game logic rather than asking the interpreter to do it. *)
+
+(* This bit is not writable by the interpreter in v1 / v2 / v3.  *)
+
+(* In version 6 and above this flag indicates whether the interpreter can
+draw pictures. It should be written on restart / restore. *)
+
+let status_line_kind_bit = bit1
+
 let status_line_kind story =
-  match (version story, fetch_bit bit1 (flags1 story))  with
-  | (V1, _)
-  | (V2, _)
-  | (V3, false) -> ScoreStatus
+  match (version story, flags1_bit story status_line_kind_bit)  with
+  | (V1, _) | (V2, _) | (V3, false) -> ScoreStatus
   | (V3, true) -> TimeStatus
   | _ -> NoStatus
 
-let supports_multiple_windows story =
-  let windows_supported_bit = bit5 in
-  fetch_bit windows_supported_bit (flags1 story)
+let pictures_supported_bit = bit1
 
-let set_supports_multiple_windows story value =
-  let flags1_offset = 1 in
-  let windows_supported_bit = bit5 in
-  let new_flags1 = (set_bit_to windows_supported_bit (flags1 story) value) in
-  write_byte story flags1_offset new_flags1
+let pictures_supported story =
+  if v5_or_lower (version story) then Pictures_supported false
+  else Pictures_supported (flags1_bit story pictures_supported_bit)
 
-(* TODO: More Flags 1 *)
+let set_pictures_supported story (Pictures_supported value) =
+  if v5_or_lower (version story) then story
+  else set_flags1_bit_to story pictures_supported_bit value
+
+(* Bit 2 of flags1 in v1 / v2 / v3 indicates whether a story file is split across two
+disks. We ignore it. In v4 and above it indicates whether boldface is available.
+It should be written on start / restart / restore *)
+
+let boldface_supported_bit = bit2
+
+let boldface_supported story =
+  if v3_or_lower (version story) then Boldface_supported false
+  else Boldface_supported (flags1_bit story boldface_supported_bit)
+
+let set_boldface_supported story (Boldface_supported value) =
+  if v3_or_lower (version story) then story
+  else set_flags1_bit_to story boldface_supported_bit value
+
+(* Bit 3 of flags1 is the "Tandy" bit in v1/v2/v3.  see Spec Appendix B for
+details.  This bit may be set by the interpreter but need not be restored. *)
+
+(* In v4 and above it indicates whether italics are supported; this bit should
+be set on start / restart / restore *)
+
+let tandy_bit = bit3
+
+let tandy_mode story =
+  if v4_or_higher (version story) then Tandy_mode_enabled false
+  else Tandy_mode_enabled (flags1_bit story tandy_bit)
+
+let set_tandy_mode story (Tandy_mode_enabled value) =
+  if v4_or_higher (version story) then story
+  else set_flags1_bit_to story tandy_bit value
+
+let italics_supported_bit = bit3
+
+let italics_supported story =
+  if v3_or_lower (version story) then Italics_supported false
+  else Italics_supported (flags1_bit story italics_supported_bit)
+
+let set_italics_supported story (Italics_supported value) =
+  if v3_or_lower (version story) then story
+  else set_flags1_bit_to story italics_supported_bit value
+
+(* Bit 4 of flags1 indicates whether a v1/v2/v3 interpreter is capable of
+displaying a status line. Note that this is inverted in the story memory;
+the bit is ON if a status line is NOT available. *)
+
+(* This bit should be set by the interpreter after a start / restart / restore. *)
+
+(* In v4 and above this indicates whether a fixed pitch font is available. *)
+
+(* This bit should be set by the interpreter after a start / restart / restore. *)
+
+let status_line_supported_bit = bit4
+
+let status_line_supported story =
+  if v4_or_higher (version story) then Status_line_supported false
+  else Status_line_supported (not (flags1_bit story status_line_supported_bit))
+
+let set_status_line_supported story (Status_line_supported value) =
+  if v4_or_higher (version story) then story
+  else set_flags1_bit_to story italics_supported_bit (not value)
+
+let fixed_pitch_supported_bit = bit4
+
+let fixed_pitch_supported story =
+  if v3_or_lower (version story) then Fixed_pitch_supported true
+  else Fixed_pitch_supported (flags1_bit story fixed_pitch_supported_bit)
+
+let set_fixed_pitch_supported story (Fixed_pitch_supported value) =
+  if v3_or_lower (version story) then story
+  else set_flags1_bit_to story fixed_pitch_supported_bit value
+
+(* Bit 5 of flags1 in v1/v2/v3 indicates whether an interpreter is capable of "splitting"
+the screen into multiple logical windows. (We presume that all interpreters are
+so capable in later versions.) *)
+
+(* This bit should be set by the interpreter after a start / restart / restore. *)
+
+(* In v6 and above this bit indicates whether sound effects are avaialable. *)
+
+(* This bit should be set by the interpreter after a start / restart / restore. *)
+
+let screen_split_supported_bit = bit5
+
+let screen_split_supported story =
+  if v4_or_higher (version story) then Screen_split_supported true
+  else Screen_split_supported (flags1_bit story screen_split_supported_bit)
+
+let set_screen_split_supported story (Screen_split_supported value) =
+  if v4_or_higher (version story) then story
+  else set_flags1_bit_to story screen_split_supported_bit value
+
+let sound_effects_supported_bit = bit5
+
+let sound_effects_supported story =
+  if v5_or_lower (version story) then Sound_effects_supported false
+  else Sound_effects_supported (flags1_bit story sound_effects_supported_bit)
+
+let set_sound_effects_supported story (Sound_effects_supported value) =
+  if v5_or_lower (version story) then story
+  else set_flags1_bit_to story sound_effects_supported_bit value
+
+(* Bit 6 of flags1 indicates whether an interpreter uses a variable-pitched
+typeface by default. *)
+
+(* This bit should be set by the interpreter after a start / restart / restore. *)
+
+let default_is_variable_pitch_bit = bit6
+
+let default_is_variable_pitch story =
+  Default_is_variable_pitch (flags1_bit story default_is_variable_pitch_bit)
+
+let set_default_is_variable_pitch story (Default_is_variable_pitch value) =
+  set_flags1_bit_to story default_is_variable_pitch_bit value
+
+(* Bit 7 of flags1 indicates whether an interpreter supports timed keyboard input. *)
+
+(* This bit should be set by the interpreter after a start / restart / restore. *)
+
+let timed_keyboard_supported_bit = bit7
+
+let timed_keyboard_supported story =
+  Timed_keyboard_supported (flags1_bit story timed_keyboard_supported_bit)
+
+let set_timed_keyboard_supported story (Timed_keyboard_supported value) =
+  set_flags1_bit_to story timed_keyboard_supported_bit value
+
+
+
+
+let release_number_offset = 2
 
 let release_number story =
-  let release_number_offset = 2 in
   read_word story release_number_offset
 
 let high_memory_base story =

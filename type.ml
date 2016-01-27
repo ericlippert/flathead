@@ -28,6 +28,18 @@ type pixel_x = Pixel_x of int
 type pixel_y = Pixel_y of int
 type cursor = Cursor of character_x * character_y
 type checksum = Checksum of int
+type colours_supported = Colours_supported of bool
+type pictures_supported = Pictures_supported of bool
+type boldface_supported = Boldface_supported of bool
+type italics_supported = Italics_supported of bool
+type fixed_pitch_supported = Fixed_pitch_supported of bool
+type tandy_mode_enabled = Tandy_mode_enabled of bool
+type screen_split_supported = Screen_split_supported of bool
+type status_line_supported = Status_line_supported of bool
+type sound_effects_supported = Sound_effects_supported of bool
+type default_pitch = Default_is_variable_pitch of bool
+type timed_keyboard_supported = Timed_keyboard_supported of bool
+
 type version =
   | V1 | V2 | V3 | V4 | V5 | V6 | V7 | V8
 
@@ -55,6 +67,7 @@ type window_selection =
   | Upper_window
   | Lower_window
 
+(* TODO: Make these of bool *)
 type scroll_enabled =
   | Scroll_enabled
   | Scroll_disabled
@@ -70,6 +83,7 @@ type more_enabled =
 type scroll_pending =
   | Scroll_pending of string
   | Nothing_pending
+
 
 
 type bytecode =
