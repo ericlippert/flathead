@@ -306,13 +306,12 @@ let timed_keyboard_supported story =
 let set_timed_keyboard_supported story (Timed_keyboard_supported value) =
   set_flags1_bit_to story timed_keyboard_supported_bit value
 
-
-
+(* Byte 2 of the header is by convention the release number. *)
 
 let release_number_offset = 2
 
 let release_number story =
-  read_word story release_number_offset
+  Release_number (read_word story release_number_offset)
 
 let high_memory_base story =
   let high_memory_base_offset = 4 in
@@ -437,8 +436,9 @@ let string_offset story =
 let display_header story =
   let (Instruction ipc) = initial_program_counter story in
   let (Checksum checksum) = header_checksum story in
+  let (Release_number release_number) = release_number story in
   Printf.sprintf "Version                     : %s\n" (display_version (version story)) ^
-  Printf.sprintf "Release number              : %d\n" (release_number story) ^
+  Printf.sprintf "Release number              : %d\n" release_number ^
   Printf.sprintf "Serial number               : %s\n" (serial_number story) ^
   Printf.sprintf "Checksum                    : %04x\n" checksum ^
   Printf.sprintf "File size                   : %d\n" (file_size story) ^

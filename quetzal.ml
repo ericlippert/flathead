@@ -58,7 +58,7 @@ let ifzd_form =
       ifzs_umem;
       ifzs_cmem]]
 
-let save release serial (Checksum checksum) pc compressed frames =
+let save (Release_number release) serial (Checksum checksum) pc compressed frames =
   Record [
     Header "FORM";
     Length None; (* The writer will figure it out *)
@@ -101,7 +101,7 @@ let read_header ifzd =
       ByteString (Some serial_number, 6);
       Integer16 Some checksum;
       Integer24 Some pc ] ->
-    (release_number, serial_number, checksum, pc)
+    ((Release_number release_number), serial_number, checksum, pc)
   | _ -> failwith "TODO handle failure reading ifhd"
 
 let read_stacks ifzd =
