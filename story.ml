@@ -367,11 +367,11 @@ let object_table_base story =
 
 let global_variables_table_base story =
   let global_variables_table_base_offset = 12 in
-  read_word story global_variables_table_base_offset
+  Global_table_base (read_word story global_variables_table_base_offset)
 
 let static_memory_base_offset = 14;;
 let static_memory_base story =
-  read_word story static_memory_base_offset
+  Static_memory_base (read_word story static_memory_base_offset)
 
 let flags2 story =
   let flags2_offset = 16 in
@@ -471,6 +471,8 @@ let display_header story =
   let (Release_number release_number) = release_number story in
   let (Checksum checksum) = header_checksum story in
   let (Object_base object_table_base) = object_table_base story in
+  let (Global_table_base global_table_base) = global_variables_table_base story in
+  let (Static_memory_base static_memory_base) = static_memory_base story in
   let (Dictionary_base dictionary_base) = dictionary_base story in
   let (High_memory_base high_memory_base) = high_memory_base story in
   let (Instruction ipc) = initial_program_counter story in
@@ -481,8 +483,8 @@ let display_header story =
   Printf.sprintf "File size                   : %d\n" (file_size story) ^
   Printf.sprintf "Abbreviations table base    : %04x\n" (abbreviations_table_base story) ^
   Printf.sprintf "Object table base           : %04x\n" object_table_base ^
-  Printf.sprintf "Global variables table base : %04x\n" (global_variables_table_base story) ^
-  Printf.sprintf "Static memory base          : %04x\n" (static_memory_base story) ^
+  Printf.sprintf "Global variables table base : %04x\n" global_table_base ^
+  Printf.sprintf "Static memory base          : %04x\n" static_memory_base  ^
   Printf.sprintf "Dictionary base             : %04x\n" dictionary_base ^
   Printf.sprintf "High memory base            : %04x\n" high_memory_base ^
   Printf.sprintf "Initial program counter     : %04x\n" ipc
@@ -564,7 +566,7 @@ let local_default_value story (Routine routine_address) n =
 
 let compress story =
   let original_story = original story in
-  let memory_length = static_memory_base story in
+  let (Static_memory_base memory_length) = static_memory_base story in
   let rec aux acc i c =
     let string_of_byte b =
       string_of_char (char_of_int b) in

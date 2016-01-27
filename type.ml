@@ -10,6 +10,7 @@ type property_address = Property_address of int
 type property_data_address = Property_data of int
 type attribute_number = Attribute of int
 type attribute_address = Attribute_address of int * bit_number
+type global_table_base = Global_table_base of int
 type dictionary_number = Dictionary of int
 type dictionary_address =  Dictionary_address of int
 type routine_address = Routine of int
@@ -45,6 +46,7 @@ type default_pitch = Default_is_variable_pitch of bool
 type timed_keyboard_supported = Timed_keyboard_supported of bool
 type release_number = Release_number of int
 type high_memory_base = High_memory_base of int
+type static_memory_base = Static_memory_base of int
 type dictionary_base = Dictionary_base of int
 type dictionary_table_base = Dictionary_table_base of int
 

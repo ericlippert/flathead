@@ -9,7 +9,7 @@ let read story (Global global) =
   if global < first_global || global > last_global then
     failwith "global variable index out of range"
   else
-    let base = Story.global_variables_table_base story in
+    let (Global_table_base base) = Story.global_variables_table_base story in
     let offset = (global - first_global) * 2 in
     Story.read_word story (base + offset)
 
@@ -22,6 +22,6 @@ let write story (Global global) value =
   if global < first_global || global > last_global then
       failwith "global variable index out of range"
   else
-    let base = Story.global_variables_table_base story in
+    let (Global_table_base base) = Story.global_variables_table_base story in
     let offset = (global - first_global) * 2 in
     Story.write_word story (base + offset) value
