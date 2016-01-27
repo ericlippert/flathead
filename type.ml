@@ -40,6 +40,9 @@ type sound_effects_supported = Sound_effects_supported of bool
 type default_pitch = Default_is_variable_pitch of bool
 type timed_keyboard_supported = Timed_keyboard_supported of bool
 type release_number = Release_number of int
+type high_memory_base = High_memory_base of int
+type dictionary_base = Dictionary_base of int
+type dictionary_table_base = Dictionary_table_base of int
 
 type version =
   | V1 | V2 | V3 | V4 | V5 | V6 | V7 | V8

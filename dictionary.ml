@@ -14,10 +14,11 @@ Each entry is either 4 (in V1-3) or 6 (otherwise) bytes of zstring data,
 followed by enough bytes to make up the size of the dictionary entry. *)
 
 let word_separators_count story =
-  Story.read_byte story (Story.dictionary_base story)
+  let (Dictionary_base base) = Story.dictionary_base story in
+  Story.read_byte story base
 
 let word_separators story =
-  let base = Story.dictionary_base story in
+  let (Dictionary_base base) = Story.dictionary_base story in
   let count = Story.read_byte story base in
   let rec aux acc i =
     if i < 1 then acc
@@ -25,7 +26,7 @@ let word_separators story =
   aux [] count
 
 let entry_length story =
-  let base = Story.dictionary_base story in
+  let (Dictionary_base base) = Story.dictionary_base story in
   let separators = word_separators_count story in
   Story.read_byte story (base + separators + 1)
 
@@ -33,17 +34,19 @@ let max_word_length story =
   if Story.v3_or_lower (Story.version story) then 6 else 9
 
 let entry_count story =
-  let base = Story.dictionary_base story in
+  let (Dictionary_base base) = Story.dictionary_base story in
   let separators = word_separators_count story in
   Story.read_word story (base + separators + 2)
 
+(* This is the address of the actual dictionary entries, past the initial
+header with the word separators. *)
 let table_base story =
-  let base = Story.dictionary_base story in
+  let (Dictionary_base base) = Story.dictionary_base story in
   let separators = word_separators_count story in
-  base + separators + 4
+  Dictionary_table_base (base + separators + 4)
 
 let entry_address story (Dictionary dictionary_number) =
-  let base = table_base story in
+  let (Dictionary_table_base base) = table_base story in
   let entry_length = entry_length story in
   Dictionary_address (base + dictionary_number * entry_length)
 

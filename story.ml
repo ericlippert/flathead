@@ -306,26 +306,40 @@ let timed_keyboard_supported story =
 let set_timed_keyboard_supported story (Timed_keyboard_supported value) =
   set_flags1_bit_to story timed_keyboard_supported_bit value
 
-(* Byte 2 of the header is by convention the release number. *)
+(* Bytes 2 and 3 of the header are by convention the release number. *)
 
 let release_number_offset = 2
 
 let release_number story =
   Release_number (read_word story release_number_offset)
 
+(* Bytes 4 and 5 of the header indicate the start of "high" memory. The
+high memory mark was useful for early interpreters; the idea was that
+low memory would be kept in physical memory, and high memory could be
+paged into physical memory as needed. This interpreter makes no use
+of the high memory mark. *)
+
 let high_memory_base story =
   let high_memory_base_offset = 4 in
-  read_word story high_memory_base_offset
+  High_memory_base (read_word story high_memory_base_offset)
+
+(* Bytes 6 and 7 are the initial pc for the main routine. In version 6 (only)
+this is the (packed!) address of a routine, so the *following* byte is the first
+instruction. In all other versions the main routine is indicated just by
+its first instruction. *)
 
 let initial_program_counter story =
   let initial_program_counter_offset = 6 in
-  Instruction (read_word story initial_program_counter_offset)
+  let pc = read_word story initial_program_counter_offset in
+  if (version story) = V6 then Instruction (pc * 4 + 1)
+  else Instruction pc
+
+(* Spec: The dictionary table is held in static memory and its byte address
+  is stored in the word at $08 in the header. *)
 
 let dictionary_base story =
-  (* Spec: The dictionary table is held in static memory and its byte address
-    is stored in the word at $08 in the header. *)
   let dictionary_base_offset = 8 in
-  read_word story dictionary_base_offset
+  Dictionary_base (read_word story dictionary_base_offset)
 
 let object_table_base story =
   let object_table_base_offset = 10 in
@@ -434,9 +448,11 @@ let string_offset story =
   8 * (read_word story string_offset_offset)
 
 let display_header story =
-  let (Instruction ipc) = initial_program_counter story in
-  let (Checksum checksum) = header_checksum story in
   let (Release_number release_number) = release_number story in
+  let (Checksum checksum) = header_checksum story in
+  let (Dictionary_base dictionary_base) = dictionary_base story in
+  let (High_memory_base high_memory_base) = high_memory_base story in
+  let (Instruction ipc) = initial_program_counter story in
   Printf.sprintf "Version                     : %s\n" (display_version (version story)) ^
   Printf.sprintf "Release number              : %d\n" release_number ^
   Printf.sprintf "Serial number               : %s\n" (serial_number story) ^
@@ -446,8 +462,8 @@ let display_header story =
   Printf.sprintf "Object table base           : %04x\n" (object_table_base story) ^
   Printf.sprintf "Global variables table base : %04x\n" (global_variables_table_base story) ^
   Printf.sprintf "Static memory base          : %04x\n" (static_memory_base story) ^
-  Printf.sprintf "Dictionary base             : %04x\n" (dictionary_base story) ^
-  Printf.sprintf "High memory base            : %04x\n" (high_memory_base story) ^
+  Printf.sprintf "Dictionary base             : %04x\n" dictionary_base ^
+  Printf.sprintf "High memory base            : %04x\n" high_memory_base ^
   Printf.sprintf "Initial program counter     : %04x\n" ipc
 
 let decode_routine_packed_address story (Packed_routine packed) =
