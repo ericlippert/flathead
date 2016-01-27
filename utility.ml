@@ -1,3 +1,4 @@
+open Type
 (* Just some useful stuff that has no good home *)
 
 module IntMap = Map.Make(struct type t = int let compare = compare end)
@@ -88,8 +89,7 @@ let reflexive_closure_many items relation =
 let reflexive_closure item relation =
   reflexive_closure_many [item] relation
 
-type bit_number =
-  Bit_number of int
+
 
 let bit0 = Bit_number 0
 let bit1 = Bit_number 1

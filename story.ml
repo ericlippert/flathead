@@ -23,11 +23,24 @@ let read_word story address =
 let read_byte story address =
   Memory.read_byte story.memory address
 
+let read_bit story address bit =
+  fetch_bit bit (read_byte story address)
+
 let write_word story address value =
   { memory = Memory.write_word story.memory address value }
 
 let write_byte story address value =
   { memory = Memory.write_byte story.memory address value }
+
+let set_bit story address bit =
+  let orig_byte = read_byte story address in
+  let new_byte = set_bit bit orig_byte in
+  write_byte story address new_byte
+
+let clear_bit story address bit =
+  let orig_byte = read_byte story address in
+  let new_byte = clear_bit bit orig_byte in
+  write_byte story address new_byte
 
 (* Writes bytes into memory; no zstring encoding, no zero
 termination, no length. *)

@@ -80,24 +80,20 @@ let attribute_address story obj (Attribute attribute) =
   else
     let offset = attribute / 8 in
     let (Object_address obj_addr) = address story obj in
-    let addr = Attribute_address (obj_addr + offset) in
     let bit = Bit_number (7 - (attribute mod 8)) in
-    (addr, bit)
+    Attribute_address ((obj_addr + offset), bit)
 
 let attribute story obj attribute =
-  let ((Attribute_address address), bit) = attribute_address story obj attribute in
-  let byte = Story.read_byte story address in
-  fetch_bit bit byte
+  let (Attribute_address (address, bit)) = attribute_address story obj attribute in
+  Story.read_bit story address bit
 
 let set_attribute story obj attribute =
-  let ((Attribute_address address), bit) = attribute_address story obj attribute in
-  let byte = Story.read_byte story address in
-  Story.write_byte story address (set_bit bit byte)
+  let (Attribute_address (address, bit)) = attribute_address story obj attribute in
+  Story.set_bit story address bit
 
 let clear_attribute story obj attribute =
-  let ((Attribute_address address), bit) = attribute_address story obj attribute in
-  let byte = Story.read_byte story address in
-  Story.write_byte story address (clear_bit bit byte)
+  let (Attribute_address (address, bit)) = attribute_address story obj attribute in
+  Story.clear_bit story address bit
 
 let parent story obj =
   let (Object_address addr) = address story obj in

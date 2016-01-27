@@ -1,3 +1,4 @@
+type bit_number = Bit_number of int
 type object_base = Object_base of int
 type property_defaults_table = Property_defaults_table of int
 type object_tree_base = Object_tree_base of int
@@ -8,7 +9,7 @@ type property_header_address = Property_header of int
 type property_address = Property_address of int
 type property_data_address = Property_data of int
 type attribute_number = Attribute of int
-type attribute_address = Attribute_address of int
+type attribute_address = Attribute_address of int * bit_number
 type dictionary_number = Dictionary of int
 type dictionary_address =  Dictionary_address of int
 type routine_address = Routine of int
