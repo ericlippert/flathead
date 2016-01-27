@@ -10,7 +10,6 @@ type t =
   memory : Memory.t
 }
 
-
 (* *)
 (* Dealing with memory *)
 (* *)
@@ -74,7 +73,55 @@ let display_story_bytes story address length =
 let header_size = 64
 let version_offset = 0
 let version story =
-  read_byte story version_offset;;
+  match read_byte story version_offset with
+  | 1 -> V1
+  | 2 -> V2
+  | 3 -> V3
+  | 4 -> V4
+  | 5 -> V5
+  | 6 -> V6
+  | 7 -> V7
+  | 8 -> V8
+  | _ -> failwith "unknown version"
+
+let v4_or_lower v =
+  match v with
+  | V1
+  | V2
+  | V3
+  | V4 -> true
+  | V5
+  | V6
+  | V7
+  | V8 -> false
+
+let v5_or_higher v =
+  not (v4_or_lower v)
+
+let v3_or_lower v =
+  match v with
+  | V1
+  | V2
+  | V3 -> true
+  | V4
+  | V5
+  | V6
+  | V7
+  | V8 -> false
+
+let v4_or_higher v =
+  not (v3_or_lower v)
+
+let display_version v =
+  match v with
+  | V1 -> "1"
+  | V2 -> "2"
+  | V3 -> "3"
+  | V4 -> "4"
+  | V5 -> "5"
+  | V6 -> "6"
+  | V7 -> "7"
+  | V8 -> "8"
 
 let flags1 story =
   let flags1_offset = 1 in
@@ -82,10 +129,10 @@ let flags1 story =
 
 let status_line_kind story =
   match (version story, fetch_bit bit1 (flags1 story))  with
-  | (1, _)
-  | (2, _)
-  | (3, false) -> ScoreStatus
-  | (3, true) -> TimeStatus
+  | (V1, _)
+  | (V2, _)
+  | (V3, false) -> ScoreStatus
+  | (V3, true) -> TimeStatus
   | _ -> NoStatus
 
 let supports_multiple_windows story =
@@ -171,11 +218,11 @@ let file_size story =
   let file_size_offset = 26 in
   let s = read_word story file_size_offset in
   let m = match (version story) with
-  | 1
-  | 2
-  | 3 -> 2
-  | 4
-  | 5 -> 4
+  | V1
+  | V2
+  | V3 -> 2
+  | V4
+  | V5 -> 4
   | _ -> 8 in
   s * m
 
@@ -227,7 +274,7 @@ let string_offset story =
 let display_header story =
   let (Instruction ipc) = initial_program_counter story in
   let (Checksum checksum) = header_checksum story in
-  Printf.sprintf "Version                     : %d\n" (version story) ^
+  Printf.sprintf "Version                     : %s\n" (display_version (version story)) ^
   Printf.sprintf "Release number              : %d\n" (release_number story) ^
   Printf.sprintf "Serial number               : %s\n" (serial_number story) ^
   Printf.sprintf "Checksum                    : %04x\n" checksum ^
@@ -242,27 +289,25 @@ let display_header story =
 
 let decode_routine_packed_address story (Packed_routine packed) =
   match version story with
-  | 1
-  | 2
-  | 3 -> Routine (packed * 2)
-  | 4
-  | 5 -> Routine (packed * 4)
-  | 6
-  | 7 -> Routine (packed * 4 + (routine_offset story))
-  | 8 -> Routine (packed * 8)
-  | _ -> failwith "bad version"
+  | V1
+  | V2
+  | V3 -> Routine (packed * 2)
+  | V4
+  | V5 -> Routine (packed * 4)
+  | V6
+  | V7 -> Routine (packed * 4 + (routine_offset story))
+  | V8 -> Routine (packed * 8)
 
 let decode_string_packed_address story (Packed_zstring packed) =
   match version story with
-  | 1
-  | 2
-  | 3 -> Zstring (packed * 2)
-  | 4
-  | 5 -> Zstring (packed * 4)
-  | 6
-  | 7 -> Zstring (packed * 4 + (string_offset story))
-  | 8 -> Zstring (packed * 8)
-  | _ -> failwith "bad version"
+  | V1
+  | V2
+  | V3 -> Zstring (packed * 2)
+  | V4
+  | V5 -> Zstring (packed * 4)
+  | V6
+  | V7 -> Zstring (packed * 4 + (string_offset story))
+  | V8 -> Zstring (packed * 8)
 
 let load_story filename =
   let file = get_file filename in
@@ -298,7 +343,7 @@ let first_instruction story (Routine routine_address) =
   * In Versions 5 and later, the initial values are all zero.
   * Execution of instructions begins from the byte after this header
     information *)
-  if (version story) <= 4 then
+  if v4_or_lower (version story) then
     let count = locals_count story (Routine routine_address) in
     Instruction (routine_address + 1 + count * 2)
   else
@@ -308,7 +353,7 @@ let first_instruction story (Routine routine_address) =
 let local_default_value story (Routine routine_address) n =
   if n < 1 || n > maximum_local then
     failwith "invalid local"
-  else if (version story) <= 4 then
+  else if v4_or_lower (version story) then
     read_word story (routine_address + 1 + 2 * (n - 1))
   else
     0

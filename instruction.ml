@@ -104,7 +104,7 @@ let jump_address instruction offset =
 let is_call ver opcode =
   match opcode with
   | OP1_143 (* call_1n in v5, logical not in v1-4 *)
-    -> ver >= 5
+    -> Story.v5_or_higher ver
   | VAR_224 (* call / call_vs *)
   | OP1_136 (* call_1s *)
   | OP2_26  (* call_2n *)
@@ -127,12 +127,12 @@ let call_address instr story  =
 
 let has_store opcode ver =
   match opcode with
-  | OP1_143 -> ver <= 4
-  | OP0_181 -> ver >= 4 (* save branches in v3, stores in v4 *)
-  | OP0_182 -> ver >= 4 (* restore branches in v3, stores in v4 *)
-  | OP0_185 -> ver >= 4 (* pop in v4, catch in v5 *)
-  | VAR_233 -> ver = 6
-  | VAR_228 -> ver >= 5
+  | OP1_143 -> Story.v4_or_lower ver (* call_1n in v5, logical not in v1-4 *)
+  | OP0_181 -> Story.v4_or_higher ver (* save branches in v3, stores in v4 *)
+  | OP0_182 -> Story.v4_or_higher ver (* restore branches in v3, stores in v4 *)
+  | OP0_185 -> Story.v4_or_higher ver (* pop in v4, catch in v5 *)
+  | VAR_233 -> ver = V6
+  | VAR_228 -> Story.v5_or_higher ver
   | OP2_8   | OP2_9   | OP2_15  | OP2_16  | OP2_17  | OP2_18  | OP2_19
   | OP2_20  | OP2_21  | OP2_22  | OP2_23  | OP2_24  | OP2_25
   | OP1_129 | OP1_130 | OP1_131 | OP1_132 | OP1_136 | OP1_142
@@ -181,8 +181,8 @@ let has_text opcode =
 
 let has_branch opcode ver =
   match opcode with
-  | OP0_181 -> ver <= 3 (* save branches in v3, stores in v4 *)
-  | OP0_182 -> ver <= 3 (* restore branches in v3, stores in v4 *)
+  | OP0_181 -> Story.v3_or_lower ver (* save branches in v3, stores in v4 *)
+  | OP0_182 -> Story.v3_or_lower ver (* restore branches in v3, stores in v4 *)
   | OP2_1   | OP2_2   | OP2_3   | OP2_4   | OP2_5   | OP2_6   | OP2_7   | OP2_10
   | OP1_128 | OP1_129 | OP1_130 | OP0_189 | OP0_191
   | VAR_247 | VAR_255
@@ -235,7 +235,7 @@ let opcode_name opcode ver =
   | OP1_140 -> "jump"
   | OP1_141 -> "print_paddr"
   | OP1_142 -> "load"
-  | OP1_143 -> if ver <= 4 then "not" else "call_1n"
+  | OP1_143 -> if Story.v4_or_lower ver then "not" else "call_1n"
   | OP0_176 -> "rtrue"
   | OP0_177 -> "rfalse"
   | OP0_178 -> "print"
@@ -245,18 +245,18 @@ let opcode_name opcode ver =
   | OP0_182 -> "restore"
   | OP0_183 -> "restart"
   | OP0_184 -> "ret_popped"
-  | OP0_185 -> if ver <= 4 then "pop" else "catch"
+  | OP0_185 -> if Story.v4_or_lower ver then "pop" else "catch"
   | OP0_186 -> "quit"
   | OP0_187 -> "new_line"
   | OP0_188 -> "show_status"
   | OP0_189 -> "verify"
   | OP0_190 -> "EXTENDED"
   | OP0_191 -> "piracy"
-  | VAR_224 -> if ver <= 3 then "call" else "call_vs"
+  | VAR_224 -> if Story.v3_or_lower ver then "call" else "call_vs"
   | VAR_225 -> "storew"
   | VAR_226 -> "storeb"
   | VAR_227 -> "put_prop"
-  | VAR_228 -> if ver <= 4 then "sread" else "aread"
+  | VAR_228 -> if Story.v4_or_lower ver then "sread" else "aread"
   | VAR_229 -> "print_char"
   | VAR_230 -> "print_num"
   | VAR_231 -> "random"

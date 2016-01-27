@@ -27,7 +27,9 @@ type pixel_height = Pixel_height of int
 type pixel_x = Pixel_x of int
 type pixel_y = Pixel_y of int
 type cursor = Cursor of character_x * character_y
-type checksum = Checksum of int 
+type checksum = Checksum of int
+type version =
+  | V1 | V2 | V3 | V4 | V5 | V6 | V7 | V8
 
 type variable_location =
   | Stack

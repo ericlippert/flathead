@@ -55,7 +55,7 @@ let write_tokens items address max_parse story =
     the number of letters in the word; and finally a byte giving the position
     in the text-buffer of the first letter of the word. *)
 
-  let text_buffer_offset = if (Story.version story) <= 4 then 1 else 2 in
+  let text_buffer_offset = if Story.v4_or_lower (Story.version story) then 1 else 2 in
   let rec aux items address count story =
     match items with
     | [] -> story
@@ -76,7 +76,7 @@ parsed again. This will be necessary in order to implement the tokenise
 instruction. *)
 let write_user_string_to_memory story text_addr trimmed =
   (* Now we have to write the string into story memory. This is a bit tricky. *)
-  if (Story.version story) <= 4 then
+  if Story.v4_or_lower (Story.version story) then
     (* Spec: In Versions 1 to 4, ...  stored in bytes 1 onward, with a zero
     terminator (but without any other terminator, such as a carriage return code).
     ----

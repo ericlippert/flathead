@@ -30,7 +30,7 @@ let entry_length story =
   Story.read_byte story (base + separators + 1)
 
 let max_word_length story =
-  if (Story.version story) <= 3 then 6 else 9
+  if Story.v3_or_lower (Story.version story) then 6 else 9
 
 let entry_count story =
   let base = Story.dictionary_base story in

@@ -6,7 +6,7 @@ let invalid_object = Object 0
 let invalid_property = Property 0
 
 let default_property_table_size story =
-  if (Story.version story) <= 3 then 31 else 63
+  if Story.v3_or_lower (Story.version story) then 31 else 63
 
 let default_property_table_entry_size = 2
 
@@ -33,7 +33,7 @@ let tree_base story =
   prop_base + default_property_table_entry_size * table_size
 
 let entry_size story =
-  if (Story.version story) <= 3 then 9 else 14
+  if Story.v3_or_lower (Story.version story) then 9 else 14
 
 let address story (Object obj) =
   let tree_base = tree_base story in
@@ -50,7 +50,7 @@ let attributes_word_2 story obj =
   Story.read_word story (addr + attributes2_offset)
 
 let attributes_word_3 story obj =
-  if (Story.version story) <= 3 then
+  if Story.v3_or_lower (Story.version story) then
     0
   else
     let attributes3_offset = 3 in
@@ -58,7 +58,7 @@ let attributes_word_3 story obj =
     Story.read_word story (addr + attributes3_offset)
 
 let attribute_count story =
-  if (Story.version story) <= 3 then 32 else 48
+  if Story.v3_or_lower (Story.version story) then 32 else 48
 
 let attribute_address story obj (Attribute attribute) =
   if attribute < 0 || attribute >= (attribute_count story) then
@@ -87,42 +87,42 @@ let clear_attribute story obj attribute =
 
 let parent story obj =
   let (Object_address addr) = address story obj in
-  if (Story.version story) <= 3 then
+  if Story.v3_or_lower (Story.version story) then
     Object (Story.read_byte story (addr + 4))
   else
     Object (Story.read_word story (addr + 6))
 
 let set_parent story obj (Object new_parent) =
   let (Object_address addr) = address story obj in
-  if (Story.version story) <= 3 then
+  if Story.v3_or_lower (Story.version story) then
     Story.write_byte story (addr + 4) new_parent
   else
     Story.write_word story (addr + 6) new_parent
 
 let sibling story obj =
   let (Object_address addr) = address story obj in
-  if (Story.version story) <= 3 then
+  if Story.v3_or_lower (Story.version story) then
     Object (Story.read_byte story (addr + 5))
   else
     Object (Story.read_word story (addr + 8))
 
 let set_sibling story obj (Object new_sibling) =
   let (Object_address addr) = address story obj in
-  if (Story.version story) <= 3 then
+  if Story.v3_or_lower (Story.version story) then
     Story.write_byte story (addr + 5) new_sibling
   else
     Story.write_word story (addr + 8) new_sibling
 
 let child story obj =
   let (Object_address addr) = address story obj in
-  if (Story.version story) <= 3 then
+  if Story.v3_or_lower (Story.version story) then
     Object (Story.read_byte story (addr + 6))
   else
     Object (Story.read_word story (addr + 10))
 
 let set_child story obj (Object new_child) =
   let (Object_address addr) = address story obj in
-  if (Story.version story) <= 3 then
+  if Story.v3_or_lower (Story.version story) then
     Story.write_byte story (addr + 6) new_child
   else
     Story.write_word story (addr + 10) new_child
@@ -130,7 +130,7 @@ let set_child story obj (Object new_child) =
 (* The last two bytes in an object description are a pointer to a
 block that contains additional properties. *)
 let property_header_address story obj =
-  let object_property_offset = if (Story.version story) <= 3 then 7 else 12 in
+  let object_property_offset = if Story.v3_or_lower (Story.version story) then 7 else 12 in
   let (Object_address addr) = address story obj in
   Property_header (Story.read_word story (addr + object_property_offset))
 
@@ -206,7 +206,7 @@ let decode_property_data story (Property_address address) =
   let b = Story.read_byte story address in
   if b = 0 then
     (0, 0, invalid_property)
-  else if (Story.version story) <= 3 then
+  else if Story.v3_or_lower (Story.version story) then
     (* In version 3 it's easy. The number of bytes of property data
     is indicated by the top 3 bits; the property number is indicated
     by the bottom 5 bits, and the header is one byte. *)
@@ -258,7 +258,7 @@ let property_length_from_address story address =
     0
   else
     let b = Story.read_byte story (address - 1) in
-    if (Story.version story) <= 3 then
+    if Story.v3_or_lower (Story.version story) then
       1 + (fetch_bits bit7 size3 b)
     else
       if fetch_bit bit7 b then

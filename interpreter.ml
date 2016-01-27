@@ -1100,7 +1100,7 @@ let handle_sread2 text_addr parse_addr interpreter instruction =
 
   let maximum_letters = Story.read_byte interpreter.story text_addr in
   let maximum_letters =
-    if (Story.version interpreter.story) <= 4 then maximum_letters - 1
+    if Story.v4_or_lower (Story.version interpreter.story) then maximum_letters - 1
     else maximum_letters in
 
   (* At this point set the state to "needs input" and return that interpreter.
@@ -1133,7 +1133,7 @@ let complete_sread text_addr parse_addr input interpreter instruction =
   let story = interpreter.story in
   let maximum_letters = Story.read_byte story text_addr in
   let maximum_letters =
-    if (Story.version interpreter.story) <= 4 then maximum_letters - 1
+    if Story.v4_or_lower (Story.version interpreter.story) then maximum_letters - 1
     else maximum_letters in
   let trimmed = truncate text maximum_letters in
   let story = Tokeniser.write_user_string_to_memory story text_addr trimmed in
@@ -1210,7 +1210,7 @@ game stack.
 push*)
 
 let handle_pull1 x interpreter =
-  if (Story.version interpreter.story) = 6 then
+  if (Story.version interpreter.story) = V6 then
     failwith "TODO: user stack pull not yet implemented"
   else
     (* In non-v6, this is another one of those odd instructions
@@ -1270,7 +1270,7 @@ let handle_erase_window window interpreter =
     | -2
     | -1
     | 0 ->
-      if (Story.version interpreter.story) <= 4 then
+      if Story.v4_or_lower (Story.version interpreter.story) then
         Screen.set_lower_cursor_bottom_left upper_moved
       else
         Screen.set_lower_cursor upper_moved Window.top_left
@@ -1691,7 +1691,7 @@ let step_instruction interpreter =
   | (OP1_141, [paddr]) -> effect (handle_print_paddr paddr)
   | (OP1_142, [variable]) -> interpret_instruction (handle_load variable)
   | (OP1_143, [x]) ->
-    if (Story.version interpreter.story) <= 4 then value (handle_not x)
+    if Story.v4_or_lower (Story.version interpreter.story) then value (handle_not x)
     else handle_call x [] interpreter instruction
   | (OP0_176, []) -> handle_rtrue interpreter instruction
   | (OP0_177, []) -> handle_rfalse interpreter instruction
@@ -1703,7 +1703,7 @@ let step_instruction interpreter =
   | (OP0_183, []) -> handle_restart interpreter instruction
   | (OP0_184, []) -> handle_ret_popped interpreter instruction
   | (OP0_185, []) ->
-    if (Story.version interpreter.story <= 4) then effect handle_pop
+    if Story.v4_or_lower (Story.version interpreter.story) then effect handle_pop
     else value handle_catch
   | (OP0_186, []) -> handle_quit interpreter instruction
   | (OP0_187, []) -> effect handle_new_line
