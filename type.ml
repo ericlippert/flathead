@@ -1,3 +1,6 @@
+type object_base = Object_base of int
+type property_defaults_table = Property_defaults_table of int
+type object_tree_base = Object_tree_base of int
 type object_number = Object of int
 type object_address = Object_address of int
 type property_number = Property of int

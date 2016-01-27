@@ -341,9 +341,11 @@ let dictionary_base story =
   let dictionary_base_offset = 8 in
   Dictionary_base (read_word story dictionary_base_offset)
 
+(* The object table address is stored at byte 10 *)
+
 let object_table_base story =
   let object_table_base_offset = 10 in
-  read_word story object_table_base_offset
+  Object_base (read_word story object_table_base_offset)
 
 let global_variables_table_base story =
   let global_variables_table_base_offset = 12 in
@@ -450,6 +452,7 @@ let string_offset story =
 let display_header story =
   let (Release_number release_number) = release_number story in
   let (Checksum checksum) = header_checksum story in
+  let (Object_base object_table_base) = object_table_base story in
   let (Dictionary_base dictionary_base) = dictionary_base story in
   let (High_memory_base high_memory_base) = high_memory_base story in
   let (Instruction ipc) = initial_program_counter story in
@@ -459,7 +462,7 @@ let display_header story =
   Printf.sprintf "Checksum                    : %04x\n" checksum ^
   Printf.sprintf "File size                   : %d\n" (file_size story) ^
   Printf.sprintf "Abbreviations table base    : %04x\n" (abbreviations_table_base story) ^
-  Printf.sprintf "Object table base           : %04x\n" (object_table_base story) ^
+  Printf.sprintf "Object table base           : %04x\n" object_table_base ^
   Printf.sprintf "Global variables table base : %04x\n" (global_variables_table_base story) ^
   Printf.sprintf "Static memory base          : %04x\n" (static_memory_base story) ^
   Printf.sprintf "Dictionary base             : %04x\n" dictionary_base ^

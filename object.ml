@@ -5,18 +5,32 @@ let invalid_data = Property_data 0
 let invalid_object = Object 0
 let invalid_property = Property 0
 
+(* The object table is laid out as follows:
+
+* The base of the object table is in the header.
+* The object table begins with a block of 31 or 63 default property values.
+* Following the default property values is the object tree.
+* Each entry in the tree is of the same size, and is laid out as follows:
+  * 32 or 48 bits of attribute flags
+  * the parent, sibling and child object numbers
+  * the address of an additional table of variable-sized properties.
+* object numbers are one-based, so zero is used as the invalid object.
+*)
+
 let default_property_table_size story =
   if Story.v3_or_lower (Story.version story) then 31 else 63
 
 let default_property_table_entry_size = 2
 
-let default_property_table_base = Story.object_table_base
+let default_property_table_base story =
+  let (Object_base base)= Story.object_table_base story in
+  Property_defaults_table base
 
 let default_property_value story (Property n) =
   if n < 1 || n > (default_property_table_size story) then
     failwith "invalid index into default property table"
   else
-    let base = default_property_table_base story in
+    let (Property_defaults_table base) = default_property_table_base story in
     let addr = (base + (n - 1) * default_property_table_entry_size) in
     Story.read_word story addr
 
@@ -28,15 +42,15 @@ let display_default_property_table story =
   accumulate_strings_loop to_string 1 ((default_property_table_size story) + 1)
 
 let tree_base story =
-  let prop_base = default_property_table_base story in
+  let (Object_base base) = Story.object_table_base story in
   let table_size = default_property_table_size story in
-  prop_base + default_property_table_entry_size * table_size
+  Object_tree_base (base + default_property_table_entry_size * table_size)
 
 let entry_size story =
   if Story.v3_or_lower (Story.version story) then 9 else 14
 
 let address story (Object obj) =
-  let tree_base = tree_base story in
+  let (Object_tree_base tree_base) = tree_base story in
   let entry_size = entry_size story in
   Object_address (tree_base + (obj - 1) * entry_size)
 
@@ -138,7 +152,7 @@ let property_header_address story obj =
    Assume that the address of the first property block in the first object is
    the bottom of the object tree table. *)
 let count story =
-  let table_start = tree_base story in
+  let (Object_tree_base table_start) = tree_base story in
   let (Property_header table_end) = property_header_address story (Object 1) in
   let entry_size = entry_size story in
   (table_end - table_start) / entry_size
