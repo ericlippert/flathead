@@ -25,8 +25,9 @@ ocamlc -g -c randomness.ml
 ocamlc -g -c transcript.ml
 ocamlc -g -c status_line.ml
 ocamlc -g -c interpreter.ml
+ocamlc -g -c my_graphics.ml
 ocamlc -g -c button.ml
 ocamlc -g -c debugger.ml
-ocaml type.cmo utility.cmo deque.cmo window.cmo screen.cmo immutable_bytes.cmo memory.cmo story.cmo zstring.cmo instruction.cmo object.cmo dictionary.cmo reachability.cmo globals.cmo tokeniser.cmo iff.cmo quetzal.cmo evaluation_stack.cmo local_store.cmo frame.cmo frameset.cmo randomness.cmo transcript.cmo status_line.cmo interpreter.cmo graphics.cma button.cmo debugger.cmo flathead.ml
+ocaml type.cmo utility.cmo deque.cmo window.cmo screen.cmo immutable_bytes.cmo memory.cmo story.cmo zstring.cmo instruction.cmo object.cmo dictionary.cmo reachability.cmo globals.cmo tokeniser.cmo iff.cmo quetzal.cmo evaluation_stack.cmo local_store.cmo frame.cmo frameset.cmo randomness.cmo transcript.cmo status_line.cmo interpreter.cmo graphics.cma my_graphics.cmo button.cmo debugger.cmo flathead.ml
 @del *.cmi
 @del *.cmo

@@ -1,5 +1,6 @@
-let story = Story.load_story "TRINITY.DAT" in
-let screen = Screen.make 50 80 in
-let interpreter = Interpreter.make story screen in
-let debugger = Debugger.make interpreter in
-Debugger.run debugger
+open Type;;
+let story = Story.load_story "output.z8" ;;
+let screen = Screen.make (Character_height 50) (Character_width 80) ;;
+let interpreter = Interpreter.make story screen ;;
+let debugger = Debugger.make interpreter ;;
+Debugger.run debugger ;;

@@ -22,7 +22,7 @@ let make story =
     let right_length = String.length right in
     let left = current_object_name () in
     let left_length = String.length left in
-    let width = Story.screen_width story in
+    let (Character_width width) = Story.screen_width story in
     let left_trimmed =
       if left_length + right_length < width then left
       else left_string left (width - right_length - 1) in (* TODO: Assumes that width >= right_length *)

@@ -17,6 +17,15 @@ type instruction_address = Instruction of int
 type abbreviation_number = Abbreviation of int
 type zstring_address = Zstring of int
 type status_line = Status of string option
+type character_width = Character_width of int
+type character_height = Character_height of int
+type character_x = Character_x of int
+type character_y = Character_y of int
+type pixel_width = Pixel_width of int
+type pixel_height = Pixel_height of int
+type pixel_x = Pixel_x of int
+type pixel_y = Pixel_y of int
+type cursor = Cursor of character_x * character_y
 
 type variable_location =
   | Stack
@@ -57,6 +66,7 @@ type more_enabled =
 type scroll_pending =
   | Scroll_pending of string
   | Nothing_pending
+
 
 type bytecode =
             | OP2_1   | OP2_2   | OP2_3   | OP2_4   | OP2_5   | OP2_6   | OP2_7

@@ -1,16 +1,6 @@
 open Utility
+open My_graphics
 open Type;;
-
-(* TODO: Wrapper types around pixel height / width vs character height / width *)
-
-Graphics.open_graph "";;
-Graphics.auto_synchronize false;;
-Graphics.set_font "Lucida Console";;
-let (text_width, text_height) = Graphics.text_size "X";;
-
-let draw_string_at text x y =
-  Graphics.moveto x y;
-  Graphics.draw_string text;;
 
 type state =
   | Paused
@@ -37,18 +27,50 @@ type t =
   buttons :  (Button.t * action) list;
 }
 
+let add_pixels_h (Pixel_height h1) (Pixel_height h2) =
+  Pixel_height (h1 + h2)
+
+let add_pixels_w (Pixel_width w1) (Pixel_width w2) =
+  Pixel_width (w1 + w2)
+
+let add_pixels_y (Pixel_y y) (Pixel_height h) =
+  Pixel_y (y + h)
+
+let add_pixels_x (Pixel_x x) (Pixel_width w) =
+  Pixel_x (x + w)
+
+let chars_to_pixels_h (Character_height h) =
+  let (Pixel_height th) = text_height in
+  Pixel_height (th * h)
+
+let chars_to_pixels_w (Character_width w) =
+  let (Pixel_width tw) = text_width in
+  Pixel_width (tw * w)
+
+let add_characters_y y h =
+  let hp = chars_to_pixels_h h in
+  add_pixels_y y hp
+
 (* Extra line for status *)
 let screen_extent screen =
+  let x = Pixel_x 10 in
+  let y = Pixel_y 10 in
   let w = Screen.width screen in
+  let w = chars_to_pixels_w w in
   let h = Screen.height screen in
-  (10, 10, w * text_width, (h + 1) * text_height);;
+  let h = chars_to_pixels_h h in
+  let h = add_pixels_h h text_height in
+  (x, y, w, h)
 
+(* TODO: Move this logic to button *)
 let make interpreter =
   let screen = Interpreter.screen interpreter in
   let (x, y, _, h) = screen_extent screen in
-  let margin = 20 in
-  let gap = 10 in
-  let button_y = y + h + gap in
+  let margin = Pixel_width 20 in
+  let gap_w = Pixel_width 10 in
+  let gap_h = Pixel_height 10 in
+  let button_y = add_pixels_y y h in
+  let button_y = add_pixels_y button_y gap_h in
   let button_list =
     [
       ("X", Quit);
@@ -63,7 +85,9 @@ let make interpreter =
         | [] -> map
         | (caption, action) :: tail ->
           let new_button = Button.make button_x button_y margin caption in
-          let new_x = button_x + new_button.Button.width + gap in
+          let bw = new_button.Button.width in
+          let new_x = add_pixels_x button_x bw in
+          let new_x = add_pixels_x new_x gap_w in
           aux ((new_button, action) :: map) tail new_x in
       aux [] button_list x in
   {
@@ -77,30 +101,28 @@ let make interpreter =
 
 let clear_screen screen =
   let (x, y, w, h) = screen_extent screen in
-  Graphics.set_color Graphics.background;
-  Graphics.fill_rect x y w h
+  fill_rect Graphics.background x y w h
 
 let draw_status screen =
   let (x, y, _, _) = screen_extent screen in
   let status_color = Graphics.blue in
   match Screen.status screen with
   | Status None  -> ()
-  | Status Some status -> (
-    Graphics.set_color status_color;
+  | Status Some status ->
     let h = Screen.height screen in
-    draw_string_at status x (y + text_height * h) )
+    let y = add_characters_y y h in
+    draw_string_at status status_color x y
 
 let rec draw_screen screen =
   clear_screen screen;
   draw_status screen;
-  Graphics.set_color Graphics.foreground;
   let (x, y, _, _) = screen_extent screen in
   let rec aux n =
-    let h = Screen.height screen in
+    let (Character_height h) = Screen.height screen in
     if n < h then (
-      let text = Deque.peek_front_at (Screen.lines screen) n in
-      let text_y = y + text_height * n in
-      draw_string_at text x text_y;
+      let text = Screen.get_line_at screen (Character_y (h - n)) in
+      let text_y = add_characters_y y (Character_height n)  in
+      draw_string_at text Graphics.foreground x text_y;
       aux (n + 1)) in
   aux 0 ;
   Graphics.synchronize()
@@ -114,29 +136,30 @@ let draw_before_current_after before current after x y width height =
   let before_color = Graphics.blue in
   let current_color = Graphics.black in
   let after_color = Graphics.blue in
+  let (Character_height ch) = height in
   let rec draw_before items n =
-    if n < height then
+    if n < ch then
       match items with
       | [] -> ()
       | text :: tail -> (
-        draw_string_at text x (y + n * text_height);
+        let text_y = add_characters_y y (Character_height n) in
+        draw_string_at text before_color x text_y;
         draw_before tail (n + 1)) in
   let rec draw_after items n =
     if n > 0 then
       match items with
       | [] -> ()
       | text :: tail -> (
-        draw_string_at text x (y + n * text_height);
+        let text_y = add_characters_y y (Character_height n) in
+        draw_string_at text after_color x text_y;
         draw_after tail (n - 1)) in
-  Graphics.set_color Graphics.background;
-  Graphics.fill_rect x y (width * text_width) (height * text_height);
-  Graphics.set_color before_color;
-  draw_before before (height / 2 + 1);
-  Graphics.set_color current_color;
-  draw_string_at current x (y + text_height * (height / 2));
-  Graphics.set_color after_color;
-  draw_after after (height / 2 - 1);
-  Graphics.set_color Graphics.foreground;
+  let w = chars_to_pixels_w width in
+  let h = chars_to_pixels_h height in
+  fill_rect Graphics.background x y w h;
+  draw_before before (ch / 2 + 1);
+  let text_y = add_characters_y y (Character_height (ch / 2)) in
+  draw_string_at current current_color x text_y;
+  draw_after after (ch / 2 - 1);
   Graphics.synchronize();;
 
 (* TODO: use draw_before_current_after *)
@@ -147,39 +170,38 @@ let draw_undo_redo debugger =
   let interpreter = debugger.interpreter in
   let screen = Interpreter.screen interpreter in
   let (screen_x, screen_y, screen_w, screen_h) = screen_extent screen in
-  let window_x = screen_x + screen_w + 10 in
+  let (Character_height ch) = Screen.height screen in
+  let gap_w = Pixel_width 10 in
+  let window_x = add_pixels_x screen_x screen_w in
+  let window_x = add_pixels_x window_x gap_w in
   let window_y = screen_y in
-  let instruction_width = 60 in
-  let window_w = text_width * instruction_width in
-  let window_h = text_height * (Screen.height screen) in
-  let draw_line interp n =
+  let iw = 60 in
+  let instruction_width = Character_width iw in
+  let window_w = chars_to_pixels_w instruction_width in
+  let window_h = chars_to_pixels_h (Screen.height screen) in
+  let draw_line interp n color =
     let instr = Interpreter.display_current_instruction interp in
-    let text = trim_to_length instr instruction_width in
-    draw_string_at text window_x (window_y + text_height * n) in
+    let text = trim_to_length instr iw in
+    let text_y = add_characters_y window_y (Character_height n) in
+    draw_string_at text color window_x text_y in
   let rec draw_undo undo n =
-    if n < (Screen.height screen) then
+    if n < ch then
       match undo with
       | [] -> ()
       | h :: t -> (
-        draw_line h n;
+        draw_line h n undo_color;
         draw_undo t (n + 1)) in
   let rec draw_redo redo n =
     if n > 0 then
       match redo with
       | [] -> ()
       | h :: t -> (
-        draw_line h n;
+        draw_line h n redo_color;
         draw_redo t (n - 1)) in
-  Graphics.set_color Graphics.background;
-  Graphics.fill_rect window_x window_y window_w window_h;
-  Graphics.set_color undo_color;
-  let h = Screen.height screen in
-  draw_undo debugger.undo_stack ( h / 2 + 1);
-  Graphics.set_color current_color;
-  draw_line debugger.interpreter (h / 2);
-  Graphics.set_color redo_color;
-  draw_redo debugger.redo_stack (h / 2 - 1);
-  Graphics.set_color Graphics.foreground;
+  fill_rect Graphics.background window_x window_y window_w window_h;
+  draw_undo debugger.undo_stack ( ch / 2 + 1);
+  draw_line debugger.interpreter (ch / 2) current_color;
+  draw_redo debugger.redo_stack (ch / 2 - 1);
   Graphics.synchronize()
 
 let debugger_push_undo debugger new_interpreter =
@@ -267,7 +289,7 @@ let rec obtain_action debugger should_block =
   else
     let action =
       let is_hit (button, _) =
-        Button.was_clicked button status.Graphics.mouse_x status.Graphics.mouse_y in
+        Button.was_clicked button (Pixel_x status.Graphics.mouse_x) (Pixel_y status.Graphics.mouse_y) in
       if status.Graphics.button then
         match List.filter is_hit debugger.buttons with
         | [] -> NoAction
@@ -340,8 +362,9 @@ let halt debugger =
     let (before, after) = aux [] [] map in
     let screen = Interpreter.screen debugger.interpreter in
     let (screen_x, screen_y, screen_w, screen_h) = screen_extent screen in
-    let x = screen_x + screen_w + 10 in
-    draw_before_current_after before current (List.rev after) x screen_y 60 (Screen.height screen)
+    let x = add_pixels_x screen_x screen_w in
+    let x = add_pixels_x x (Pixel_width 10) in
+    draw_before_current_after before current (List.rev after) x screen_y (Character_width 60) (Screen.height screen)
 
 (* TODO: Most of the methods in this module can be local to run *)
 

@@ -896,7 +896,7 @@ let handle_restore interpreter instruction =
   (* After a restore, redraw the status line *)
   let new_interpreter = set_status_line new_interpreter in
   (* After a restore, collapse the upper window *)
-  let new_interpreter = split_window new_interpreter 0 in
+  let new_interpreter = split_window new_interpreter (Character_height 0) in
   (* The save is either a conditional branch or a store depending on the version.
   We'll just do both and let the helper sort it out. *)
   let store = Instruction.store save_instruction in
@@ -1041,7 +1041,7 @@ window should be cleared after the split. *)
 
 let handle_split_window lines interpreter =
   (* TODO: in version 3 only, clear the upper window after the split. *)
-  let lines = unsigned_word lines in
+  let lines = Character_height lines in
   split_window interpreter lines
 
 (* Spec: VAR:228 sread text parse
@@ -1253,7 +1253,7 @@ let handle_erase_window window interpreter =
   let window = signed_word window in
   let unsplit = match window with
     | -2 -> interpreter.screen
-    | -1 -> Screen.split_window interpreter.screen 0
+    | -1 -> Screen.split_window interpreter.screen (Character_height 0)
     | _ -> interpreter.screen in
   let erased = match window with
     | -2
@@ -1264,16 +1264,16 @@ let handle_erase_window window interpreter =
   let upper_moved = match window with
     | -2
     | -1
-    | 1 -> Screen.set_upper_cursor erased 1 1
+    | 1 -> Screen.set_upper_cursor erased Window.top_left
     | _ -> erased in
   let lower_moved = match window with
     | -2
     | -1
     | 0 ->
       if (Story.version interpreter.story) <= 4 then
-        Screen.set_lower_cursor upper_moved 1 (Screen.height upper_moved)
+        Screen.set_lower_cursor_bottom_left upper_moved
       else
-        Screen.set_lower_cursor upper_moved 1 1
+        Screen.set_lower_cursor upper_moved Window.top_left
     | _ -> upper_moved in
   { interpreter with screen = lower_moved }
 
@@ -1310,10 +1310,13 @@ let handle_set_cursor2 line column interpreter =
   set_cursor. The opcode has no effect when the lower window is selected.
   It is illegal to move the cursor outside the current size of the upper
   window. *)
+  let line = Character_y line in
+  let column = Character_x column in
   match Screen.selected_window interpreter.screen with
   | Lower_window -> interpreter
   | Upper_window ->
-    { interpreter with screen = Screen.set_cursor interpreter.screen column line }
+    let cursor = Cursor (column, line) in
+    { interpreter with screen = Screen.set_cursor interpreter.screen cursor }
 
 let handle_set_cursor3 line column window interpreter =
   failwith "TODO: set_cursor with window not yet implemented"
@@ -1325,7 +1328,7 @@ size information in its initial entry.) *)
 
 let handle_get_cursor arr interpreter =
   let arr = unsigned_word arr in
-  let (x, y) = Screen.get_active_cursor interpreter.screen in
+  let Cursor ((Character_x x),( Character_y y)) = Screen.get_active_cursor interpreter.screen in
   let story = Story.write_word interpreter.story arr y in
   let story = Story.write_word story (arr + 2) x in
   { interpreter with story }

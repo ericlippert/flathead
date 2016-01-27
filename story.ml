@@ -209,17 +209,17 @@ let verify_checksum story =
 
 let screen_height story =
   let screen_height_offset = 32 in
-  read_byte story screen_height_offset
+  Character_height (read_byte story screen_height_offset)
 
-let set_screen_height story height =
+let set_screen_height story (Character_height height) =
   let screen_height_offset = 32 in
   write_byte story screen_height_offset height
 
 let screen_width story =
   let screen_width_offset = 33 in
-  read_byte story screen_width_offset
+  Character_width (read_byte story screen_width_offset)
 
-let set_screen_width story width =
+let set_screen_width story (Character_width width) =
   let screen_width_offset = 33 in
   write_byte story screen_width_offset width
 

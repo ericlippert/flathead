@@ -12,46 +12,108 @@ be displaying "MORE". *)
 (* Cursor position is one-based; (1, 1) is the top left,
 (width, height) is the bottom right. *)
 
+
+
 type t =
 {
-  cursor : int * int;
+  cursor : cursor;
   can_wrap : wrap_enabled;
   can_scroll : scroll_enabled;
   can_more : more_enabled;
   pending : scroll_pending;
   lines : string Deque.t;
-  height : int;
-  width : int;
+  height : character_height;
+  width : character_width;
   scroll_count : int;
   needs_more : bool
 }
 
-let make height width x y can_wrap can_scroll can_more =
-  let blank_line = spaces width in
+let make height width cursor can_wrap can_scroll can_more =
+  let (Character_width w) = width in
+  let (Character_height h) = height in
+  let blank_line = Utility.spaces w in
   let add d =
     Deque.enqueue_back d blank_line in
   {
-    cursor = (x, y);
+    cursor;
     can_wrap;
     can_scroll;
     can_more;
     pending = Nothing_pending;
-    lines = times add height Deque.empty;
+    lines = times add h Deque.empty;
     height;
     width;
     scroll_count = 0;
     needs_more = false
   }
 
+let spaces (Character_width w) =
+  Utility.spaces w
+
+let blank_line window =
+  spaces window.width
+
+let left_column = (Character_x 1)
+
+let top_row = (Character_y 1)
+
+let top_left = Cursor (left_column, top_row)
+
+let bottom_row window =
+  let (Character_height h) = window.height in
+  (Character_y h)
+
+let bottom_left window =
+  Cursor (left_column, (bottom_row window))
+
+let set_cursor_x cursor x =
+  let Cursor (_, y) = cursor in
+  Cursor (x, y)
+
+let set_cursor_y cursor y =
+  let Cursor (x, _) = cursor in
+  Cursor (x, y)
+
+let move_window_cursor_right window (Character_width r) =
+  let (Character_width w) = window.width in
+  let Cursor ((Character_x x), _) = window.cursor in
+  let new_x = min (x + r) w in
+  let cursor = set_cursor_x window.cursor (Character_x new_x) in
+  { window with cursor }
+
+let move_cursor_down cursor (Character_height d) =
+  let Cursor (_, Character_y y) = cursor in
+  set_cursor_y cursor (Character_y (y + d))
+
+let move_cursor_up cursor (Character_height d) =
+  let Cursor (_, Character_y y) = cursor in
+  set_cursor_y cursor (Character_y (y - d))
+
+let move_window_cursor_down window (Character_height d) =
+  let (Character_height h) = window.height in
+  let Cursor (_, Character_y y) = window.cursor in
+  let new_y = min (y + d) h in
+  let cursor = set_cursor_y window.cursor (Character_y new_y) in
+  { window with cursor }
+
+let return_cursor window =
+  let window = move_window_cursor_down window (Character_height 1) in
+  let cursor = set_cursor_x window.cursor left_column in
+  { window with cursor }
+
 let erase window =
-  let blank_line = spaces window.width in
+  let (Character_height h) = window.height in
+  let blank_line = blank_line window in
   let add d =
     Deque.enqueue_back d blank_line in
-  { window with lines = times add window.height Deque.empty }
+  { window with lines = times add h Deque.empty }
 
-let set_cursor window x y =
-  (* TODO: Check ranges *)
-  { window with cursor = (x, y) }
+let set_cursor window cursor =
+  { window with cursor }
+
+let cursor_at_bottom window =
+  let Cursor (_, y) = window.cursor in
+  y = (bottom_row window)
 
 let carriage_return window =
   (* We are logically executing a carriage return. There are several
@@ -59,9 +121,8 @@ let carriage_return window =
 
   (* Easy case: If we are in the middle of the window, just bump it down
     one line and go all the way to the left. *)
-  let (x, y) = window.cursor in
-  if y < window.height then
-    set_cursor window 1 (y + 1)
+  if not (cursor_at_bottom window) then
+    return_cursor window
 
   (* We are at the bottom of the window. Second easy case: if the window cannot
     scroll then it simply stays put. *)
@@ -82,19 +143,59 @@ let carriage_return window =
     | Scroll_pending text ->
       { window with pending = Scroll_pending (text ^ "\n") }
 
-let get_line window y =
-  Deque.peek_front_at window.lines (window.height - y)
+let get_line window (Character_y y) =
+  let (Character_height h) = window.height in
+  Deque.peek_front_at window.lines (h - y)
 
-let set_line window line y =
-  let lines = Deque.set_front_at window.lines line (window.height - y) in
+let set_line window line (Character_y y) =
+  let (Character_height h) = window.height in
+  let lines = Deque.set_front_at window.lines line (h - y) in
   { window with lines }
 
+let left_in_line window =
+  let Cursor ((Character_x x), y) = window.cursor in
+  let (Character_width w) = window.width in
+  Character_width (w - x + 1)
+
+let has_room_for window text =
+  let (Character_width remaining) = left_in_line window in
+  let len = String.length text in
+  len < remaining
+
+let current_line window =
+  let Cursor (_, y) = window.cursor in
+  get_line window y
+
+let replace_text window text =
+  let len = Character_width (String.length text) in
+  let Cursor ((Character_x x), y) = window.cursor in
+  let line = current_line window in
+  let new_line = replace_at line (x - 1) text in
+  let window = set_line window new_line y in
+  move_window_cursor_right window len
+
 let erase_line window =
-  let (x, y) = window.cursor in
+  let Cursor ((Character_x x), y) = window.cursor in
   let old_line = get_line window y in
   let left = left_string old_line (x - 1) in
-  let right = spaces (window.width - x + 1) in
+  let (Character_width w) = window.width in
+  let right = spaces (Character_width (w - x + 1)) in
   set_line window (left ^ right) y
+
+let find_break_index window text =
+  let (Character_width w) = window.width in
+  if window.can_wrap = Word_wrap_enabled then
+    let space_location = reverse_index_from text ' ' (w - 1) in
+    match space_location with
+      | None -> (w - 1)
+      | Some location -> location
+  else
+    (w - 1)
+
+let line_left_of_cursor window =
+  let Cursor ((Character_x x), y) = window.cursor in
+  let line = get_line window y in
+  left_string line (x - 1)
 
 let rec print window text =
   let len = String.length text in
@@ -106,45 +207,32 @@ let rec print window text =
     (* Base case: we are already buffering output; just add to
        the buffer. *)
     { window with pending = Scroll_pending (p ^ text) }
-
   | _ ->
-
-    let (x, y) = window.cursor in
-    let left_in_line = window.width - x + 1 in
+    let Cursor ((Character_x x), y) = window.cursor in
+    let (Character_width w) = window.width in
     if String.contains text '\n' then
-
       (* Recursive case: If the string contains newlines, break it
          at the newline and print both resulting strings *)
       let (left, right) = break_string text '\n' in
       print (carriage_return (print window left)) right
-    else if len < left_in_line then
+    else if has_room_for window text then
       (* Base case: if we are writing text that entirely fits on the
          current line then replace the portion of the current line
          at the current cursor position. *)
-
-      let line = get_line window y in
-      let new_line = replace_at line (x - 1) text in
-      set_cursor (set_line window new_line y) (x + len) y
+      replace_text window text
     else
       (* Recursive case: the text does not fit on the current line. *)
-      let line = get_line window y in
       (* Construct the line that is too long for the screen *)
-      let over_length_line = (left_string line (x - 1)) ^ text in
+      let over_length_line = (line_left_of_cursor window) ^ text in
       (* Figure out where we can break this line. If wrapping, find a space
          that would be on the screen. If there is none, or we're not wrapping
          then just break at the edge of the screen. *)
-      let break_index =
-        if window.can_wrap = Word_wrap_enabled then
-          let space_location =
-            reverse_index_from over_length_line ' ' (window.width - 1) in
-          match space_location with
-            | None -> (window.width - 1)
-            | Some location -> location
-        else
-          (window.width - 1) in
-      (* Rewrite the current line *)
+      let break_index = find_break_index window over_length_line in
+      (* We need to rewrite the entire line. If a previous write ended
+      the line with "AAA BBB" and then CCC was written, with no spaces,
+      we might have to move BBBCCC down to the next line. *)
       let left = left_string over_length_line (break_index + 1) in
-      let blank_line = spaces (window.width - break_index - 1)  in
+      let blank_line = Utility.spaces (w - break_index - 1)  in
       let new_line = left ^ blank_line in
       let right = right_string over_length_line (break_index + 1) in
       (* and then the unwritten remainder is dealt with recursively. *)
@@ -158,10 +246,10 @@ let scroll window =
   if window.can_scroll = Scroll_disabled then
     window
   else
-    let blank_line = spaces window.width in
+    let blank_line = blank_line window in
     let scrolled_window = { window with
       lines = Deque.enqueue_front (Deque.dequeue_back window.lines) blank_line;
-      cursor = (1, window.height);
+      cursor = bottom_left window;
       pending = Nothing_pending;
       scroll_count = window.scroll_count + 1 ;
     } in
@@ -173,10 +261,11 @@ let scroll window =
       match printed_window.can_more with
       | More_disabled -> printed_window
       | More_enabled ->
+        let (Character_height h) = printed_window.height in
         { printed_window with
           needs_more =
             printed_window.pending != Nothing_pending &&
-            printed_window.scroll_count >= printed_window.height - 3 } in
+            printed_window.scroll_count >= h - 3 } in
     more_window
 
 (* Sometimes it is convenient to simply say "scroll the whole thing"
@@ -191,8 +280,9 @@ let more window =
   if window.can_more = More_disabled then
     window
   else
-    let blank_line = spaces (window.width - 6) in
-    set_line window ("[MORE]" ^ blank_line) window.height
+    let blank_line = blank_line window in
+    let more_line = replace_at blank_line 0 "[MORE]" in
+    set_line window more_line (bottom_row window)
 
 let clear_more window =
   { window with scroll_count = 0; needs_more = false }
@@ -208,7 +298,9 @@ let height window =
   window.height
 
 let set_lines window new_lines =
-  { window with lines = new_lines; height = Deque.length new_lines }
+  { window with
+    lines = new_lines;
+    height = Character_height (Deque.length new_lines) }
 
 let has_pending window =
   window.pending != Nothing_pending
@@ -218,3 +310,8 @@ let needs_more window =
 
 let set_can_wrap window can_wrap =
   { window with can_wrap }
+
+let cursor_in_bounds window cursor =
+  let (Character_height h) = window.height in
+  let Cursor (_, (Character_y y)) = cursor in
+  y <= h
