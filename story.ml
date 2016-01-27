@@ -32,14 +32,19 @@ let write_word story address value =
 let write_byte story address value =
   { memory = Memory.write_byte story.memory address value }
 
-let set_bit story address bit =
+let write_set_bit story address bit =
   let orig_byte = read_byte story address in
   let new_byte = set_bit bit orig_byte in
   write_byte story address new_byte
 
-let clear_bit story address bit =
+let write_clear_bit story address bit =
   let orig_byte = read_byte story address in
   let new_byte = clear_bit bit orig_byte in
+  write_byte story address new_byte
+
+let write_set_bit_to story address bit value =
+  let orig_byte = read_byte story address in
+  let new_byte = set_bit_to bit orig_byte value in
   write_byte story address new_byte
 
 (* Writes bytes into memory; no zstring encoding, no zero
@@ -147,10 +152,10 @@ let set_flags1 story value =
   write_byte story flags1_offset value
 
 let flags1_bit story bit =
-  fetch_bit bit (flags1 story)
+  read_bit story flags1_offset bit
 
 let set_flags1_bit_to story bit value =
-  set_flags1 story (set_bit_to bit (flags1 story) value)
+  write_set_bit_to story flags1_offset bit value
 
 (* Bit 0 of flags1 indicates whether an interpreter has colours available. *)
 (* It is valid only in version 5 and up. *)

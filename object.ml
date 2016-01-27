@@ -89,11 +89,11 @@ let attribute story obj attribute =
 
 let set_attribute story obj attribute =
   let (Attribute_address (address, bit)) = attribute_address story obj attribute in
-  Story.set_bit story address bit
+  Story.write_set_bit story address bit
 
 let clear_attribute story obj attribute =
   let (Attribute_address (address, bit)) = attribute_address story obj attribute in
-  Story.clear_bit story address bit
+  Story.write_clear_bit story address bit
 
 let parent story obj =
   let (Object_address addr) = address story obj in
