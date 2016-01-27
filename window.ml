@@ -12,8 +12,6 @@ be displaying "MORE". *)
 (* Cursor position is one-based; (1, 1) is the top left,
 (width, height) is the bottom right. *)
 
-
-
 type t =
 {
   cursor : cursor;
@@ -55,13 +53,17 @@ let blank_line window =
 
 let left_column = (Character_x 1)
 
-let top_row = (Character_y 1)
+let right_column window =
+  let (Character_width w) = window.width in
+  (Character_x w)
 
-let top_left = Cursor (left_column, top_row)
+let top_row = (Character_y 1)
 
 let bottom_row window =
   let (Character_height h) = window.height in
   (Character_y h)
+
+let top_left = Cursor (left_column, top_row)
 
 let bottom_left window =
   Cursor (left_column, (bottom_row window))
@@ -74,30 +76,56 @@ let set_cursor_y cursor y =
   let Cursor (x, _) = cursor in
   Cursor (x, y)
 
-let move_window_cursor_right window (Character_width r) =
-  let (Character_width w) = window.width in
-  let Cursor ((Character_x x), _) = window.cursor in
-  let new_x = min (x + r) w in
-  let cursor = set_cursor_x window.cursor (Character_x new_x) in
-  { window with cursor }
+let add_characters_w (Character_width w1) (Character_width w2) =
+  Character_width (w1 + w2)
 
-let move_cursor_down cursor (Character_height d) =
-  let Cursor (_, Character_y y) = cursor in
-  set_cursor_y cursor (Character_y (y + d))
+let add_characters_h (Character_height h1) (Character_height h2) =
+  Character_height (h1 + h2)
 
-let move_cursor_up cursor (Character_height d) =
-  let Cursor (_, Character_y y) = cursor in
-  set_cursor_y cursor (Character_y (y - d))
+let add_characters_x (Character_x x) (Character_width w) =
+  Character_x (x + w)
 
-let move_window_cursor_down window (Character_height d) =
-  let (Character_height h) = window.height in
-  let Cursor (_, Character_y y) = window.cursor in
-  let new_y = min (y + d) h in
-  let cursor = set_cursor_y window.cursor (Character_y new_y) in
-  { window with cursor }
+let add_characters_y (Character_y y) (Character_height h) =
+  Character_y (y + h)
+
+let add_characters_y_bounded (Character_y y) (Character_height b) (Character_height h) =
+  let y = y + h in
+  let y = max y 1 in
+  let y = min y b in
+  Character_y y
+
+let add_characters_x_bounded (Character_x x) (Character_width b) (Character_width w) =
+  let x = x + w in
+  let x = max x 1 in
+  let x = min x b in
+  Character_x x
+
+let add_characters_y_bounded (Character_y y) (Character_height b) (Character_height h) =
+  let y = y + h in
+  let y = max y 1 in
+  let y = min y b in
+  Character_y y
+
+let move_window_cursor_x window w =
+  let Cursor (x, y) = window.cursor in
+  let x = add_characters_x_bounded x window.width w in
+  { window with cursor = Cursor (x, y) }
+
+let move_window_cursor_y window h =
+  let Cursor (x, y) = window.cursor in
+  let y = add_characters_y_bounded y window.height h in
+  { window with cursor = Cursor (x, y) }
+
+let move_cursor_down cursor h =
+  let Cursor (_, y) = cursor in
+  set_cursor_y cursor (add_characters_y y h)
+
+let move_cursor_up cursor (Character_height h) =
+  let h = Character_height (0 - h) in
+  move_cursor_down cursor h
 
 let return_cursor window =
-  let window = move_window_cursor_down window (Character_height 1) in
+  let window = move_window_cursor_y window (Character_height 1) in
   let cursor = set_cursor_x window.cursor left_column in
   { window with cursor }
 
@@ -114,6 +142,12 @@ let set_cursor window cursor =
 let cursor_at_bottom window =
   let Cursor (_, y) = window.cursor in
   y = (bottom_row window)
+
+let set_window_cursor_top_left window =
+  set_cursor window top_left
+
+let set_window_cursor_bottom_left window =
+  set_cursor window (bottom_left window)
 
 let carriage_return window =
   (* We are logically executing a carriage return. There are several
@@ -153,7 +187,7 @@ let set_line window line (Character_y y) =
   { window with lines }
 
 let left_in_line window =
-  let Cursor ((Character_x x), y) = window.cursor in
+  let Cursor ((Character_x x), _) = window.cursor in
   let (Character_width w) = window.width in
   Character_width (w - x + 1)
 
@@ -172,7 +206,7 @@ let replace_text window text =
   let line = current_line window in
   let new_line = replace_at line (x - 1) text in
   let window = set_line window new_line y in
-  move_window_cursor_right window len
+  move_window_cursor_x window len
 
 let erase_line window =
   let Cursor ((Character_x x), y) = window.cursor in
