@@ -11,6 +11,7 @@ type dictionary_address =  Dictionary_address of int
 type routine_address = Routine of int
 type packed_routine_address = Packed_routine of int
 type packed_zstring_address = Packed_zstring of int
+type word_zstring_address = Word_zstring of int
 type local_variable = Local of int
 type global_variable = Global of int
 type instruction_address = Instruction of int
@@ -26,6 +27,7 @@ type pixel_height = Pixel_height of int
 type pixel_x = Pixel_x of int
 type pixel_y = Pixel_y of int
 type cursor = Cursor of character_x * character_y
+type checksum = Checksum of int 
 
 type variable_location =
   | Stack

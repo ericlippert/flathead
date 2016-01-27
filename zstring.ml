@@ -28,14 +28,20 @@ let length story (Zstring address) =
 
 let abbreviation_table_length = 96
 
+(* A "word address" is only used in the abbreviation table, and is always
+just half the real address. A "packed address" is used in calls and fetching
+strings, and is half the real address in v3 but different for other versions. *)
+
+let decode_word_address (Word_zstring word_address) =
+  Zstring (word_address * 2)
+
 let abbreviation_address story (Abbreviation n) =
   if n < 0 || n >= abbreviation_table_length then
     failwith "bad offset into abbreviation table"
   else
     let abbr_addr = (Story.abbreviations_table_base story) + (n * 2) in
-    let word_addr = Story.read_word story abbr_addr in
-    (* TODO: This is the only place decode_word_address is called; move it here *)
-    Zstring (Story.decode_word_address word_addr)
+    let word_addr = Word_zstring (Story.read_word story abbr_addr) in
+    decode_word_address word_addr
 
 let rec read story (Zstring address) =
   (* TODO: Only processes version 3 strings *)

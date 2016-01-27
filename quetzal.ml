@@ -1,4 +1,5 @@
 open Iff
+open Type
 
 let ifzs_ifhd =
   Record [
@@ -57,7 +58,7 @@ let ifzd_form =
       ifzs_umem;
       ifzs_cmem]]
 
-let save release serial checksum pc compressed frames =
+let save release serial (Checksum checksum) pc compressed frames =
   Record [
     Header "FORM";
     Length None; (* The writer will figure it out *)

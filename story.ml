@@ -18,13 +18,6 @@ type t =
 let original story =
   { memory = Memory.original story.memory }
 
-(* A "word address" is only used in the abbreviation table, and is always
-just half the real address. A "packed address" is used in calls and fetching
-strings, and is half the real address in v3 but different for other versions. *)
-
-let decode_word_address word_address =
-  word_address * 2
-
 let read_word story address =
   Memory.read_word story.memory address
 
@@ -188,7 +181,7 @@ let file_size story =
 
 let header_checksum story =
   let checksum_offset = 28 in
-  read_word story checksum_offset
+  Checksum (read_word story checksum_offset)
 
 (* The checksum is simply the bottom two bytes of the sum of all the
    bytes in the original story file, not counting the header. *)
@@ -200,7 +193,7 @@ let compute_checksum story =
     else
       let byte = read_byte orig addr in
       aux (unsigned_word (acc + byte)) (addr + 1) in
-  aux 0 header_size
+  Checksum (aux 0 header_size)
 
 let verify_checksum story =
   let h = header_checksum story in
@@ -233,10 +226,11 @@ let string_offset story =
 
 let display_header story =
   let (Instruction ipc) = initial_program_counter story in
+  let (Checksum checksum) = header_checksum story in
   Printf.sprintf "Version                     : %d\n" (version story) ^
   Printf.sprintf "Release number              : %d\n" (release_number story) ^
   Printf.sprintf "Serial number               : %s\n" (serial_number story) ^
-  Printf.sprintf "Checksum                    : %04x\n" (header_checksum story) ^
+  Printf.sprintf "Checksum                    : %04x\n" checksum ^
   Printf.sprintf "File size                   : %d\n" (file_size story) ^
   Printf.sprintf "Abbreviations table base    : %04x\n" (abbreviations_table_base story) ^
   Printf.sprintf "Object table base           : %04x\n" (object_table_base story) ^
