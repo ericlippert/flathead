@@ -373,12 +373,26 @@ let static_memory_base_offset = 14;;
 let static_memory_base story =
   Static_memory_base (read_word story static_memory_base_offset)
 
+let flags2_offset = 16
+
 let flags2 story =
-  let flags2_offset = 16 in
   read_byte story flags2_offset
 
+let set_flags2 story value =
+  write_byte story flags2_offset value
+
+let flags2_bit story bit =
+  read_bit story flags2_offset bit
+
+let set_flags2_bit_to story bit value =
+  write_set_bit_to story flags2_offset bit value
+
+
+(*TODO: Rest of flags 2 flags *)
+
+let transcript_bit = bit0
+
 let get_transcript_flag story =
-  let transcript_bit = bit0 in
   fetch_bit transcript_bit (flags2 story)
 
 let set_transcript_flag story value =
@@ -404,23 +418,24 @@ let serial_number story =
   let string_of_byte addr =
     let b = read_byte story addr in
   string_of_char (char_of_int b) in
-  accumulate_strings_loop string_of_byte start_offset end_offset
+  Serial_number (accumulate_strings_loop string_of_byte start_offset end_offset)
 
 let abbreviations_table_base story =
   let abbreviations_table_base_offset = 24 in
-  read_word story abbreviations_table_base_offset
+  Abbreviation_table_base (read_word story abbreviations_table_base_offset)
+
+(* Spec: The file length stored at $1a is actually divided by a constant,
+depending on the Version, to make it fit into a header word. This constant
+is 2 for Versions 1 to 3, 4 for Versions 4 to 5 or 8 for Versions 6 and later. *)
 
 let file_size story =
   let file_size_offset = 26 in
   let s = read_word story file_size_offset in
   let m = match (version story) with
-  | V1
-  | V2
-  | V3 -> 2
-  | V4
-  | V5 -> 4
+  | V1  | V2  | V3 -> 2
+  | V4  | V5 -> 4
   | _ -> 8 in
-  s * m
+  File_size (s * m)
 
 let header_checksum story =
   let checksum_offset = 28 in
@@ -430,7 +445,7 @@ let header_checksum story =
    bytes in the original story file, not counting the header. *)
 let compute_checksum story =
   let orig = original story in
-  let size = file_size story in
+  let (File_size size) = file_size story in
   let rec aux acc addr =
     if addr >= size then acc
     else
@@ -442,6 +457,27 @@ let verify_checksum story =
   let h = header_checksum story in
   let c = compute_checksum story in
   h = c
+
+let interpreter_number_offset = 30
+let interpreter_number story =
+  Interpreter_number (read_byte story interpreter_number_offset)
+
+let set_interpreter_number story (Interpreter_number number) =
+  write_byte story interpreter_number_offset number
+
+let dec_system_20 = Interpreter_number 1
+let apple_iie = Interpreter_number 2
+let macintosh = Interpreter_number 3
+let amiga = Interpreter_number 4
+let atari_st = Interpreter_number 5
+let ibm_pc = Interpreter_number 6
+let commodore_128 = Interpreter_number 7
+let commodore_64 = Interpreter_number 8
+let apple_iic = Interpreter_number 9
+let apple_iigs = Interpreter_number 10
+let tandy_color = Interpreter_number 11
+
+(* TODO: Interpreter version *)
 
 let screen_height story =
   let screen_height_offset = 32 in
@@ -469,7 +505,10 @@ let string_offset story =
 
 let display_header story =
   let (Release_number release_number) = release_number story in
+  let (Serial_number serial_number) = serial_number story in
   let (Checksum checksum) = header_checksum story in
+  let (File_size file_size) = file_size story in
+  let (Abbreviation_table_base abbrev_table_base) = abbreviations_table_base story in
   let (Object_base object_table_base) = object_table_base story in
   let (Global_table_base global_table_base) = global_variables_table_base story in
   let (Static_memory_base static_memory_base) = static_memory_base story in
@@ -478,10 +517,10 @@ let display_header story =
   let (Instruction ipc) = initial_program_counter story in
   Printf.sprintf "Version                     : %s\n" (display_version (version story)) ^
   Printf.sprintf "Release number              : %d\n" release_number ^
-  Printf.sprintf "Serial number               : %s\n" (serial_number story) ^
+  Printf.sprintf "Serial number               : %s\n" serial_number ^
   Printf.sprintf "Checksum                    : %04x\n" checksum ^
-  Printf.sprintf "File size                   : %d\n" (file_size story) ^
-  Printf.sprintf "Abbreviations table base    : %04x\n" (abbreviations_table_base story) ^
+  Printf.sprintf "File size                   : %d\n" file_size ^
+  Printf.sprintf "Abbreviations table base    : %04x\n" abbrev_table_base ^
   Printf.sprintf "Object table base           : %04x\n" object_table_base ^
   Printf.sprintf "Global variables table base : %04x\n" global_table_base ^
   Printf.sprintf "Static memory base          : %04x\n" static_memory_base  ^

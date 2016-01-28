@@ -49,6 +49,12 @@ type high_memory_base = High_memory_base of int
 type static_memory_base = Static_memory_base of int
 type dictionary_base = Dictionary_base of int
 type dictionary_table_base = Dictionary_table_base of int
+type serial_number = Serial_number of string
+type abbrev_table_base = Abbreviation_table_base of int
+type file_size = File_size of int
+type interpreter_number = Interpreter_number of int
+
+
 
 type version =
   | V1 | V2 | V3 | V4 | V5 | V6 | V7 | V8
