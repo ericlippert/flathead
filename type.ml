@@ -53,7 +53,9 @@ type serial_number = Serial_number of string
 type abbrev_table_base = Abbreviation_table_base of int
 type file_size = File_size of int
 type interpreter_number = Interpreter_number of int
-
+type interpreter_version = Interpreter_version of int
+type colour_number = Colour of int
+type terminating_characters_base = Terminating_characters_base of int
 
 
 type version =

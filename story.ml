@@ -477,23 +477,60 @@ let apple_iic = Interpreter_number 9
 let apple_iigs = Interpreter_number 10
 let tandy_color = Interpreter_number 11
 
-(* TODO: Interpreter version *)
+let interpreter_version_offset = 31
+let interpreter_version story =
+  Interpreter_version (read_byte story interpreter_version_offset)
 
+let set_interpreter_version story (Interpreter_version version) =
+  write_byte story interpreter_version_offset version
+
+let screen_height_offset = 32
 let screen_height story =
-  let screen_height_offset = 32 in
   Character_height (read_byte story screen_height_offset)
 
 let set_screen_height story (Character_height height) =
-  let screen_height_offset = 32 in
   write_byte story screen_height_offset height
 
+let screen_width_offset = 33
 let screen_width story =
-  let screen_width_offset = 33 in
   Character_width (read_byte story screen_width_offset)
 
 let set_screen_width story (Character_width width) =
-  let screen_width_offset = 33 in
   write_byte story screen_width_offset width
+
+let screen_height_units_offset = 34
+let screen_height_units story =
+  Pixel_height (read_word story screen_height_offset)
+
+let set_screen_height_units story (Pixel_height height) =
+  write_word story screen_height_units_offset height
+
+let screen_width_units_offset = 36
+let screen_width_units story =
+  Pixel_width (read_word story screen_width_units_offset)
+
+let set_screen_width_units story (Pixel_width width) =
+  write_word story screen_width_units_offset width
+
+(* The font height and width header bytes are swapped in version 6. *)
+
+let font_height_offset story =
+  if (version story) = V6 then 38 else 39
+
+let font_height story =
+  Pixel_height (read_word story (font_height_offset story))
+
+let set_font_height story (Pixel_height height) =
+  write_word story (font_height_offset story) height
+
+let font_width_offset story =
+  if (version story) = V6 then 39 else 38
+
+let font_width story =
+  Pixel_width (read_word story (font_width_offset story))
+
+let set_font_width story (Pixel_width width) =
+  write_word story (font_width_offset story) width
 
 let routine_offset story =
   let routine_offset_offset = 40 in
@@ -502,6 +539,33 @@ let routine_offset story =
 let string_offset story =
   let string_offset_offset = 42 in
   8 * (read_word story string_offset_offset)
+
+let default_background_colour_offset = 44
+let default_background_colour story =
+  Colour (read_byte story default_background_colour_offset)
+
+let set_default_background_colour story (Colour colour) =
+  write_byte story default_background_colour_offset colour
+
+let default_foreground_colour_offset = 45
+let default_foreground_colour story =
+  Colour (read_byte story default_foreground_colour_offset)
+
+let set_default_foreground_colour story (Colour colour) =
+  write_byte story default_foreground_colour_offset colour
+
+let terminating_characters_offset = 46
+let terminating_characters_base story =
+  Terminating_characters_base (read_word story terminating_characters_offset)
+
+let text_width_offset = 48
+let text_width story =
+  Pixel_width (read_word story text_width_offset)
+
+let set_text_width story (Pixel_width width) =
+  write_word story text_width_offset width
+
+
 
 let display_header story =
   let (Release_number release_number) = release_number story in
