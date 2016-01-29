@@ -1,39 +1,67 @@
-(* This contains all the logic for dealing with the Z Machine
-story file itself. All state in the story file is in memory;
-these functions just provide structure around that memory. *)
-
 open Utility
 open Type
 
+(* The Z Machine divides memory into dynamic and static; dynamic is always
+before static memory. Static memory may not change. We therefore model
+memory as a dynamic block that tracks updates and a static block that
+never changes at all. *)
+
 type t =
 {
-  memory : Memory.t
+  dynamic_memory : Immutable_bytes.t;
+  static_memory : string;
+  static_offset : int
 }
 
-(* *)
-(* Dealing with memory *)
-(* *)
+let make dynamic static =
+{
+    dynamic_memory = Immutable_bytes.make dynamic;
+    static_memory = static;
+    static_offset = String.length dynamic
+}
+
+let read_byte story (Byte_address address) =
+  if address < 0 then
+    failwith "Negative address in read_byte"
+  else if address < story.static_offset then
+    Immutable_bytes.read_byte story.dynamic_memory address
+  else
+    let static_addr = address - story.static_offset in
+    if static_addr >= String.length story.static_memory then
+      failwith (Printf.sprintf "Address %0x4 out of range" address)
+    else
+      int_of_char (story.static_memory.[address - story.static_offset])
+
+let read_word story (Word_address address) =
+  let high = read_byte story (Byte_address address) in
+  let low = read_byte story (Byte_address (address + 1)) in
+  256 * high + low
+
+let write_byte memory (Byte_address address) value =
+  if address < 0 then
+    failwith "Negative address in write_byte"
+  else if address >= memory.static_offset then
+    failwith "attempt to write static memory"
+  else
+    let new_memory =
+      Immutable_bytes.write_byte memory.dynamic_memory address value in
+    { memory with dynamic_memory = new_memory }
+
+let write_word story (Word_address address) value =
+  let high = (value lsr 8) land 0xFF in
+  let low = value land 0xFF in
+  let story = write_byte story (Byte_address address) high in
+  write_byte story (Byte_address (address + 1)) low
 
 let original story =
-  { memory = Memory.original story.memory }
-
-let read_word story address =
-  Memory.read_word story.memory address
-
-let read_byte story address =
-  Memory.read_byte story.memory address
+  let original_bytes = Immutable_bytes.original story.dynamic_memory in
+  { story with dynamic_memory = original_bytes }
 
 let read_bit story address bit =
   fetch_bit bit (read_byte story address)
 
 let read_word_bit story address bit =
   fetch_bit bit (read_word story address)
-
-let write_word story address value =
-  { memory = Memory.write_word story.memory address value }
-
-let write_byte story address value =
-  { memory = Memory.write_byte story.memory address value }
 
 let write_set_bit story address bit =
   let orig_byte = read_byte story address in
@@ -706,4 +734,4 @@ let load_story filename =
     failwith (Printf.sprintf "%s is not a valid story file" filename);
   let dynamic = String.sub file 0 dynamic_length in
   let static = String.sub file dynamic_length (len - dynamic_length) in
-  { memory = Memory.make dynamic static };;
+  make dynamic static
