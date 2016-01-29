@@ -23,7 +23,7 @@ let make pc =
 let make_call_frame story arguments routine_address resume_at store =
   let default_store = Local_store.create_default_locals story routine_address in
   let local_store = Local_store.write_arguments default_store arguments in
-  let called = Story.first_instruction story routine_address in
+  let called = Routine.first_instruction story routine_address in
   {
     stack = Evaluation_stack.empty;
     local_store;

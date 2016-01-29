@@ -28,7 +28,7 @@ let display_reachable_instructions story address =
   accumulate_strings to_string sorted
 
 let display_routine story routine_address =
-  let first = Story.first_instruction story routine_address in
+  let first = Routine.first_instruction story routine_address in
   display_reachable_instructions story first
 
 (* Takes the address of the first instruction in a routine, produces
@@ -47,7 +47,7 @@ let all_routines story =
   let ipc = Story.initial_program_counter story in
   let called_by_main = reachable_routines_in_routine story ipc in
   let relation routine =
-      reachable_routines_in_routine story (Story.first_instruction story routine) in
+      reachable_routines_in_routine story (Routine.first_instruction story routine) in
   let all_routines = reflexive_closure_many called_by_main relation in
   List.sort compare all_routines
 

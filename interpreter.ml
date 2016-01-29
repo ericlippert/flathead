@@ -583,7 +583,7 @@ let handle_call routine_address arguments interpreter instruction =
     let resume_at = Instruction.following instruction in
     let store = Instruction.store instruction in
     let frame = Frame.make_call_frame interpreter.story arguments routine_address resume_at store in
-    let pc = Story.first_instruction interpreter.story routine_address in
+    let pc = Routine.first_instruction interpreter.story routine_address in
     set_program_counter (add_frame interpreter frame) pc
 
 (* Spec: 2OP:27 set_colour foreground background

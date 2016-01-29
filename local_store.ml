@@ -75,12 +75,12 @@ let add local_store (Local n) default_value =
   { local_store with locals; count }
 
 let create_default_locals story routine_address =
-  let count = Story.locals_count story routine_address in
+  let count = Routine.locals_count story routine_address in
   let rec aux acc i=
     if i > count then
       acc
     else
-      let default_value = Story.local_default_value story routine_address i in
+      let default_value = Routine.local_default_value story routine_address i in
       let new_store = add acc (Local i) default_value in
       aux new_store (i + 1) in
 aux empty 1
