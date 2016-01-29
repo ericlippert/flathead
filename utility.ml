@@ -150,11 +150,6 @@ let display_bytes get_byte first length =
     header ^ contents in
   (accumulate_strings_loop to_string first (first + length)) ^ "\n"
 
-let really_input_string channel length =
-  let bytes = String.create length in
-  really_input channel bytes 0 length;
-  bytes
-
 let get_file filename =
   let channel = open_in_bin filename in
   let length = in_channel_length channel in
