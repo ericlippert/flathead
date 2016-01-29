@@ -154,25 +154,6 @@ let continues_to_following opcode =
   | OP0_186 (* quit *) -> false
   | _ -> true
 
-(* Suppose an instruction either has a branch portion to an address,
-or a jump to an address. What is that address? *)
-let branch_target instr =
-  let br_target =
-    match instr.branch with
-    | None -> None
-    | Some (_, Return_false) -> None
-    | Some (_, Return_true) -> None
-    | Some (_, Branch_address address) -> Some address in
-  let jump_target =
-    match (instr.opcode, instr.operands) with
-    | (OP1_140, [Large offset]) ->
-      let offset = signed_word offset in
-      Some (jump_address instr offset)
-    | _ -> None in
-  match (br_target, jump_target) with
-  | (Some b, _) -> Some b
-  | (_, Some j) -> Some j
-  | _ -> None
 
 let has_text opcode =
   match opcode with
