@@ -85,33 +85,43 @@ let write_set_word_bit_to story address bit value =
 
 (* Writes bytes into memory; no zstring encoding, no zero
 termination, no length. *)
-let write_string story (String_address address) text =
+let write_string story str text =
   let length = String.length text in
-  let rec aux i s =
-    if i = length then s
-    else aux (i + 1) (write_byte s (Byte_address (address + i)) (int_of_char text.[i])) in
+  let rec aux i story =
+    if i = length then
+      story
+    else
+      let story = write_byte story (byte_of_string str i) (int_of_char text.[i]) in
+      aux (i + 1) story in
   aux 0 story
 
 (* Writes a series of bytes into memory. Does not zstring encode them.
    Does zero-byte terminate them. *)
-let write_string_zero_terminate story (Sz_address address) text =
+let write_string_zero_terminate story sz text =
+  let null_byte = 0 in
   let length = String.length text in
-  let copied = write_string story (String_address address) text in
-  write_byte copied (Byte_address (address + length)) 0
+  let str = string_of_sz sz in
+  let story = write_string story str text in
+  let terminator = byte_of_string str length in
+  write_byte story terminator null_byte
 
 (* Writes a series of bytes into memory; no zero terminator,
 prefixed by two bytes of length *)
-let write_length_word_prefixed_string story (Word_prefixed_string address) text =
-  let copied = write_string story (String_address (address + 2)) text in
+let write_length_word_prefixed_string story wps text =
+  let str = string_of_wps wps in
+  let length_addr = length_addr_of_wps wps in
+  let story = write_string story str text in
   let length = String.length text in
-  write_word copied (Word_address address) length
+  write_word story length_addr length
 
 (* Writes a series of bytes into memory; no zero terminator,
 prefixed by one byte of length *)
-let write_length_byte_prefixed_string story (Byte_prefixed_string address) text =
-  let copied = write_string story (String_address (address + 1)) text in
+let write_length_byte_prefixed_string story bps text =
+  let str = string_of_bps bps in
+  let length_addr = length_addr_of_bps bps in
+  let story = write_string story str text in
   let length = String.length text in
-  write_byte copied (Byte_address address) length
+  write_byte story length_addr length
 
 (* Debugging method for displaying a raw block of memory. *)
 let display_story_bytes story address length =
@@ -485,7 +495,7 @@ let serial_number story =
   let end_offset = 24 in
   let string_of_byte addr =
     let b = read_byte story (Byte_address addr) in
-  string_of_char (char_of_int b) in
+    string_of_char (char_of_int b) in
   Serial_number (accumulate_strings_loop string_of_byte start_offset end_offset)
 
 let abbreviations_table_base story =
@@ -514,12 +524,15 @@ let header_checksum story =
 let compute_checksum story =
   let orig = original story in
   let (File_size size) = file_size story in
+  let size = Byte_address size in
   let rec aux acc addr =
-    if addr >= size then acc
+    if addr = size then
+      acc
     else
-      let byte = read_byte orig (Byte_address addr) in
-      aux (unsigned_word (acc + byte)) (addr + 1) in
-  Checksum (aux 0 header_size)
+      let byte = read_byte orig addr in
+      let sum = unsigned_word (acc + byte) in
+      aux sum (inc_byte_addr addr) in
+  Checksum (aux 0 (Byte_address header_size))
 
 let verify_checksum story =
   let h = header_checksum story in

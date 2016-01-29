@@ -189,6 +189,8 @@ let max x y =
 let min x y =
   if x < y then x else y
 
+let word_size = 2
+
 let inc_byte_addr_by (Byte_address address) offset =
   Byte_address (address + offset)
 
@@ -196,7 +198,25 @@ let inc_byte_addr address =
   inc_byte_addr_by address 1
 
 let inc_word_addr_by (Word_address address) offset =
-  Word_address (address + offset * 2)
+  Word_address (address + offset * word_size)
 
 let inc_word_addr address =
   inc_word_addr_by address 1
+
+let byte_of_string (String_address address) offset =
+  Byte_address (address + offset)
+
+let string_of_sz (Sz_address address) =
+  String_address address
+
+let string_of_wps (Word_prefixed_string wps) =
+  String_address (wps + word_size)
+
+let length_addr_of_wps (Word_prefixed_string wps) =
+  Word_address wps
+
+let string_of_bps (Byte_prefixed_string bps) =
+  String_address (bps + 1)
+
+let length_addr_of_bps (Byte_prefixed_string bps) =
+  Byte_address bps
