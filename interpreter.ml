@@ -30,7 +30,7 @@ type t =
 
   (* output stream 2 *)
   transcript : Transcript.t;
-  transcript_selected : bool;
+  transcript_selected : transcript_enabled;
 
   memory_table : int list;
   memory_selected : bool;
@@ -75,7 +75,7 @@ let make story screen =
     has_new_output = false;
     screen_selected = true;
     transcript = Transcript.empty;
-    transcript_selected = Story.get_transcript_flag story;
+    transcript_selected = Story.transcript_enabled story;
     commands = [];
     commands_selected = false;
     memory_table = [];
@@ -238,9 +238,11 @@ let display interpreter =
 let select_output_stream interpreter stream value =
   match stream with
   | ScreenStream -> { interpreter with screen_selected = value }
-  | TranscriptStream -> { interpreter with
+  | TranscriptStream ->
+    let value = Transcript_enabled value in
+    { interpreter with
     transcript_selected = value;
-    story = Story.set_transcript_flag interpreter.story value }
+    story = Story.set_transcript_enabled interpreter.story value }
   | MemoryStream -> failwith "use select/deselect memory stream"
   | CommandStream -> { interpreter with commands_selected = value };;
 
@@ -270,8 +272,9 @@ let print interpreter text =
     let new_story = Story.write_length_word_prefixed_string interpreter.story table text in
     { interpreter with story = new_story }
   else
+    let (Transcript_enabled transcript_enabled) = interpreter.transcript_selected in
     let new_transcript =
-      if interpreter.transcript_selected then
+      if transcript_enabled then
         Transcript.append interpreter.transcript text
       else interpreter.transcript in
     let new_screen =
@@ -846,13 +849,13 @@ In version 4:
 * Now the game can determine whether the save failed (0), succeeded (1)
   or we just restored (2). *)
 
-  let compressed = Story.compress interpreter.story in
+  let compressed = Compression.compress interpreter.story in
   let release = Story.release_number interpreter.story in
   let serial = Story.serial_number interpreter.story in
   let checksum = Story.header_checksum interpreter.story in
   let (Instruction pc) = interpreter.program_counter in
   let frames = Frameset.make_frameset_record interpreter.frames in
-  let form = Quetzal.save release serial checksum (pc + 1) compressed frames in
+  let form = Quetzal.save release serial checksum (Instruction (pc + 1)) compressed frames in
   Iff.write_iff_file filename form;
   (* TODO: Handle failure *)
   save_succeeded
@@ -887,8 +890,8 @@ let handle_restore interpreter instruction =
   (* TODO: Deal with memory size mismatch. *)
   let new_story =
     match (compressed, uncompressed) with
-    | (Some bytes, _) -> Story.apply_compressed_changes interpreter.story bytes
-    | (_, Some bytes) -> Story.apply_uncompressed_changes interpreter.story bytes
+    | (Some bytes, _) -> Compression.apply_compressed_changes interpreter.story bytes
+    | (_, Some bytes) -> Compression.apply_uncompressed_changes interpreter.story bytes
     | _ -> failwith "TODO handle failure reading memory" in
   (* TODO: If restore failed then we need to complete the restore instruction
   with result 0. *)
@@ -929,13 +932,13 @@ let handle_restart interpreter instruction =
   (* If transcripting is active, this has to stay on in
   the restarted interpreter *)
   (* TODO: Other bits that have to stay on *)
-  let transcript_on = interpreter.transcript_selected in
+  let (Transcript_enabled transcript_on) = interpreter.transcript_selected in
   let transcript = interpreter.transcript in
   let commands = interpreter.commands in
   let story = Story.original interpreter.story in
   let original = make story interpreter.screen in
   let restarted_interpreter = select_output_stream original TranscriptStream transcript_on in
-  { restarted_interpreter with transcript = transcript; commands = commands }
+  { restarted_interpreter with transcript; commands }
 
 (* Spec:0OP:184 ret_popped
   Pops top of stack and returns that. (This is equivalent to ret sp, but

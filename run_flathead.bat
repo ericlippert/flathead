@@ -8,6 +8,7 @@ ocamlc -g -c screen.ml
 ocamlc -g -c immutable_bytes.ml
 ocamlc -g -c memory.ml
 ocamlc -g -c story.ml
+ocamlc -g -c compression.ml
 ocamlc -g -c zstring.ml
 ocamlc -g -c instruction.ml
 ocamlc -g -c object.ml
@@ -28,6 +29,6 @@ ocamlc -g -c interpreter.ml
 ocamlc -g -c my_graphics.ml
 ocamlc -g -c button.ml
 ocamlc -g -c debugger.ml
-ocaml type.cmo utility.cmo deque.cmo window.cmo screen.cmo immutable_bytes.cmo memory.cmo story.cmo zstring.cmo instruction.cmo object.cmo dictionary.cmo reachability.cmo globals.cmo tokeniser.cmo iff.cmo quetzal.cmo evaluation_stack.cmo local_store.cmo frame.cmo frameset.cmo randomness.cmo transcript.cmo status_line.cmo interpreter.cmo graphics.cma my_graphics.cmo button.cmo debugger.cmo flathead.ml
+ocaml type.cmo utility.cmo deque.cmo window.cmo screen.cmo immutable_bytes.cmo memory.cmo story.cmo compression.cmo zstring.cmo instruction.cmo object.cmo dictionary.cmo reachability.cmo globals.cmo tokeniser.cmo iff.cmo quetzal.cmo evaluation_stack.cmo local_store.cmo frame.cmo frameset.cmo randomness.cmo transcript.cmo status_line.cmo interpreter.cmo graphics.cma my_graphics.cmo button.cmo debugger.cmo flathead.ml
 @del *.cmi
 @del *.cmo

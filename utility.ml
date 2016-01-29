@@ -6,6 +6,9 @@ module IntMap = Map.Make(struct type t = int let compare = compare end)
 let string_of_char x =
   String.make 1 x
 
+let string_of_byte b =
+  string_of_char (char_of_int b)
+
 let truncate text length =
   if (String.length text) > length then String.sub text 0 length
   else text

@@ -44,6 +44,15 @@ type status_line_supported = Status_line_supported of bool
 type sound_effects_supported = Sound_effects_supported of bool
 type default_pitch = Default_is_variable_pitch of bool
 type timed_keyboard_supported = Timed_keyboard_supported of bool
+type transcript_enabled = Transcript_enabled of bool
+type force_fixed_pitch = Force_fixed_pitch of bool
+type draw_status_requested = Draw_status_requested of bool
+type pictures_requested = Pictures_requested of bool
+type undo_requested = Undo_requested of bool
+type mouse_requested = Mouse_requested of bool
+type colours_requested = Colours_requested of bool
+type sound_requested = Sound_requested of bool
+type menus_requested = Menus_requested of bool
 type release_number = Release_number of int
 type high_memory_base = High_memory_base of int
 type static_memory_base = Static_memory_base of int
@@ -56,6 +65,11 @@ type interpreter_number = Interpreter_number of int
 type interpreter_version = Interpreter_version of int
 type colour_number = Colour of int
 type terminating_characters_base = Terminating_characters_base of int
+type revision = Revision of int * int
+type alphabet_table = Alphabet_table of int
+type header_extension = Header_extension of int
+type compressed_bytes = Compressed of string
+type uncompressed_bytes = Uncompressed of string
 
 
 type version =

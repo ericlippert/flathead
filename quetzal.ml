@@ -58,7 +58,12 @@ let ifzd_form =
       ifzs_umem;
       ifzs_cmem]]
 
-let save (Release_number release) (Serial_number serial) (Checksum checksum) pc compressed frames =
+let save
+  (Release_number release)
+  (Serial_number serial)
+  (Checksum checksum)
+  (Instruction pc)
+  (Compressed compressed) frames =
   Record [
     Header "FORM";
     Length None; (* The writer will figure it out *)
@@ -67,10 +72,10 @@ let save (Release_number release) (Serial_number serial) (Checksum checksum) pc 
       Record [
         Header "IFhd";
         Length None;
-        Integer16 (Some (release));
-        ByteString (Some (serial), 6);
-        Integer16 (Some (checksum));
-        Integer24 (Some (pc)) ];
+        Integer16 (Some release);
+        ByteString (Some serial, 6);
+        Integer16 (Some checksum);
+        Integer24 (Some pc) ];
       Record [
         Header "CMem";
         Length None;
@@ -124,7 +129,7 @@ let read_memory ifzd =
         Header "CMem";
         Length Some length;
         RemainingBytes Some bytes] ->
-      Some bytes
+      Some (Compressed bytes)
     | _ -> failwith "TODO: Handle failure reading CMem" in
   let uncompressed = match umem_chunk with
     | None -> None
@@ -132,6 +137,6 @@ let read_memory ifzd =
         Header "UMem";
         Length Some length;
         RemainingBytes Some bytes] ->
-      Some bytes
+      Some (Uncompressed bytes)
     | _ -> failwith "TODO: Handle failure reading UMem" in
   (compressed, uncompressed)

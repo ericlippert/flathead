@@ -26,6 +26,9 @@ let read_byte story address =
 let read_bit story address bit =
   fetch_bit bit (read_byte story address)
 
+let read_word_bit story address bit =
+  fetch_bit bit (read_word story address)
+
 let write_word story address value =
   { memory = Memory.write_word story.memory address value }
 
@@ -46,6 +49,11 @@ let write_set_bit_to story address bit value =
   let orig_byte = read_byte story address in
   let new_byte = set_bit_to bit orig_byte value in
   write_byte story address new_byte
+
+let write_set_word_bit_to story address bit value =
+  let orig_word = read_word story address in
+  let new_word = set_bit_to bit orig_word value in
+  write_word story address new_word
 
 (* Writes bytes into memory; no zstring encoding, no zero
 termination, no length. *)
@@ -376,41 +384,73 @@ let static_memory_base story =
 let flags2_offset = 16
 
 let flags2 story =
-  read_byte story flags2_offset
+  read_word story flags2_offset
 
 let set_flags2 story value =
-  write_byte story flags2_offset value
+  write_word story flags2_offset value
 
 let flags2_bit story bit =
-  read_bit story flags2_offset bit
+  read_word_bit story flags2_offset bit
 
 let set_flags2_bit_to story bit value =
-  write_set_bit_to story flags2_offset bit value
-
-
-(*TODO: Rest of flags 2 flags *)
+  write_set_word_bit_to story flags2_offset bit value
 
 let transcript_bit = bit0
+let transcript_enabled story =
+  Transcript_enabled (flags2_bit story transcript_bit)
 
-let get_transcript_flag story =
-  fetch_bit transcript_bit (flags2 story)
+let set_transcript_enabled story (Transcript_enabled value) =
+  set_flags2_bit_to story transcript_bit value
 
-let set_transcript_flag story value =
-  let flags2_offset = 16 in
-  let transcript_bit = bit0 in
-  let new_flags2 = (set_bit_to transcript_bit (flags2 story) value) in
-  write_byte story flags2_offset new_flags2
+let force_fixed_pitch_bit = bit1
+let force_fixed_pitch story =
+  Force_fixed_pitch (flags2_bit story force_fixed_pitch_bit)
 
-let get_sound_effects_flag story =
-  let sfx_bit = bit7 in
-  fetch_bit sfx_bit (flags2 story)
+let draw_status_requested_bit = bit2
+let draw_status_requested story =
+  Draw_status_requested (flags2_bit story draw_status_requested_bit)
 
-(* TODO: Turn this off when starting / restoring *)
-let set_sound_effects_flag story value =
-  let flags2_offset = 16 in
-  let sfx_bit = bit0 in
-  let new_flags2 = (set_bit_to sfx_bit (flags2 story) value) in
-  write_byte story flags2_offset new_flags2
+let set_draw_status_requested story (Draw_status_requested value) =
+  set_flags2_bit_to story draw_status_requested_bit value
+
+let pictures_requested_bit = bit3
+let pictures_requested story =
+  Pictures_requested (flags2_bit story pictures_requested_bit)
+
+let set_pictures_requested story (Pictures_requested value) =
+  set_flags2_bit_to story pictures_requested_bit value
+
+let undo_requested_bit = bit4
+let undo_requested story =
+  Undo_requested (flags2_bit story undo_requested_bit)
+
+let set_undo_requested story (Undo_requested value) =
+  set_flags2_bit_to story undo_requested_bit value
+
+let mouse_requested_bit = bit5
+let mouse_requested story =
+  Mouse_requested (flags2_bit story mouse_requested_bit)
+
+let set_mouse_requested story (Mouse_requested value) =
+  set_flags2_bit_to story mouse_requested_bit value
+
+let colours_requested story =
+  let colours_requested_bit = bit6 in
+  Colours_requested (flags2_bit story colours_requested_bit)
+
+let sound_requested_bit = bit7
+let sound_requested story =
+  Sound_requested (flags2_bit story sound_requested_bit)
+
+let set_sound_requested story (Sound_requested value) =
+  set_flags2_bit_to story sound_requested_bit value
+
+let menus_requested_bit = bit8
+let menus_requested story =
+  Menus_requested (flags2_bit story menus_requested_bit)
+
+let set_menus_requested story (Menus_requested value) =
+  set_flags2_bit_to story menus_requested_bit value
 
 let serial_number story =
   let start_offset = 18 in
@@ -565,7 +605,46 @@ let text_width story =
 let set_text_width story (Pixel_width width) =
   write_word story text_width_offset width
 
+let standard_major_offset = 50
+let standard_minor_offset = 51
+let standard_revision story =
+  Revision (
+    (read_byte story standard_major_offset),
+    (read_byte story standard_minor_offset))
 
+let set_standard_revision story (Revision (major, minor)) =
+  let story = write_byte story standard_major_offset major in
+  write_byte story standard_minor_offset minor
+
+let alphabet_table story =
+  let alphabet_table_offset = 52 in
+  Alphabet_table (read_word story alphabet_table_offset)
+
+let header_extension story =
+  let header_extension_offset = 54 in
+  Header_extension (read_word story header_extension_offset)
+
+let mouse_x_offset = 2
+let mouse_x story =
+  let (Header_extension base) = header_extension story in
+  if base = 0 then Pixel_x 0
+  else Pixel_x (read_word story (base + mouse_x_offset))
+
+let set_mouse_x story (Pixel_x x)=
+  let (Header_extension base) = header_extension story in
+  if base = 0 then story
+  else write_word story (base + mouse_x_offset) x
+
+let mouse_y_offset = 4
+let mouse_y story =
+  let (Header_extension base) = header_extension story in
+  if base = 0 then Pixel_y 0
+  else Pixel_y (read_word story (base + mouse_y_offset))
+
+let set_mouse_y story (Pixel_y y)=
+  let (Header_extension base) = header_extension story in
+  if base = 0 then story
+  else write_word story (base + mouse_y_offset) y
 
 let display_header story =
   let (Release_number release_number) = release_number story in
@@ -632,6 +711,8 @@ let load_story filename =
 (* Bytecode *)
 (* *)
 
+(* TODO: Move this elsewhere *)
+
 let maximum_local = 15
 
 let locals_count story (Routine routine_address) =
@@ -662,70 +743,3 @@ let local_default_value story (Routine routine_address) n =
     read_word story (routine_address + 1 + 2 * (n - 1))
   else
     0
-
-(* *)
-(* Serialization *)
-(* *)
-
-let compress story =
-  let original_story = original story in
-  let (Static_memory_base memory_length) = static_memory_base story in
-  let rec aux acc i c =
-    let string_of_byte b =
-      string_of_char (char_of_int b) in
-    if i = memory_length then
-      acc
-    else if c = 256 then
-      let encoded = "\000" ^ (string_of_byte (c - 1)) in
-      aux (acc ^ encoded) i 0
-    else
-      let original_byte = read_byte original_story i in
-      let current_byte = read_byte story i in
-      let combined = original_byte lxor current_byte in
-      if combined = 0 then
-        aux acc (i + 1) (c + 1)
-      else if c > 0 then
-        let encoded = "\000" ^ (string_of_byte (c - 1)) ^ (string_of_byte combined) in
-        aux (acc ^ encoded) (i + 1) 0
-      else
-        let encoded = string_of_byte combined in
-        aux (acc ^ encoded) (i + 1) 0 in
-  aux "" 0 0
-
-let apply_uncompressed_changes story uncompressed =
-  (* We cannot simply say "make a new dynamic memory chunk out of
-  these bytes" because then the *next* time we load a save game,
-  that dynamic memory will be the "original" memory, which is wrong.
-  We need to maintain the truly original loaded-off-disk memory. *)
-  let original_story = original story in
-  let length = String.length uncompressed in
-  let rec aux index acc =
-    if index >= length then
-      acc
-    else
-      let new_byte = int_of_char uncompressed.[index] in
-      let orig_byte = read_byte original_story index in
-      let new_story =
-        if new_byte = orig_byte then acc
-        else write_byte acc index new_byte in
-      aux (index + 1) new_story in
-  aux 0 original_story
-
-let apply_compressed_changes story compressed =
-  let original_story = original story in
-  let length = String.length compressed in
-  let rec aux index_change index_mem acc =
-    if index_change >= length then
-      acc
-    else
-      let b = int_of_char compressed.[index_change] in
-      if b = 0 then
-        (* TODO: If length - 1 this is a problem *)
-        let c = 1 + int_of_char compressed.[index_change + 1] in
-        aux (index_change + 2) (index_mem + c) acc
-      else
-        let orig_byte = read_byte original_story index_mem in
-        let new_byte = b lxor orig_byte in
-        let new_story = write_byte acc index_mem new_byte in
-        aux (index_change + 1) (index_mem + 1) new_story in
-  aux 0 0 original_story
