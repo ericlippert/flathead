@@ -27,26 +27,6 @@ type t =
   buttons :  (Button.t * action) list;
 }
 
-let add_pixels_h (Pixel_height h1) (Pixel_height h2) =
-  Pixel_height (h1 + h2)
-
-let add_pixels_w (Pixel_width w1) (Pixel_width w2) =
-  Pixel_width (w1 + w2)
-
-let add_pixels_y (Pixel_y y) (Pixel_height h) =
-  Pixel_y (y + h)
-
-let add_pixels_x (Pixel_x x) (Pixel_width w) =
-  Pixel_x (x + w)
-
-let chars_to_pixels_h (Character_height h) =
-  let (Pixel_height th) = text_height in
-  Pixel_height (th * h)
-
-let chars_to_pixels_w (Character_width w) =
-  let (Pixel_width tw) = text_width in
-  Pixel_width (tw * w)
-
 let add_characters_y y h =
   let hp = chars_to_pixels_h h in
   add_pixels_y y hp
@@ -66,7 +46,8 @@ let screen_extent screen =
 let make interpreter =
   let screen = Interpreter.screen interpreter in
   let (x, y, _, h) = screen_extent screen in
-  let margin = Pixel_width 20 in
+  let margin_w = Pixel_width 20 in
+  let margin_h = Pixel_height 20 in
   let gap_w = Pixel_width 10 in
   let gap_h = Pixel_height 10 in
   let button_y = add_pixels_y y h in
@@ -84,8 +65,8 @@ let make interpreter =
         match buttons with
         | [] -> map
         | (caption, action) :: tail ->
-          let new_button = Button.make button_x button_y margin caption in
-          let bw = new_button.Button.width in
+          let new_button = Button.make button_x button_y margin_w margin_h caption in
+          let bw = Button.width new_button in
           let new_x = add_pixels_x button_x bw in
           let new_x = add_pixels_x new_x gap_w in
           aux ((new_button, action) :: map) tail new_x in
