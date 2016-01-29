@@ -15,20 +15,23 @@ followed by enough bytes to make up the size of the dictionary entry. *)
 
 let word_separators_count story =
   let (Dictionary_base base) = Story.dictionary_base story in
-  Story.read_byte story base
+  Story.read_byte story (Byte_address base)
 
 let word_separators story =
   let (Dictionary_base base) = Story.dictionary_base story in
-  let count = Story.read_byte story base in
+  let count = Story.read_byte story (Byte_address base) in
   let rec aux acc i =
-    if i < 1 then acc
-    else aux ((Story.read_byte story (base + i)) :: acc) (i - 1) in
+    if i < 1 then
+      acc
+    else
+      let separator = Story.read_byte story (Byte_address (base + i)) in
+      aux (separator :: acc) (i - 1) in
   aux [] count
 
 let entry_length story =
   let (Dictionary_base base) = Story.dictionary_base story in
   let separators = word_separators_count story in
-  Story.read_byte story (base + separators + 1)
+  Story.read_byte story (Byte_address (base + separators + 1))
 
 let max_word_length story =
   if Story.v3_or_lower (Story.version story) then 6 else 9
@@ -36,7 +39,7 @@ let max_word_length story =
 let entry_count story =
   let (Dictionary_base base) = Story.dictionary_base story in
   let separators = word_separators_count story in
-  Story.read_word story (base + separators + 2)
+  Story.read_word story (Word_address (base + separators + 2))
 
 (* This is the address of the actual dictionary entries, past the initial
 header with the word separators. *)

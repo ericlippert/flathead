@@ -23,8 +23,8 @@ let alphabet_table = [|
 let length story (Zstring address) =
   let rec aux len current =
     if fetch_bit bit15 (Story.read_word story current) then len + 2
-    else aux (len + 2) (current + 2) in
-  aux 0 address
+    else aux (len + 2) (inc_word_addr current) in
+  aux 0 (Word_address address)
 
 let abbreviation_table_length = 96
 
@@ -40,7 +40,7 @@ let abbreviation_address story (Abbreviation n) =
     failwith "bad offset into abbreviation table"
   else
     let (Abbreviation_table_base base) = Story.abbreviations_table_base story in
-    let abbr_addr = base + (n * 2) in
+    let abbr_addr = Word_address (base + (n * 2)) in
     let word_addr = Word_zstring (Story.read_word story abbr_addr) in
     decode_word_address word_addr
 
@@ -94,8 +94,8 @@ let rec read story (Zstring address) =
     let (text3, mode_next) = process_zchar zchar3 mode3 in
     let new_acc = acc ^ text1 ^ text2 ^ text3 in
     if is_end then new_acc
-    else aux new_acc mode_next (current_address + 2) in
-  aux "" (Alphabet 0) address
+    else aux new_acc mode_next (inc_word_addr current_address) in
+  aux "" (Alphabet 0) (Word_address address)
 
 (* A debugging method for looking at memory broken up into the
 1 / 5 / 5 / 5 bit chunks used by zstrings. *)
@@ -104,7 +104,7 @@ let display_bytes story offset length =
   let rec aux i acc =
     if i > length then acc
     else (
-      let word = Story.read_word story (offset + i) in
+      let word = Story.read_word story (Word_address (offset + i)) in
       let is_end = fetch_bits bit15 size1 word in
       let zchar1 = fetch_bits bit14 size5 word in
       let zchar2 = fetch_bits bit9 size5 word in

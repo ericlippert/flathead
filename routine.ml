@@ -4,7 +4,7 @@ open Utility
 let maximum_local = 15
 
 let locals_count story (Routine routine_address) =
-  let count = Story.read_byte story routine_address in
+  let count = Story.read_byte story (Byte_address routine_address) in
   if count > maximum_local then failwith "routine must have fewer than 16 locals"
   else count
 
@@ -28,6 +28,6 @@ let local_default_value story (Routine routine_address) n =
   if n < 1 || n > maximum_local then
     failwith "invalid local"
   else if Story.v4_or_lower (Story.version story) then
-    Story.read_word story (routine_address + 1 + 2 * (n - 1))
+    Story.read_word story (Word_address (routine_address + 1 + 2 * (n - 1)))
   else
     0

@@ -45,6 +45,7 @@ let tokenise story text =
   List.rev (aux (skip_spaces 0) [])
     (* End of tokenise*)
 
+(* TODO: What is the type of address? *)
 let write_tokens items address max_parse story =
 
   (* Spec:
@@ -64,9 +65,9 @@ let write_tokens items address max_parse story =
         story
       else
         let (Dictionary_address dictionary_address) = dictionary_address in
-        let story = Story.write_word story address dictionary_address in
-        let story = Story.write_byte story (address + 2) (String.length token_text) in
-        let story = Story.write_byte story (address + 3) (start + text_buffer_offset) in
+        let story = Story.write_word story (Word_address address) dictionary_address in
+        let story = Story.write_byte story (Byte_address (address + 2)) (String.length token_text) in
+        let story = Story.write_byte story (Byte_address (address + 3)) (start + text_buffer_offset) in
         aux tail (address + 4) (count + 1) story in
   aux items address 0 story
 
@@ -74,7 +75,7 @@ let write_tokens items address max_parse story =
 buffer the trimmed string was written to, that the whole thing may be
 parsed again. This will be necessary in order to implement the tokenise
 instruction. *)
-let write_user_string_to_memory story text_addr trimmed =
+let write_user_string_to_memory story (Input_buffer text_addr) trimmed =
   (* Now we have to write the string into story memory. This is a bit tricky. *)
   if Story.v4_or_lower (Story.version story) then
     (* Spec: In Versions 1 to 4, ...  stored in bytes 1 onward, with a zero
@@ -82,7 +83,7 @@ let write_user_string_to_memory story text_addr trimmed =
     ----
     This seems straighforward. We write the string starting at byte one,
     and terminate it with a zero. *)
-    Story.write_string_zero_terminate story (text_addr + 1) trimmed
+    Story.write_string_zero_terminate story (Sz_address (text_addr + 1)) trimmed
   else
     (* Spec: In Versions 5 and later, ... the interpreter stores the number of
     characters actually typed in byte 1 (not counting the terminating character),
@@ -105,23 +106,24 @@ let write_user_string_to_memory story text_addr trimmed =
       C + 2 bytes from the first lead byte. The second lead byte is
       then updated so that it always contains the actual number of
       user-supplied characters in the buffer. *)
-      let current_letters = Story.read_byte story (text_addr + 1) in
-      let story = Story.write_string story (text_addr + current_letters + 2) trimmed in
+      let current_letters = Story.read_byte story (Byte_address (text_addr + 1)) in
+      let story = Story.write_string story (String_address (text_addr + current_letters + 2)) trimmed in
       let length = String.length trimmed in
-      Story.write_byte story (text_addr + 1) (current_letters + length)
+      Story.write_byte story (Byte_address (text_addr + 1)) (current_letters + length)
 
-let lexical_analysis story parse_addr trimmed =
+(* TODO: Could use some helpers here to better type the parse buffer *)
+let lexical_analysis story (Parse_buffer parse_addr) trimmed =
   (* Spec:
    Initially, byte 0  of the parse-buffer should hold the maximum
    number of textual words which can be parsed. (If this is n, the buffer
    must be at least 2 + 4*n bytes long to hold the results of the analysis.*)
-  let maximum_parse = Story.read_byte story parse_addr in
+  let maximum_parse = Story.read_byte story (Byte_address parse_addr) in
   (* Spec: The interpreter divides the text into words and looks them up in the
      dictionary, as described in section 13. *)
   let tokens = tokenise story trimmed in
   (* Spec: The number of words is written in byte 1 *)
   let count = min maximum_parse (List.length tokens) in
-  let story = Story.write_byte story (parse_addr + 1) count in
+  let story = Story.write_byte story (Byte_address (parse_addr + 1)) count in
   (* Spec: one 4-byte block is written for each word, from byte 2 onwards
   (except that it should stop before going beyond the maximum number of words
   specified). *)

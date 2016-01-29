@@ -31,7 +31,7 @@ let default_property_value story (Property n) =
     failwith "invalid index into default property table"
   else
     let (Property_defaults_table base) = default_property_table_base story in
-    let addr = (base + (n - 1) * default_property_table_entry_size) in
+    let addr = Word_address ((base + (n - 1) * default_property_table_entry_size)) in
     Story.read_word story addr
 
 (* A debugging method for looking at the default property table *)
@@ -56,12 +56,12 @@ let address story (Object obj) =
 
 let attributes_word_1 story obj =
   let (Object_address addr) = address story obj in
-  Story.read_word story addr
+  Story.read_word story (Word_address addr)
 
 let attributes_word_2 story obj =
   let attributes2_offset = 2 in
   let (Object_address addr) = address story obj in
-  Story.read_word story (addr + attributes2_offset)
+  Story.read_word story (Word_address(addr + attributes2_offset))
 
 let attributes_word_3 story obj =
   if Story.v3_or_lower (Story.version story) then
@@ -69,7 +69,7 @@ let attributes_word_3 story obj =
   else
     let attributes3_offset = 3 in
     let (Object_address addr) = address story obj in
-    Story.read_word story (addr + attributes3_offset)
+    Story.read_word story (Word_address (addr + attributes3_offset))
 
 let attribute_count story =
   if Story.v3_or_lower (Story.version story) then 32 else 48
@@ -81,7 +81,7 @@ let attribute_address story obj (Attribute attribute) =
     let offset = attribute / 8 in
     let (Object_address obj_addr) = address story obj in
     let bit = Bit_number (7 - (attribute mod 8)) in
-    Attribute_address ((obj_addr + offset), bit)
+    Attribute_address ((Byte_address (obj_addr + offset)), bit)
 
 let attribute story obj attribute =
   let (Attribute_address (address, bit)) = attribute_address story obj attribute in
@@ -98,51 +98,51 @@ let clear_attribute story obj attribute =
 let parent story obj =
   let (Object_address addr) = address story obj in
   if Story.v3_or_lower (Story.version story) then
-    Object (Story.read_byte story (addr + 4))
+    Object (Story.read_byte story (Byte_address (addr + 4)))
   else
-    Object (Story.read_word story (addr + 6))
+    Object (Story.read_word story (Word_address (addr + 6)))
 
 let set_parent story obj (Object new_parent) =
   let (Object_address addr) = address story obj in
   if Story.v3_or_lower (Story.version story) then
-    Story.write_byte story (addr + 4) new_parent
+    Story.write_byte story (Byte_address (addr + 4)) new_parent
   else
-    Story.write_word story (addr + 6) new_parent
+    Story.write_word story (Word_address (addr + 6)) new_parent
 
 let sibling story obj =
   let (Object_address addr) = address story obj in
   if Story.v3_or_lower (Story.version story) then
-    Object (Story.read_byte story (addr + 5))
+    Object (Story.read_byte story (Byte_address (addr + 5)))
   else
-    Object (Story.read_word story (addr + 8))
+    Object (Story.read_word story (Word_address (addr + 8)))
 
 let set_sibling story obj (Object new_sibling) =
   let (Object_address addr) = address story obj in
   if Story.v3_or_lower (Story.version story) then
-    Story.write_byte story (addr + 5) new_sibling
+    Story.write_byte story (Byte_address (addr + 5)) new_sibling
   else
-    Story.write_word story (addr + 8) new_sibling
+    Story.write_word story (Word_address (addr + 8)) new_sibling
 
 let child story obj =
   let (Object_address addr) = address story obj in
   if Story.v3_or_lower (Story.version story) then
-    Object (Story.read_byte story (addr + 6))
+    Object (Story.read_byte story (Byte_address(addr + 6)))
   else
-    Object (Story.read_word story (addr + 10))
+    Object (Story.read_word story (Word_address(addr + 10)))
 
 let set_child story obj (Object new_child) =
   let (Object_address addr) = address story obj in
   if Story.v3_or_lower (Story.version story) then
-    Story.write_byte story (addr + 6) new_child
+    Story.write_byte story (Byte_address (addr + 6)) new_child
   else
-    Story.write_word story (addr + 10) new_child
+    Story.write_word story (Word_address (addr + 10)) new_child
 
 (* The last two bytes in an object description are a pointer to a
 block that contains additional properties. *)
 let property_header_address story obj =
   let object_property_offset = if Story.v3_or_lower (Story.version story) then 7 else 12 in
   let (Object_address addr) = address story obj in
-  Property_header (Story.read_word story (addr + object_property_offset))
+  Property_header (Story.read_word story (Word_address (addr + object_property_offset)))
 
 (* Oddly enough, the Z machine does not ever say how big the object table is.
    Assume that the address of the first property block in the first object is
@@ -156,7 +156,7 @@ let count story =
 (* The property entry begins with a length-prefixed zstring *)
 let name story n =
   let (Property_header addr) = property_header_address story n in
-  let length = Story.read_byte story addr in
+  let length = Story.read_byte story (Byte_address addr) in
   if length = 0 then "<unnamed>"
   else Zstring.read story (Zstring (addr + 1))
 
@@ -213,7 +213,7 @@ Returns the length of the header, the length of the data, and the
 property number. *)
 
 let decode_property_data story (Property_address address) =
-  let b = Story.read_byte story address in
+  let b = Story.read_byte story (Byte_address address) in
   if b = 0 then
     (0, 0, invalid_property)
   else if Story.v3_or_lower (Story.version story) then
@@ -232,7 +232,8 @@ let decode_property_data story (Property_address address) =
       If the high bit is not set then the length is indicated by
       the sixth bit. *)
     if fetch_bit bit7 b then
-      let len = fetch_bits bit5 size6 (Story.read_byte story (address + 1)) in
+      let b2 = Story.read_byte story (Byte_address (address + 1)) in
+      let len = fetch_bits bit5 size6 b2 in
       (2, (if len = 0 then 64 else len), prop)
     else
       (1, (if fetch_bit bit6 b then 2 else 1), prop)
@@ -241,7 +242,7 @@ let decode_property_data story (Property_address address) =
 let property_addresses story obj =
   let rec aux acc address =
     let (Property_address addr) = address in
-    let b = Story.read_byte story addr in
+    let b = Story.read_byte story (Byte_address addr) in
     if b = 0 then
       acc
     else
@@ -253,7 +254,7 @@ let property_addresses story obj =
       aux (this_property :: acc) next_addr in
   let (Property_header header) = property_header_address story obj in
   let property_name_address = header in
-  let property_name_word_length = Story.read_byte story property_name_address in
+  let property_name_word_length = Story.read_byte story (Byte_address property_name_address) in
   let first_property_address =
     Property_address (property_name_address + 1 + property_name_word_length * 2) in
   aux [] first_property_address
@@ -263,11 +264,11 @@ this is easy; we just look at the previous byte. In version 4 there could
 be two bytes before the data, but the one immediately before the data is
 always the size byte. If its high bit is on then the bottom six bits are the
 size. If the high bit is not on then the size is determined by bit 6. *)
-let property_length_from_address story address =
+let property_length_from_address story (Property_data address) =
   if address = 0 then
     0
   else
-    let b = Story.read_byte story (address - 1) in
+    let b = Story.read_byte story (Byte_address (address - 1)) in
     if Story.v3_or_lower (Story.version story) then
       1 + (fetch_bits bit7 size3 b)
     else
@@ -301,9 +302,9 @@ let property story obj prop =
     | (number, length, (Property_data address)) :: tail ->
       if number = prop then (
         if length = 1 then
-          Story.read_byte story address
+          Story.read_byte story (Byte_address address)
         else if length = 2 then
-          Story.read_word story address
+          Story.read_word story (Word_address address)
         else
           let (Object n) = obj in
           let (Property p) = prop in
@@ -337,8 +338,8 @@ let write_property story obj prop value =
   if address = invalid_data then failwith "invalid property";
   let (Property_data address) = address in
   match length with
-  | 1 -> Story.write_byte story address value
-  | 2 -> Story.write_word story address value
+  | 1 -> Story.write_byte story (Byte_address address) value
+  | 2 -> Story.write_word story (Word_address address) value
   | _ -> failwith "property cannot be set"
 
 (* Debugging method for displaying the property numbers and

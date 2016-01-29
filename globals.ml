@@ -11,7 +11,7 @@ let read story (Global global) =
   else
     let (Global_table_base base) = Story.global_variables_table_base story in
     let offset = (global - first_global) * 2 in
-    Story.read_word story (base + offset)
+    Story.read_word story (Word_address (base + offset))
 
 let display story =
   let to_string g =
@@ -24,4 +24,4 @@ let write story (Global global) value =
   else
     let (Global_table_base base) = Story.global_variables_table_base story in
     let offset = (global - first_global) * 2 in
-    Story.write_word story (base + offset) value
+    Story.write_word story (Word_address (base + offset)) value

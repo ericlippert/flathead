@@ -364,6 +364,7 @@ let display instr ver =
 
 (* Takes the address of an instruction and produces the instruction *)
 let decode story (Instruction address) =
+  let addr = Byte_address address in
   (* TODO: This could stand to be cleaned up a bit *)
   let ver = (Story.version story) in
   let word_reader = Story.read_word story in
@@ -432,7 +433,7 @@ let decode story (Instruction address) =
     match (form, op_count) with
     | (Extended_form, _) ->
       let maximum_extended = 29 in
-      let ext = byte_reader (address + 1) in
+      let ext = byte_reader (inc_byte_addr address) in
       if ext > maximum_extended then ILLEGAL else ext_bytecodes.(ext)
     | (_, OP0) -> zero_operand_bytecodes.(fetch_bits bit3 size4 b)
     | (_, OP1) -> one_operand_bytecodes.(fetch_bits bit3 size4 b)
@@ -511,12 +512,12 @@ let decode story (Instruction address) =
     | (Variable_form, _, VAR_236)
     | (Variable_form, _, VAR_250) ->
       let opcode_length = get_opcode_length form in
-      let type_byte_0 = byte_reader (address + opcode_length) in
-      let type_byte_1 = byte_reader (address + opcode_length + 1) in
+      let type_byte_0 = byte_reader (inc_byte_addr_by address opcode_length) in
+      let type_byte_1 = byte_reader (inc_byte_addr_by address (opcode_length + 1)) in
       (decode_variable_types type_byte_0) @ (decode_variable_types type_byte_1)
     | _ ->
       let opcode_length = get_opcode_length form in
-      let type_byte = byte_reader (address + opcode_length) in
+      let type_byte = byte_reader (inc_byte_addr_by address opcode_length) in
       decode_variable_types type_byte in
 
   let get_type_length form opcode =
@@ -532,21 +533,21 @@ let decode story (Instruction address) =
 
   (* This method is not tail recursive but the maximum number of operands
      is eight, so we don't care. *)
-  let rec decode_operands operand_address operand_types =
+  let rec decode_operands (Byte_address operand_address) operand_types =
     match operand_types with
     | [] -> []
     | Large_operand :: remaining_types ->
-      let w = word_reader operand_address in
-      let tail = decode_operands (operand_address + 2) remaining_types in
+      let w = word_reader (Word_address operand_address) in
+      let tail = decode_operands (Byte_address(operand_address + 2)) remaining_types in
       (Large w) :: tail
     | Small_operand :: remaining_types ->
-      let b = byte_reader operand_address in
-      let tail = decode_operands (operand_address + 1) remaining_types in
+      let b = byte_reader (Byte_address operand_address) in
+      let tail = decode_operands (Byte_address(operand_address + 1)) remaining_types in
       (Small b) :: tail
     | Variable_operand :: remaining_types ->
-      let b = byte_reader operand_address in
+      let b = byte_reader (Byte_address operand_address) in
       let v = decode_variable b in
-      let tail = decode_operands (operand_address + 1) remaining_types in
+      let tail = decode_operands (Byte_address(operand_address + 1)) remaining_types in
       (Variable v) :: tail
     | Omitted :: _ ->
       failwith "omitted operand type passed to decode operands" in
@@ -602,7 +603,7 @@ let decode story (Instruction address) =
         if fetch_bit bit6 high then
           bottom6
         else
-          let low = byte_reader (branch_code_address + 1) in
+          let low = byte_reader (inc_byte_addr branch_code_address) in
           let unsigned = 256 * bottom6 + low in
           if unsigned < 8192 then unsigned else unsigned - 16384 in
       let branch =
@@ -611,7 +612,7 @@ let decode story (Instruction address) =
         | 1 -> (sense, Return_true)
         | _ ->
           let branch_length = if fetch_bit bit6 high then 1 else 2 in
-          let address_after = branch_code_address + branch_length in
+          let (Byte_address address_after) = inc_byte_addr_by branch_code_address branch_length in
           let branch_target = Instruction (address_after + offset - 2) in
           (sense, Branch_address branch_target) in
       Some branch
@@ -641,22 +642,23 @@ let decode story (Instruction address) =
 
   (* Helper methods are done. Start decoding *)
 
-  let form = decode_form address in
-  let op_count = decode_op_count address form in
-  let opcode = decode_opcode address form op_count in
+  let form = decode_form addr in
+  let op_count = decode_op_count addr form in
+  let opcode = decode_opcode addr form op_count in
   let opcode_length = get_opcode_length form in
-  let operand_types = decode_operand_types address form op_count opcode in
+  let operand_types = decode_operand_types addr form op_count opcode in
   let type_length = get_type_length form opcode in
-  let operand_address = address + opcode_length + type_length in
+  let operand_address = inc_byte_addr_by addr (opcode_length + type_length) in
   let operands = decode_operands operand_address operand_types in
   let operand_length = get_operand_length operand_types in
-  let store_address = operand_address + operand_length in
+  let store_address = inc_byte_addr_by operand_address operand_length in
   let store = decode_store store_address opcode ver in
   let store_length = get_store_length opcode ver in
-  let branch_code_address = store_address + store_length in
+  let branch_code_address = inc_byte_addr_by store_address store_length in
   let branch = decode_branch branch_code_address opcode ver in
   let branch_length = get_branch_length branch_code_address opcode ver in
-  let text_address = Zstring (branch_code_address + branch_length) in
+  let (Byte_address ba) = branch_code_address in
+  let text_address = Zstring (ba + branch_length) in
   let text = decode_text text_address opcode in
   let text_length = get_text_length text_address opcode in
   let length =

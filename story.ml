@@ -57,33 +57,33 @@ let write_set_word_bit_to story address bit value =
 
 (* Writes bytes into memory; no zstring encoding, no zero
 termination, no length. *)
-let write_string story address text =
+let write_string story (String_address address) text =
   let length = String.length text in
   let rec aux i s =
     if i = length then s
-    else aux (i + 1) (write_byte s (address + i) (int_of_char text.[i])) in
+    else aux (i + 1) (write_byte s (Byte_address (address + i)) (int_of_char text.[i])) in
   aux 0 story
 
 (* Writes a series of bytes into memory. Does not zstring encode them.
    Does zero-byte terminate them. *)
-let write_string_zero_terminate story address text =
+let write_string_zero_terminate story (Sz_address address) text =
   let length = String.length text in
-  let copied = write_string story address text in
-  write_byte copied (address + length) 0
+  let copied = write_string story (String_address address) text in
+  write_byte copied (Byte_address (address + length)) 0
 
 (* Writes a series of bytes into memory; no zero terminator,
 prefixed by two bytes of length *)
-let write_length_word_prefixed_string story address text =
-  let copied = write_string story (address + 2) text in
+let write_length_word_prefixed_string story (Word_prefixed_string address) text =
+  let copied = write_string story (String_address (address + 2)) text in
   let length = String.length text in
-  write_word copied address length
+  write_word copied (Word_address address) length
 
 (* Writes a series of bytes into memory; no zero terminator,
 prefixed by one byte of length *)
-let write_length_byte_prefixed_string story address text =
-  let copied = write_string story (address + 1) text in
+let write_length_byte_prefixed_string story (Byte_prefixed_string address) text =
+  let copied = write_string story (String_address (address + 1)) text in
   let length = String.length text in
-  write_byte copied address length
+  write_byte copied (Byte_address address) length
 
 (* Debugging method for displaying a raw block of memory. *)
 let display_story_bytes story address length =
@@ -98,7 +98,7 @@ let header_size = 64
 
 (* Header byte 0 is the version number, from 1 to 8. *)
 
-let version_offset = 0
+let version_offset = Byte_address 0
 let version story =
   match read_byte story version_offset with
   | 1 -> V1
@@ -152,7 +152,7 @@ let display_version v =
 
 (* Header byte 1 is flags. *)
 
-let flags1_offset = 1
+let flags1_offset = Byte_address 1
 let flags1 story =
   read_byte story flags1_offset
 
@@ -334,7 +334,7 @@ let set_timed_keyboard_supported story (Timed_keyboard_supported value) =
 
 (* Bytes 2 and 3 of the header are by convention the release number. *)
 
-let release_number_offset = 2
+let release_number_offset = Word_address 2
 
 let release_number story =
   Release_number (read_word story release_number_offset)
@@ -346,7 +346,7 @@ paged into physical memory as needed. This interpreter makes no use
 of the high memory mark. *)
 
 let high_memory_base story =
-  let high_memory_base_offset = 4 in
+  let high_memory_base_offset = Word_address 4 in
   High_memory_base (read_word story high_memory_base_offset)
 
 (* Bytes 6 and 7 are the initial pc for the main routine. In version 6 (only)
@@ -355,7 +355,7 @@ instruction. In all other versions the main routine is indicated just by
 its first instruction. *)
 
 let initial_program_counter story =
-  let initial_program_counter_offset = 6 in
+  let initial_program_counter_offset = Word_address 6 in
   let pc = read_word story initial_program_counter_offset in
   if (version story) = V6 then Instruction (pc * 4 + 1)
   else Instruction pc
@@ -364,24 +364,24 @@ let initial_program_counter story =
   is stored in the word at $08 in the header. *)
 
 let dictionary_base story =
-  let dictionary_base_offset = 8 in
+  let dictionary_base_offset = Word_address 8 in
   Dictionary_base (read_word story dictionary_base_offset)
 
 (* The object table address is stored at byte 10 *)
 
 let object_table_base story =
-  let object_table_base_offset = 10 in
+  let object_table_base_offset = Word_address 10 in
   Object_base (read_word story object_table_base_offset)
 
 let global_variables_table_base story =
-  let global_variables_table_base_offset = 12 in
+  let global_variables_table_base_offset = Word_address 12 in
   Global_table_base (read_word story global_variables_table_base_offset)
 
-let static_memory_base_offset = 14;;
+let static_memory_base_offset = Word_address 14
 let static_memory_base story =
   Static_memory_base (read_word story static_memory_base_offset)
 
-let flags2_offset = 16
+let flags2_offset = Word_address 16
 
 let flags2 story =
   read_word story flags2_offset
@@ -456,12 +456,12 @@ let serial_number story =
   let start_offset = 18 in
   let end_offset = 24 in
   let string_of_byte addr =
-    let b = read_byte story addr in
+    let b = read_byte story (Byte_address addr) in
   string_of_char (char_of_int b) in
   Serial_number (accumulate_strings_loop string_of_byte start_offset end_offset)
 
 let abbreviations_table_base story =
-  let abbreviations_table_base_offset = 24 in
+  let abbreviations_table_base_offset = Word_address 24 in
   Abbreviation_table_base (read_word story abbreviations_table_base_offset)
 
 (* Spec: The file length stored at $1a is actually divided by a constant,
@@ -469,7 +469,7 @@ depending on the Version, to make it fit into a header word. This constant
 is 2 for Versions 1 to 3, 4 for Versions 4 to 5 or 8 for Versions 6 and later. *)
 
 let file_size story =
-  let file_size_offset = 26 in
+  let file_size_offset = Word_address 26 in
   let s = read_word story file_size_offset in
   let m = match (version story) with
   | V1  | V2  | V3 -> 2
@@ -478,7 +478,7 @@ let file_size story =
   File_size (s * m)
 
 let header_checksum story =
-  let checksum_offset = 28 in
+  let checksum_offset = Word_address 28 in
   Checksum (read_word story checksum_offset)
 
 (* The checksum is simply the bottom two bytes of the sum of all the
@@ -489,7 +489,7 @@ let compute_checksum story =
   let rec aux acc addr =
     if addr >= size then acc
     else
-      let byte = read_byte orig addr in
+      let byte = read_byte orig (Byte_address addr) in
       aux (unsigned_word (acc + byte)) (addr + 1) in
   Checksum (aux 0 header_size)
 
@@ -498,7 +498,7 @@ let verify_checksum story =
   let c = compute_checksum story in
   h = c
 
-let interpreter_number_offset = 30
+let interpreter_number_offset = Byte_address 30
 let interpreter_number story =
   Interpreter_number (read_byte story interpreter_number_offset)
 
@@ -517,35 +517,35 @@ let apple_iic = Interpreter_number 9
 let apple_iigs = Interpreter_number 10
 let tandy_color = Interpreter_number 11
 
-let interpreter_version_offset = 31
+let interpreter_version_offset = Byte_address 31
 let interpreter_version story =
   Interpreter_version (read_byte story interpreter_version_offset)
 
 let set_interpreter_version story (Interpreter_version version) =
   write_byte story interpreter_version_offset version
 
-let screen_height_offset = 32
+let screen_height_offset = Byte_address 32
 let screen_height story =
   Character_height (read_byte story screen_height_offset)
 
 let set_screen_height story (Character_height height) =
   write_byte story screen_height_offset height
 
-let screen_width_offset = 33
+let screen_width_offset = Byte_address 33
 let screen_width story =
   Character_width (read_byte story screen_width_offset)
 
 let set_screen_width story (Character_width width) =
   write_byte story screen_width_offset width
 
-let screen_height_units_offset = 34
+let screen_height_units_offset = Word_address 34
 let screen_height_units story =
-  Pixel_height (read_word story screen_height_offset)
+  Pixel_height (read_word story screen_height_units_offset)
 
 let set_screen_height_units story (Pixel_height height) =
   write_word story screen_height_units_offset height
 
-let screen_width_units_offset = 36
+let screen_width_units_offset = Word_address 36
 let screen_width_units story =
   Pixel_width (read_word story screen_width_units_offset)
 
@@ -555,58 +555,58 @@ let set_screen_width_units story (Pixel_width width) =
 (* The font height and width header bytes are swapped in version 6. *)
 
 let font_height_offset story =
-  if (version story) = V6 then 38 else 39
+  if (version story) = V6 then (Byte_address 38) else (Byte_address 39)
 
 let font_height story =
-  Pixel_height (read_word story (font_height_offset story))
+  Pixel_height (read_byte story (font_height_offset story))
 
 let set_font_height story (Pixel_height height) =
-  write_word story (font_height_offset story) height
+  write_byte story (font_height_offset story) height
 
 let font_width_offset story =
-  if (version story) = V6 then 39 else 38
+  if (version story) = V6 then (Byte_address 39) else (Byte_address 38)
 
 let font_width story =
-  Pixel_width (read_word story (font_width_offset story))
+  Pixel_width (read_byte story (font_width_offset story))
 
 let set_font_width story (Pixel_width width) =
-  write_word story (font_width_offset story) width
+  write_byte story (font_width_offset story) width
 
 let routine_offset story =
-  let routine_offset_offset = 40 in
+  let routine_offset_offset = Word_address 40 in
   8 * (read_word story routine_offset_offset)
 
 let string_offset story =
-  let string_offset_offset = 42 in
+  let string_offset_offset = Word_address 42 in
   8 * (read_word story string_offset_offset)
 
-let default_background_colour_offset = 44
+let default_background_colour_offset = Byte_address 44
 let default_background_colour story =
   Colour (read_byte story default_background_colour_offset)
 
 let set_default_background_colour story (Colour colour) =
   write_byte story default_background_colour_offset colour
 
-let default_foreground_colour_offset = 45
+let default_foreground_colour_offset = Byte_address 45
 let default_foreground_colour story =
   Colour (read_byte story default_foreground_colour_offset)
 
 let set_default_foreground_colour story (Colour colour) =
   write_byte story default_foreground_colour_offset colour
 
-let terminating_characters_offset = 46
+let terminating_characters_offset = Word_address 46
 let terminating_characters_base story =
   Terminating_characters_base (read_word story terminating_characters_offset)
 
-let text_width_offset = 48
+let text_width_offset = Word_address 48
 let text_width story =
   Pixel_width (read_word story text_width_offset)
 
 let set_text_width story (Pixel_width width) =
   write_word story text_width_offset width
 
-let standard_major_offset = 50
-let standard_minor_offset = 51
+let standard_major_offset = Byte_address 50
+let standard_minor_offset = Byte_address 51
 let standard_revision story =
   Revision (
     (read_byte story standard_major_offset),
@@ -617,34 +617,34 @@ let set_standard_revision story (Revision (major, minor)) =
   write_byte story standard_minor_offset minor
 
 let alphabet_table story =
-  let alphabet_table_offset = 52 in
+  let alphabet_table_offset = Word_address 52 in
   Alphabet_table (read_word story alphabet_table_offset)
 
 let header_extension story =
-  let header_extension_offset = 54 in
+  let header_extension_offset = Word_address 54 in
   Header_extension (read_word story header_extension_offset)
 
 let mouse_x_offset = 2
 let mouse_x story =
   let (Header_extension base) = header_extension story in
   if base = 0 then Pixel_x 0
-  else Pixel_x (read_word story (base + mouse_x_offset))
+  else Pixel_x (read_word story (Word_address (base + mouse_x_offset)))
 
 let set_mouse_x story (Pixel_x x)=
   let (Header_extension base) = header_extension story in
   if base = 0 then story
-  else write_word story (base + mouse_x_offset) x
+  else write_word story (Word_address ((base + mouse_x_offset))) x
 
 let mouse_y_offset = 4
 let mouse_y story =
   let (Header_extension base) = header_extension story in
   if base = 0 then Pixel_y 0
-  else Pixel_y (read_word story (base + mouse_y_offset))
+  else Pixel_y (read_word story (Word_address (base + mouse_y_offset)))
 
 let set_mouse_y story (Pixel_y y)=
   let (Header_extension base) = header_extension story in
   if base = 0 then story
-  else write_word story (base + mouse_y_offset) y
+  else write_word story (Word_address (base + mouse_y_offset)) y
 
 let display_header story =
   let (Release_number release_number) = release_number story in
@@ -698,8 +698,9 @@ let load_story filename =
   let len = String.length file in
   if len < header_size then
     failwith (Printf.sprintf "%s is not a valid story file" filename);
-  let high = int_of_char file.[static_memory_base_offset] in
-  let low = int_of_char file.[static_memory_base_offset + 1] in
+  let (Word_address base) = static_memory_base_offset in
+  let high = int_of_char file.[base] in
+  let low = int_of_char file.[base + 1] in
   let dynamic_length = high * 256 + low in
   if (dynamic_length > len) then
     failwith (Printf.sprintf "%s is not a valid story file" filename);

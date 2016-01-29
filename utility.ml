@@ -145,7 +145,7 @@ let display_bytes get_byte first length =
     let header =
       if i mod blocksize = 0 then Printf.sprintf "\n%06x: " i
       else "" in
-    let byte = get_byte i in
+    let byte = get_byte (Byte_address i) in
     let contents = Printf.sprintf "%02x " byte in
     header ^ contents in
   (accumulate_strings_loop to_string first (first + length)) ^ "\n"
@@ -188,3 +188,15 @@ let max x y =
 
 let min x y =
   if x < y then x else y
+
+let inc_byte_addr_by (Byte_address address) offset =
+  Byte_address (address + offset)
+
+let inc_byte_addr address =
+  inc_byte_addr_by address 1
+
+let inc_word_addr_by (Word_address address) offset =
+  Word_address (address + offset * 2)
+
+let inc_word_addr address =
+  inc_word_addr_by address 1

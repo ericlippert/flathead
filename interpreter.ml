@@ -32,7 +32,7 @@ type t =
   transcript : Transcript.t;
   transcript_selected : transcript_enabled;
 
-  memory_table : int list;
+  memory_table : word_prefixed list;
   memory_selected : bool;
 
   (* output stream 4 *)
@@ -40,8 +40,10 @@ type t =
   commands_selected : bool;
 
   (* TODO: Other input streams *)
-  text_address : int;
-  parse_address : int;
+
+  (* TODO: What are the types of these addresses? *)
+  text_address : input_buffer;
+  parse_address : parse_buffer;
   input : string;
   input_max : int;
 }
@@ -80,8 +82,8 @@ let make story screen =
     commands_selected = false;
     memory_table = [];
     memory_selected = false;
-    text_address = 0;
-    parse_address = 0;
+    text_address = Input_buffer 0;
+    parse_address = Parse_buffer 0;
     input = "";
     input_max = 0
 }
@@ -463,18 +465,18 @@ Stores array-->word-index (i.e., the word at address array+2*word-index,
 which must lie in static or dynamic memory). *)
 
 let handle_loadw arr idx interpreter =
-  let arr = unsigned_word arr in
+  let arr = Word_address arr in
   let idx = unsigned_word idx in
-  Story.read_word interpreter.story (arr + idx * 2)
+  Story.read_word interpreter.story (inc_word_addr_by arr idx)
 
 (* Spec: 2OP:16 loadb array byte-index -> (result)
 Stores array->byte-index (i.e., the byte at address array+byte-index,
 which must lie in static or dynamic memory). *)
 
 let handle_loadb arr idx interpreter =
-  let arr = unsigned_word arr in
+  let arr = Byte_address arr in
   let idx = unsigned_word idx in
-  Story.read_byte interpreter.story (arr + idx)
+  Story.read_byte interpreter.story (inc_byte_addr_by arr idx)
 
 (* Spec: 2OP:17 get_prop object property -> (result)
   Read property from object (resulting in the default value if it had no
@@ -649,7 +651,7 @@ let handle_get_parent obj interpreter =
 
 let handle_get_prop_len property_address interpreter =
   (* TODO: Make a wrapper type for property addresses *)
-  let property_address = unsigned_word property_address in
+  let property_address = Property_data property_address in
   Object.property_length_from_address interpreter.story property_address
 
 (* Spec: 1OP:133 inc (variable)
@@ -1018,20 +1020,20 @@ let handle_piracy interpreter =
   (which must lie in dynamic memory).  *)
 
 let handle_storew arr ind value interpreter =
-  let arr = unsigned_word arr in
+  let arr = Word_address arr in
   let ind = unsigned_word ind in
   let value = unsigned_word value in
-  let addr = arr + ind * 2 in
+  let addr = inc_word_addr_by arr ind in
   { interpreter with story = Story.write_word interpreter.story addr value }
 
 (* Spec: VAR:226 storeb array byteindex value
   array->byteindex = value, i.e. stores the given value in the byte at
   address array+byteindex (which must lie in dynamic memory). *)
 let handle_storeb arr ind value interpreter =
-  let arr = unsigned_word arr in
+  let arr = Byte_address arr in
   let ind = unsigned_word ind in
   let value = unsigned_word value in
-  let addr = arr + ind  in
+  let addr = inc_byte_addr_by arr ind  in
   { interpreter with story = Story.write_byte interpreter.story addr value }
 
 (* Spec: VAR:227 put_prop object property value
@@ -1069,7 +1071,7 @@ the specification details here I'll put them inline. *)
 let handle_sread2 text_addr parse_addr interpreter instruction =
   (* TODO: make a wrapper type for pointer-to-text-buffer *)
   let text_addr = unsigned_word text_addr in
-  let parse_addr = unsigned_word parse_addr in
+  let parse_addr = Parse_buffer parse_addr in
   (* This instruction is broken up into two halves. The first determines the size of
   the text buffer needed and then gives back an interpreter set to "I need input".
   The second half (above) does the actual work once the host has provided the data. *)
@@ -1113,7 +1115,7 @@ let handle_sread2 text_addr parse_addr interpreter instruction =
   the maximum number of letters which can be typed (the interpreter should
   not accept more than this).    *)
 
-  let maximum_letters = Story.read_byte interpreter.story text_addr in
+  let maximum_letters = Story.read_byte interpreter.story (Byte_address text_addr) in
   let maximum_letters =
     if Story.v4_or_lower (Story.version interpreter.story) then maximum_letters - 1
     else maximum_letters in
@@ -1122,7 +1124,7 @@ let handle_sread2 text_addr parse_addr interpreter instruction =
   The host will get the input and call back to complete the process. *)
   { interpreter with
       state = Waiting_for_input;
-      text_address = text_addr;
+      text_address = Input_buffer text_addr;
       parse_address = parse_addr;
       input_max = maximum_letters }
   (* end handle_sread *)
@@ -1140,23 +1142,24 @@ let handle_sread4 text parse time routine interpreter instruction =
   should notice and redraw the input line so far, before input continues. *)
   handle_sread2 text parse interpreter instruction
 
-let complete_sread text_addr parse_addr input interpreter instruction =
+let complete_sread (Input_buffer text_addr) parse_addr input interpreter instruction =
   (* Spec: The text typed is reduced to lower case *)
   (* Note: it is not clear from reading the spec whether this applies just
   to versions 1-4, or all versions. Let's assume all. *)
   let text = String.lowercase input in
   let story = interpreter.story in
-  let maximum_letters = Story.read_byte story text_addr in
+  (* TODO: Could use some helper methods on input buffers here and in tokeniser.*)
+  let maximum_letters = Story.read_byte story (Byte_address text_addr) in
   let maximum_letters =
     if Story.v4_or_lower (Story.version interpreter.story) then maximum_letters - 1
     else maximum_letters in
   let trimmed = truncate text maximum_letters in
-  let story = Tokeniser.write_user_string_to_memory story text_addr trimmed in
+  let story = Tokeniser.write_user_string_to_memory story (Input_buffer text_addr) trimmed in
   (* Spec:
   Next, lexical analysis is performed on the text (except that in Versions 5
   and later, if parsebuffer is zero then this is omitted). *)
   let story =
-    if parse_addr = 0 then story
+    if parse_addr = Parse_buffer 0 then story
     else Tokeniser.lexical_analysis story parse_addr trimmed in
   let interpreter = { interpreter with state = Running } in
   let interpreter = { interpreter with story } in
@@ -1342,10 +1345,10 @@ current cursor column into word 1. (The array is not a table and has no
 size information in its initial entry.) *)
 
 let handle_get_cursor arr interpreter =
-  let arr = unsigned_word arr in
+  let arr = Word_address arr in
   let Cursor ((Character_x x),( Character_y y)) = Screen.get_active_cursor interpreter.screen in
   let story = Story.write_word interpreter.story arr y in
-  let story = Story.write_word story (arr + 2) x in
+  let story = Story.write_word story (inc_word_addr arr) x in
   { interpreter with story }
 
 (* Spec: VAR:241 set_text_style style
@@ -1407,6 +1410,7 @@ let handle_output_stream1 stream interpreter =
   new_interpreter
 
 let handle_output_stream2 stream table interpreter =
+  let table = Word_prefixed_string table in
   if stream = 3 then
     select_memory_stream interpreter table
   else
@@ -1478,15 +1482,17 @@ let complete_read_char interpreter instruction input =
     looked at.) Thus $82 is the default. *)
 
 let handle_scan_table3 x table len interpreter =
+  let table = Word_address table in
   let rec aux i =
     if i = len then
-      0
+      Word_address 0
     else
-      let addr = table + 2 * i in
+      let addr = inc_word_addr_by table i in
       let y = unsigned_word (Story.read_word interpreter.story addr) in
       if x = y then addr
       else aux (i + 1) in
-  aux 0
+  let (Word_address result) = aux 0 in
+  result
 
 let handle_scan_table4 x table len form interpreter =
   failwith "TODO scan_table x table len form is not yet implemented"
@@ -1834,7 +1840,7 @@ let step_with_input interpreter key =
   let instruction =
     Instruction.decode interpreter.story interpreter.program_counter in
   let handle_enter () =
-    let blank_input = { interpreter with input = ""; input_max = 0; text_address = 0; parse_address = 0 } in
+    let blank_input = { interpreter with input = ""; input_max = 0; text_address = Input_buffer 0; parse_address = Parse_buffer 0 } in
     complete_sread interpreter.text_address interpreter.parse_address interpreter.input blank_input instruction  in
   let handle_backspace () =
     if length = 0 then
