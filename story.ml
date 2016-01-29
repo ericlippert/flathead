@@ -663,29 +663,31 @@ let alphabet_table story =
 
 let header_extension story =
   let header_extension_offset = Word_address 54 in
-  Header_extension (read_word story header_extension_offset)
+  Word_address (read_word story header_extension_offset)
 
-let mouse_x_offset = 2
+let header_extension_word story offset =
+  let base = header_extension story in
+  if base = Word_address 0 then 0
+  else read_word story (inc_word_addr_by base offset)
+
+let set_header_extension_word story offset value =
+  let base = header_extension story in
+  if base = Word_address 0 then story
+  else write_word story (inc_word_addr_by base offset) value
+
+let mouse_x_offset = 1
 let mouse_x story =
-  let (Header_extension base) = header_extension story in
-  if base = 0 then Pixel_x 0
-  else Pixel_x (read_word story (Word_address (base + mouse_x_offset)))
+  Pixel_x (header_extension_word story mouse_x_offset)
 
 let set_mouse_x story (Pixel_x x)=
-  let (Header_extension base) = header_extension story in
-  if base = 0 then story
-  else write_word story (Word_address ((base + mouse_x_offset))) x
+  set_header_extension_word story x mouse_x_offset
 
-let mouse_y_offset = 4
+let mouse_y_offset = 2
 let mouse_y story =
-  let (Header_extension base) = header_extension story in
-  if base = 0 then Pixel_y 0
-  else Pixel_y (read_word story (Word_address (base + mouse_y_offset)))
+  Pixel_y (header_extension_word story mouse_y_offset)
 
 let set_mouse_y story (Pixel_y y)=
-  let (Header_extension base) = header_extension story in
-  if base = 0 then story
-  else write_word story (Word_address (base + mouse_y_offset)) y
+  set_header_extension_word story y mouse_y_offset
 
 let display_header story =
   let (Release_number release_number) = release_number story in
