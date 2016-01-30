@@ -38,7 +38,7 @@ let decode_word_address (Word_zstring word_address) =
 let first_abbrev_addr (Abbreviation_table_base base) =
   Word_address base
 
-let abbreviation_address story (Abbreviation n) =
+let abbreviation_zstring story (Abbreviation n) =
   if n < 0 || n >= abbreviation_table_length then
     failwith "bad offset into abbreviation table"
   else
@@ -77,7 +77,7 @@ let rec read story (Zstring address) =
     | (Alphabet a, _) -> (alphabet_table.(a * 32 + zchar), Alphabet 0)
     | (Abbrev Abbreviation a, _) ->
       let abbrv = Abbreviation (a + zchar) in
-      let addr = abbreviation_address story abbrv in
+      let addr = abbreviation_zstring story abbrv in
       let str = read story addr in
       (str, Alphabet 0)
     | (Leading, _) -> ("", (Trailing zchar))
@@ -119,7 +119,7 @@ let display_bytes story addr =
 (* Debugging helper *)
 let display_abbreviation_table story =
   let to_string i =
-    let address = abbreviation_address story (Abbreviation i) in
+    let address = abbreviation_zstring story (Abbreviation i) in
     let value = read story address in
     let (Zstring address) = address in
     Printf.sprintf "%02x: %04x  %s\n" i address value in
