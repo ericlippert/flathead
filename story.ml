@@ -18,43 +18,28 @@ let make dynamic static =
     static_memory = static;
 }
 
-let read_byte story (Byte_address address) =
-  if address < 0 then
-    failwith "Negative address in read_byte"
+let read_byte story address =
+  let dynamic_size = Immutable_bytes.size story.dynamic_memory in
+  if is_in_range address dynamic_size then
+    Immutable_bytes.read_byte story.dynamic_memory address
   else
-    let dynamic_size = Immutable_bytes.size story.dynamic_memory in
-    if address < dynamic_size then
-      Immutable_bytes.read_byte story.dynamic_memory (Byte_address address)
-    else
-      let static_addr = address - dynamic_size in
-      let static_size = String.length story.static_memory in
-      if static_addr >= static_size then
-        failwith (Printf.sprintf "Address %0x4 out of range" address)
-      else
-        int_of_char (story.static_memory.[static_addr])
-
+    let static_addr = dec_byte_addr_by address dynamic_size in
+    dereference_string static_addr story.static_memory
+      
 let read_word story (Word_address address) =
   let high = read_byte story (Byte_address address) in
   let low = read_byte story (Byte_address (address + 1)) in
   256 * high + low
 
-let write_byte story (Byte_address address) value =
-  if address < 0 then
-    failwith "Negative address in write_byte"
-  else
-    let dynamic_size = Immutable_bytes.size story.dynamic_memory in
-    if address >= dynamic_size then
-      failwith "attempt to write static memory"
-    else
-      let dynamic_memory =
-        Immutable_bytes.write_byte story.dynamic_memory (Byte_address address) value in
-      { story with dynamic_memory }
+let write_byte story address value =
+  let dynamic_memory = Immutable_bytes.write_byte story.dynamic_memory address value in
+  { story with dynamic_memory }
 
-let write_word story (Word_address address) value =
+let write_word story address value =
   let high = (value lsr 8) land 0xFF in
   let low = value land 0xFF in
-  let story = write_byte story (Byte_address address) high in
-  write_byte story (Byte_address (address + 1)) low
+  let story = write_byte story (address_of_high_byte address) high in
+  write_byte story (address_of_low_byte address) low
 
 let original story =
   let original_bytes = Immutable_bytes.original story.dynamic_memory in
