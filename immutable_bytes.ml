@@ -1,8 +1,6 @@
 open Type
 open Utility
 
-module IntMap = Map.Make(struct type t = int let compare = compare end)
-
 type t =
 {
   original_bytes : string;
