@@ -24,7 +24,7 @@ let read_byte story (Byte_address address) =
   if address < 0 then
     failwith "Negative address in read_byte"
   else if address < story.static_offset then
-    Immutable_bytes.read_byte story.dynamic_memory address
+    Immutable_bytes.read_byte story.dynamic_memory (Byte_address address)
   else
     let static_addr = address - story.static_offset in
     if static_addr >= String.length story.static_memory then
@@ -37,15 +37,15 @@ let read_word story (Word_address address) =
   let low = read_byte story (Byte_address (address + 1)) in
   256 * high + low
 
-let write_byte memory (Byte_address address) value =
+let write_byte story (Byte_address address) value =
   if address < 0 then
     failwith "Negative address in write_byte"
-  else if address >= memory.static_offset then
+  else if address >= story.static_offset then
     failwith "attempt to write static memory"
   else
-    let new_memory =
-      Immutable_bytes.write_byte memory.dynamic_memory address value in
-    { memory with dynamic_memory = new_memory }
+    let dynamic_memory =
+      Immutable_bytes.write_byte story.dynamic_memory (Byte_address address) value in
+    { story with dynamic_memory }
 
 let write_word story (Word_address address) value =
   let high = (value lsr 8) land 0xFF in

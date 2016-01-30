@@ -3,6 +3,9 @@ open Type
 
 module IntMap = Map.Make(struct type t = int let compare = compare end)
 
+let byte_of_int x =
+  x land 0xff
+
 let string_of_char x =
   String.make 1 x
 
