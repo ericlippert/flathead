@@ -44,3 +44,10 @@ let fetch_bits (Bit_number high) (Bit_size length) word =
   
 let byte_of_int x =
   x land 0xff
+  
+let is_in_range (Byte_address address) size = 
+    0 <= address && address < size
+    
+let is_out_of_range address size =
+    not (is_in_range address size)
+    
