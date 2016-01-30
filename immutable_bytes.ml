@@ -16,10 +16,13 @@ type t =
 let make bytes =
   { original_bytes = bytes; edits = IntMap.empty }
 
+let size bytes =
+  String.length bytes.original_bytes
+
 let read_byte bytes (Byte_address address) =
   if address < 0 then
     failwith "address is negative"
-  else if address >= String.length bytes.original_bytes then
+  else if address >= (size bytes) then
     failwith "address is out of range"
   else
     let c =
@@ -30,7 +33,7 @@ let read_byte bytes (Byte_address address) =
 let write_byte bytes (Byte_address address) value =
   if address < 0 then
     failwith "address is negative"
-  else if address >= String.length bytes.original_bytes then
+  else if address >= (size bytes) then
     failwith "address is out of range"
   else
     let b = char_of_int (byte_of_int value) in

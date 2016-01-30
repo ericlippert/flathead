@@ -10,27 +10,28 @@ type t =
 {
   dynamic_memory : Immutable_bytes.t;
   static_memory : string;
-  static_offset : int
 }
 
 let make dynamic static =
 {
     dynamic_memory = Immutable_bytes.make dynamic;
     static_memory = static;
-    static_offset = String.length dynamic
 }
 
 let read_byte story (Byte_address address) =
   if address < 0 then
     failwith "Negative address in read_byte"
-  else if address < story.static_offset then
-    Immutable_bytes.read_byte story.dynamic_memory (Byte_address address)
   else
-    let static_addr = address - story.static_offset in
-    if static_addr >= String.length story.static_memory then
-      failwith (Printf.sprintf "Address %0x4 out of range" address)
+    let dynamic_size = Immutable_bytes.size story.dynamic_memory in
+    if address < dynamic_size then
+      Immutable_bytes.read_byte story.dynamic_memory (Byte_address address)
     else
-      int_of_char (story.static_memory.[address - story.static_offset])
+      let static_addr = address - dynamic_size in
+      let static_size = String.length story.static_memory in
+      if static_addr >= static_size then
+        failwith (Printf.sprintf "Address %0x4 out of range" address)
+      else
+        int_of_char (story.static_memory.[static_addr])
 
 let read_word story (Word_address address) =
   let high = read_byte story (Byte_address address) in
@@ -40,12 +41,14 @@ let read_word story (Word_address address) =
 let write_byte story (Byte_address address) value =
   if address < 0 then
     failwith "Negative address in write_byte"
-  else if address >= story.static_offset then
-    failwith "attempt to write static memory"
   else
-    let dynamic_memory =
-      Immutable_bytes.write_byte story.dynamic_memory (Byte_address address) value in
-    { story with dynamic_memory }
+    let dynamic_size = Immutable_bytes.size story.dynamic_memory in
+    if address >= dynamic_size then
+      failwith "attempt to write static memory"
+    else
+      let dynamic_memory =
+        Immutable_bytes.write_byte story.dynamic_memory (Byte_address address) value in
+      { story with dynamic_memory }
 
 let write_word story (Word_address address) value =
   let high = (value lsr 8) land 0xFF in
