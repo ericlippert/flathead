@@ -103,7 +103,7 @@ let rec read story (Zstring address) =
 (* A debugging method for looking at memory broken up into the
 1 / 5 / 5 / 5 bit chunks used by zstrings. *)
 
-let display_bytes story addr =
+let display_bytes story (Zstring addr) =
   let rec aux current acc =
     let word = Story.read_word story current in
     let is_end = fetch_bits bit15 size1 word in
@@ -114,7 +114,7 @@ let display_bytes story addr =
     let acc = acc ^ s in
     if is_end = 1 then acc
     else aux (inc_word_addr current) acc in
-  aux addr ""
+  aux (Word_address addr) ""
 
 (* Debugging helper *)
 let display_abbreviation_table story =
