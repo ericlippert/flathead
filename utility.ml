@@ -41,3 +41,6 @@ let set_bit_to n word value =
 let fetch_bits (Bit_number high) (Bit_size length) word =
   let mask = lnot (-1 lsl length) in
   (word lsr (high - length + 1)) land mask
+  
+let byte_of_int x =
+  x land 0xff

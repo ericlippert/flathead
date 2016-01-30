@@ -1,13 +1,12 @@
 open Type
-open Utility;;
+open Utility
 
-let word = 0xBEEF
 
-let fetch_bits_original high length word =
-  let mask = lnot (-1 lsl length) in
-  (word lsr (high - length + 1)) land mask
+let () = 
+    let addr1 = Byte_address 1 in
+    let bytes_a = Immutable_bytes.make "Hello world" in
+    let bytes_b = Immutable_bytes.write_byte bytes_a addr1 65 in
+    let b_a = Immutable_bytes.read_byte bytes_a addr1 in
+    let b_b = Immutable_bytes.read_byte bytes_b addr1 in
+    Printf.printf "%d %d\n" b_a b_b
 
-let () =
-  Printf.printf "\n\n%0x\n\n" ((word lsr 12) land (lnot (-1 lsl 15)));
-  Printf.printf "\n\n%0x\n\n" (fetch_bits_original 15 4 word);
-  Printf.printf "\n\n%0x\n\n" (fetch_bits bit15 size4 word)
