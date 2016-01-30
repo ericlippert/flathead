@@ -51,3 +51,28 @@ let is_in_range (Byte_address address) size =
 let is_out_of_range address size =
     not (is_in_range address size)
     
+let inc_byte_addr_by (Byte_address address) offset =
+  Byte_address (address + offset)
+  
+let dec_byte_addr_by address offset =
+  inc_byte_addr_by address (0 - offset)
+
+let dereference_string address bytes =
+  if is_out_of_range address (String.length bytes) then
+    failwith "address out of range"
+  else
+    let (Byte_address addr) = address in
+    int_of_char bytes.[addr]
+    
+let address_of_high_byte (Word_address address) =
+  Byte_address address
+  
+let address_of_low_byte (Word_address address) = 
+  Byte_address (address + 1)
+  
+let get_file filename =
+  let channel = open_in_bin filename in
+  let length = in_channel_length channel in
+  let file = really_input_string channel length in
+  close_in channel;
+  file
