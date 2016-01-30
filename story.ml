@@ -39,6 +39,10 @@ let write_word story address value =
 let header_size = 64
 let static_memory_base_offset = Word_address 14
 
+let abbreviations_table_base story =
+  let abbreviations_table_base_offset = Word_address 24 in
+  Abbreviation_table_base (read_word story abbreviations_table_base_offset)
+
 let load filename =
   let file = get_file filename in
   let len = String.length file in

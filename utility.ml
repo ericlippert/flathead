@@ -56,6 +56,14 @@ let inc_byte_addr_by (Byte_address address) offset =
   
 let dec_byte_addr_by address offset =
   inc_byte_addr_by address (0 - offset)
+  
+let word_size = 2
+
+let inc_word_addr_by (Word_address address) offset =
+  Word_address (address + offset * word_size)
+  
+let inc_word_addr address =
+  inc_word_addr_by address 1
 
 let dereference_string address bytes =
   if is_out_of_range address (String.length bytes) then
