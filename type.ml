@@ -78,6 +78,7 @@ type revision = Revision of int * int
 type alphabet_table = Alphabet_table of int
 type compressed_bytes = Compressed of string
 type uncompressed_bytes = Uncompressed of string
+type word_separator_number = Word_separator_number of int
 
 
 type version =
