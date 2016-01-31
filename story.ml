@@ -38,9 +38,31 @@ let write_word story address value =
 
 let header_size = 64
 
+let version_offset = Byte_address 0
+let version story =
+  match read_byte story version_offset with
+  | 1 -> V1
+  | 2 -> V2
+  | 3 -> V3
+  | 4 -> V4
+  | 5 -> V5
+  | 6 -> V6
+  | 7 -> V7
+  | 8 -> V8
+  | _ -> failwith "unknown version"
+  
+let v3_or_lower v =
+  match v with
+  | V1  | V2  | V3 -> true
+  | V4  | V5  | V6  | V7  | V8 -> false
+
 let dictionary_base story =
   let dictionary_base_offset = Word_address 8 in
   Dictionary_base (read_word story dictionary_base_offset)
+  
+let object_table_base story =
+  let object_table_base_offset = Word_address 10 in
+  Object_base (read_word story object_table_base_offset)
 
 let static_memory_base_offset = Word_address 14
 

@@ -13,3 +13,12 @@ type dictionary_base = Dictionary_base of int
 type dictionary_address =  Dictionary_address of int
 type dictionary_number = Dictionary of int
 type word_separator_number = Word_separator_number of int
+type object_base = Object_base of int
+type property_defaults_table = Property_defaults_table of int
+type object_tree_base = Object_tree_base of int
+type object_number = Object of int
+type object_address = Object_address of int
+type property_header_address = Property_header of int
+
+type version =
+  | V1 | V2 | V3 | V4 | V5 | V6 | V7 | V8
