@@ -1,7 +1,7 @@
 open Utility
 open Type
 
-type string_mode =
+type string_state =
   | Alphabet of int
   | Abbrev of abbreviation_number
   | Leading
