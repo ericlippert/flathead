@@ -14,10 +14,6 @@ followed by enough bytes to make up the size of the dictionary entry. *)
 let word_separators_base (Dictionary_base base) =
   Byte_address base
 
-let word_separator_address base (Word_separator_number n) =
-  let ws_base = word_separators_base base in
-  inc_byte_addr_by ws_base (n + 1)
-
 let word_separators_count story =
   let dict_base = Story.dictionary_base story in
   let ws_base = word_separators_base dict_base in
