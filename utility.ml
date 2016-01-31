@@ -53,6 +53,9 @@ let is_out_of_range address size =
 
 let inc_byte_addr_by (Byte_address address) offset =
   Byte_address (address + offset)
+  
+let inc_byte_addr address = 
+    inc_byte_addr_by address 1
 
 let dec_byte_addr_by address offset =
   inc_byte_addr_by address (0 - offset)
@@ -87,3 +90,9 @@ let get_file filename =
 
 let string_of_char c =
   String.make 1 c
+  
+let accumulate_strings_loop to_string start max =
+  let rec aux acc i =
+    if i >= max then acc
+    else aux (acc ^ (to_string i)) (i + 1) in
+  aux "" start

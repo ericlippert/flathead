@@ -37,6 +37,11 @@ let write_word story address value =
   write_byte story (address_of_low_byte address) low
 
 let header_size = 64
+
+let dictionary_base story =
+  let dictionary_base_offset = Word_address 8 in
+  Dictionary_base (read_word story dictionary_base_offset)
+
 let static_memory_base_offset = Word_address 14
 
 let abbreviations_table_base story =
