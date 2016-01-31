@@ -41,27 +41,27 @@ let set_bit_to n word value =
 let fetch_bits (Bit_number high) (Bit_size length) word =
   let mask = lnot (-1 lsl length) in
   (word lsr (high - length + 1)) land mask
-  
+
 let byte_of_int x =
   x land 0xff
-  
-let is_in_range (Byte_address address) size = 
+
+let is_in_range (Byte_address address) size =
     0 <= address && address < size
-    
+
 let is_out_of_range address size =
     not (is_in_range address size)
-    
+
 let inc_byte_addr_by (Byte_address address) offset =
   Byte_address (address + offset)
-  
+
 let dec_byte_addr_by address offset =
   inc_byte_addr_by address (0 - offset)
-  
+
 let word_size = 2
 
 let inc_word_addr_by (Word_address address) offset =
   Word_address (address + offset * word_size)
-  
+
 let inc_word_addr address =
   inc_word_addr_by address 1
 
@@ -71,16 +71,19 @@ let dereference_string address bytes =
   else
     let (Byte_address addr) = address in
     int_of_char bytes.[addr]
-    
+
 let address_of_high_byte (Word_address address) =
   Byte_address address
-  
-let address_of_low_byte (Word_address address) = 
+
+let address_of_low_byte (Word_address address) =
   Byte_address (address + 1)
-  
+
 let get_file filename =
   let channel = open_in_bin filename in
   let length = in_channel_length channel in
   let file = really_input_string channel length in
   close_in channel;
   file
+
+let string_of_char c =
+  String.make 1 c
