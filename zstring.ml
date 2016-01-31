@@ -70,7 +70,7 @@ let rec read story (Zstring address) =
     | (Alphabet _, 3) -> ("", abbrev64)
     | (Alphabet _, 4) -> ("", alphabet1)
     | (Alphabet _, 5) -> ("", alphabet2)
-    | (alphabet2, 6)  -> ("", Leading)
+    | (Alphabet 2, 6)  -> ("", Leading)
     | (Alphabet a, _) -> (alphabet_table.(a).(zchar), alphabet0)
     | (Abbrev Abbreviation a, _) ->
       let abbrv = Abbreviation (a + zchar) in
