@@ -96,3 +96,9 @@ let accumulate_strings_loop to_string start max =
     if i >= max then acc
     else aux (acc ^ (to_string i)) (i + 1) in
   aux "" start
+  
+let accumulate_strings to_string items =
+  let folder text item =
+    text ^ (to_string item) in
+  List.fold_left folder "" items
+

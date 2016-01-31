@@ -13,6 +13,8 @@ open Type
 * object numbers are one-based, so zero is used as the invalid object.
 *)
 
+let invalid_object = Object 0
+
 let default_property_table_size story =
   if Story.v3_or_lower (Story.version story) then 31 else 63
 
@@ -87,3 +89,33 @@ let display_object_table story =
     Printf.sprintf "%02x: %02x %02x %02x %s\n"
       i parent sibling child name in
   accumulate_strings_loop to_string 1 (count + 1)
+  
+(* Count down all the objects in the object table and record which ones have no parent. *)
+let roots story =
+  let rec aux obj acc =
+    let current = Object obj in
+    if current = invalid_object then
+      acc
+    else if (parent story current) = invalid_object then
+      aux (obj - 1) (current :: acc)
+    else
+      aux (obj - 1) acc in
+  aux (count story) []
+
+let display_object_tree story =
+  let rec aux acc indent obj =
+    if obj = invalid_object then
+      acc
+    else
+      let name = name story obj in
+      let child = child story obj in
+      let sibling = sibling story obj in
+      let object_text =
+        Printf.sprintf "%s%s\n" indent name in
+      let with_object = acc ^ object_text in
+      let new_indent = "    " ^ indent in
+      let with_children = aux with_object new_indent child in
+      aux with_children indent sibling in
+  let to_string obj =
+    aux "" "" obj in
+  accumulate_strings to_string (roots story)
