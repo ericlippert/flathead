@@ -1,23 +1,26 @@
 open Utility
 open Type
 
-type string_mode =
+type string_state =
   | Alphabet of int
   | Abbrev of abbreviation_number
   | Leading
   | Trailing of int
 
+let alphabet0 = Alphabet 0
+let alphabet1 = Alphabet 1
+let alphabet2 = Alphabet 2
 let abbrev0 = Abbrev (Abbreviation 0)
 let abbrev32 = Abbrev (Abbreviation 32)
 let abbrev64 = Abbrev (Abbreviation 64)
 
 let alphabet_table = [|
-  " "; "?"; "?"; "?"; "?"; "?"; "a"; "b"; "c"; "d"; "e"; "f"; "g"; "h"; "i"; "j";
-  "k"; "l"; "m"; "n"; "o"; "p"; "q"; "r"; "s"; "t"; "u"; "v"; "w"; "x"; "y"; "z";
-  " "; "?"; "?"; "?"; "?"; "?"; "A"; "B"; "C"; "D"; "E"; "F"; "G"; "H"; "I"; "J";
-  "K"; "L"; "M"; "N"; "O"; "P"; "Q"; "R"; "S"; "T"; "U"; "V"; "W"; "X"; "Y"; "Z";
-  " "; "?"; "?"; "?"; "?"; "?"; "?"; "\n"; "0"; "1"; "2"; "3"; "4"; "5"; "6"; "7";
-  "8"; "9"; "."; ","; "!"; "?"; "_"; "#"; "'"; "\""; "/"; "\\"; "-"; ":"; "("; ")" |]
+  [| " "; "?"; "?"; "?"; "?"; "?"; "a"; "b"; "c"; "d"; "e"; "f"; "g"; "h"; "i"; "j";
+     "k"; "l"; "m"; "n"; "o"; "p"; "q"; "r"; "s"; "t"; "u"; "v"; "w"; "x"; "y"; "z" |];
+  [| " "; "?"; "?"; "?"; "?"; "?"; "A"; "B"; "C"; "D"; "E"; "F"; "G"; "H"; "I"; "J";
+     "K"; "L"; "M"; "N"; "O"; "P"; "Q"; "R"; "S"; "T"; "U"; "V"; "W"; "X"; "Y"; "Z" |];
+  [| " "; "?"; "?"; "?"; "?"; "?"; "?"; "\n"; "0"; "1"; "2"; "3"; "4"; "5"; "6"; "7";
+     "8"; "9"; "."; ","; "!"; "?"; "_"; "#"; "'"; "\""; "/"; "\\"; "-"; ":"; "("; ")" |] |]
 
 (* gives the length in bytes of the encoded zstring, not the decoded string *)
 let length story (Zstring address) =
@@ -71,19 +74,19 @@ let rec read story (Zstring address) =
     | (Alphabet _, 1) -> ("", abbrev0)
     | (Alphabet _, 2) -> ("", abbrev32)
     | (Alphabet _, 3) -> ("", abbrev64)
-    | (Alphabet _, 4) -> ("", Alphabet 1)
-    | (Alphabet _, 5) -> ("", Alphabet 2)
+    | (Alphabet _, 4) -> ("", alphabet1)
+    | (Alphabet _, 5) -> ("", alphabet2)
     | (Alphabet 2, 6) -> ("", Leading)
-    | (Alphabet a, _) -> (alphabet_table.(a * 32 + zchar), Alphabet 0)
+    | (Alphabet a, _) -> (alphabet_table.(a).(zchar), alphabet0)
     | (Abbrev Abbreviation a, _) ->
       let abbrv = Abbreviation (a + zchar) in
       let addr = abbreviation_zstring story abbrv in
       let str = read story addr in
-      (str, Alphabet 0)
+      (str, alphabet0)
     | (Leading, _) -> ("", (Trailing zchar))
     | (Trailing high, _) ->
       let s = string_of_char (Char.chr (high * 32 + zchar)) in
-      (s, Alphabet 0) in
+      (s, alphabet0) in
 
   let rec aux acc mode1 current_address =
     let zchar_bit_size = size5 in
@@ -98,7 +101,7 @@ let rec read story (Zstring address) =
     let new_acc = acc ^ text1 ^ text2 ^ text3 in
     if is_end then new_acc
     else aux new_acc mode_next (inc_word_addr current_address) in
-  aux "" (Alphabet 0) (Word_address address)
+  aux "" (alphabet0) (Word_address address)
 
 (* A debugging method for looking at memory broken up into the
 1 / 5 / 5 / 5 bit chunks used by zstrings. *)
