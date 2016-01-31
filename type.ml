@@ -30,6 +30,7 @@ type global_variable = Global of int
 type instruction_address = Instruction of int
 type abbreviation_number = Abbreviation of int
 type zstring_address = Zstring of int
+type zchar = Zchar of int
 type status_line = Status of string option
 type character_width = Character_width of int
 type character_height = Character_height of int
