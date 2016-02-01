@@ -191,7 +191,7 @@ let word_size = 2
 
 let inc_byte_addr_by (Byte_address address) offset =
   Byte_address (address + offset)
-  
+
 let dec_byte_addr_by address offset =
   inc_byte_addr_by address (0 - offset)
 
@@ -221,22 +221,25 @@ let string_of_bps (Byte_prefixed_string bps) =
 
 let length_addr_of_bps (Byte_prefixed_string bps) =
   Byte_address bps
-  
-let is_in_range (Byte_address address) size = 
+
+let is_in_range (Byte_address address) size =
     0 <= address && address < size
-    
+
 let is_out_of_range address size =
     not (is_in_range address size)
-    
+
 let dereference_string address bytes =
   if is_out_of_range address (String.length bytes) then
     failwith "address out of range"
   else
     let (Byte_address addr) = address in
     int_of_char bytes.[addr]
-    
+
 let address_of_high_byte (Word_address address) =
   Byte_address address
-  
-let address_of_low_byte (Word_address address) = 
+
+let address_of_low_byte (Word_address address) =
   Byte_address (address + 1)
+
+let byte_addr_to_word_addr (Byte_address address) =
+  Word_address address
