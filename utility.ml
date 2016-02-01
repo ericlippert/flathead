@@ -109,3 +109,5 @@ let signed_word word =
   let canonical = unsigned_word word in
   if canonical > 32767 then canonical - 65536 else canonical
 
+let byte_addr_to_word_addr (Byte_address address) =
+  Word_address address

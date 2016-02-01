@@ -513,21 +513,21 @@ let decode story (Instruction address) =
 
   (* This method is not tail recursive but the maximum number of operands
      is eight, so we don't care. *)
-  let rec decode_operands (Byte_address operand_address) operand_types =
+  let rec decode_operands operand_address operand_types =
     match operand_types with
     | [] -> []
     | Large_operand :: remaining_types ->
-      let w = read_word (Word_address operand_address) in
-      let tail = decode_operands (Byte_address(operand_address + 2)) remaining_types in
+      let w = read_word (byte_addr_to_word_addr operand_address) in
+      let tail = decode_operands (inc_byte_addr_by operand_address word_size) remaining_types in
       (Large w) :: tail
     | Small_operand :: remaining_types ->
-      let b = read_byte (Byte_address operand_address) in
-      let tail = decode_operands (Byte_address(operand_address + 1)) remaining_types in
+      let b = read_byte operand_address in
+      let tail = decode_operands (inc_byte_addr operand_address) remaining_types in
       (Small b) :: tail
     | Variable_operand :: remaining_types ->
-      let b = read_byte (Byte_address operand_address) in
+      let b = read_byte operand_address in
       let v = decode_variable b in
-      let tail = decode_operands (Byte_address(operand_address + 1)) remaining_types in
+      let tail = decode_operands (inc_byte_addr operand_address) remaining_types in
       (Variable v) :: tail
     | Omitted :: _ ->
       failwith "omitted operand type passed to decode operands" in
@@ -535,7 +535,7 @@ let decode story (Instruction address) =
   let rec get_operand_length operand_types =
     match operand_types with
     | [] -> 0
-    | Large_operand :: remaining_types -> 2 + (get_operand_length remaining_types)
+    | Large_operand :: remaining_types -> word_size + (get_operand_length remaining_types)
     | _ :: remaining_types -> 1 + (get_operand_length remaining_types) in
 
   (* Spec 4.6:
