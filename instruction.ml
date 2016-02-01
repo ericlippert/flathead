@@ -78,6 +78,29 @@ type t =
   text : string option;
 }
 
+let opcode instruction =
+  instruction.opcode
+
+let operands instruction =
+  instruction.operands
+
+let store instruction =
+  instruction.store
+
+let branch instruction =
+  instruction.branch
+
+let text instruction =
+  instruction.text
+
+let following instruction =
+  let (Instruction addr) = instruction.address in
+  (Instruction (addr + instruction.length))
+
+let jump_address instruction offset =
+  let (Instruction addr) = instruction.address in
+  Instruction (addr + instruction.length + offset - 2)
+
 let has_store opcode ver =
   match opcode with
   | OP1_143 -> Story.v4_or_lower ver (* call_1n in v5, logical not in v1-4 *)
@@ -93,6 +116,19 @@ let has_store opcode ver =
   | EXT_0   | EXT_1   | EXT_2   | EXT_3   | EXT_4   | EXT_9
   | EXT_10  | EXT_19  | EXT_29 -> true
   | _ -> false
+  
+let continues_to_following opcode =
+  match opcode with
+  | OP2_28 (* throw *)
+  | OP1_139 (* ret *)
+  | OP1_140 (* jump *)
+  | OP0_176 (* rtrue *)
+  | OP0_177 (* rfalse *)
+  | OP0_179 (* print_ret *)
+  | OP0_183 (* restart *)
+  | OP0_184 (* ret_popped *)
+  | OP0_186 (* quit *) -> false
+  | _ -> true
 
 let has_text opcode =
   match opcode with
