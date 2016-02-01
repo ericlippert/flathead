@@ -78,29 +78,6 @@ type t =
   text : string option;
 }
 
-let opcode instruction =
-  instruction.opcode
-
-let operands instruction =
-  instruction.operands
-
-let store instruction =
-  instruction.store
-
-let branch instruction =
-  instruction.branch
-
-let text instruction =
-  instruction.text
-
-let following instruction =
-  let (Instruction addr) = instruction.address in
-  (Instruction (addr + instruction.length))
-
-let jump_address instruction offset =
-  let (Instruction addr) = instruction.address in
-  Instruction (addr + instruction.length + offset - 2)
-
 let has_store opcode ver =
   match opcode with
   | OP1_143 -> Story.v4_or_lower ver (* call_1n in v5, logical not in v1-4 *)
@@ -259,19 +236,12 @@ let opcode_name opcode ver =
 
 let display instr ver =
   let display_operands () =
-    match (instr.opcode, instr.operands) with
-    | (OP1_140, [Large offset]) ->
-      (* For jumps, display the absolute target rather than the relative target. *)
-      let offset = signed_word offset in
-      let (Instruction target) = jump_address instr offset in
-      Printf.sprintf "%04x " target
-    | _ ->
-      let to_string operand =
-        match operand with
-        | Large large -> Printf.sprintf "%04x " large
-        | Small small -> Printf.sprintf "%02x " small
-        | Variable variable -> (display_variable variable) ^ " " in
-      accumulate_strings to_string instr.operands in
+    let to_string operand =
+      match operand with
+      | Large large -> Printf.sprintf "%04x " large
+      | Small small -> Printf.sprintf "%02x " small
+      | Variable variable -> (display_variable variable) ^ " " in
+    accumulate_strings to_string instr.operands in
 
   let display_store () =
     match instr.store with
