@@ -102,3 +102,10 @@ let accumulate_strings to_string items =
     text ^ (to_string item) in
   List.fold_left folder "" items
 
+let unsigned_word word =
+  ((word mod 65536) + 65536) mod 65536
+
+let signed_word word =
+  let canonical = unsigned_word word in
+  if canonical > 32767 then canonical - 65536 else canonical
+

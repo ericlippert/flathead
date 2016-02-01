@@ -111,3 +111,10 @@ let display_bytes story (Zstring addr) =
     if is_end = 1 then acc
     else aux (inc_word_addr current) acc in
   aux (Word_address addr) ""
+  
+(* gives the length in bytes of the encoded zstring, not the decoded string *)
+let length story (Zstring address) =
+  let rec aux len current =
+    if fetch_bit bit15 (Story.read_word story current) then len + 2
+    else aux (len + 2) (inc_word_addr current) in
+  aux 0 (Word_address address)

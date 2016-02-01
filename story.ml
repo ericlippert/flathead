@@ -51,10 +51,29 @@ let version story =
   | 8 -> V8
   | _ -> failwith "unknown version"
   
+let v5_or_lower v =
+  match v with
+  | V1  | V2  | V3  | V4 | V5 -> true
+  | V6  | V7  | V8 -> false
+
+let v6_or_higher v =
+  not (v5_or_lower v)
+
+let v4_or_lower v =
+  match v with
+  | V1  | V2  | V3  | V4 -> true
+  | V5  | V6  | V7  | V8 -> false
+
+let v5_or_higher v =
+  not (v4_or_lower v)
+
 let v3_or_lower v =
   match v with
   | V1  | V2  | V3 -> true
   | V4  | V5  | V6  | V7  | V8 -> false
+
+let v4_or_higher v =
+  not (v3_or_lower v)
 
 let dictionary_base story =
   let dictionary_base_offset = Word_address 8 in
@@ -69,6 +88,15 @@ let static_memory_base_offset = Word_address 14
 let abbreviations_table_base story =
   let abbreviations_table_base_offset = Word_address 24 in
   Abbreviation_table_base (read_word story abbreviations_table_base_offset)
+  
+let routine_offset story =
+  let routine_offset_offset = Word_address 40 in
+  8 * (read_word story routine_offset_offset)
+
+let string_offset story =
+  let string_offset_offset = Word_address 42 in
+  8 * (read_word story string_offset_offset)
+
 
 let load filename =
   let file = get_file filename in
@@ -85,3 +113,25 @@ let load filename =
       let dynamic = String.sub file 0 dynamic_length in
       let static = String.sub file dynamic_length (len - dynamic_length) in
       make dynamic static
+      
+let decode_routine_packed_address story (Packed_routine packed) =
+  match version story with
+  | V1
+  | V2
+  | V3 -> Routine (packed * 2)
+  | V4
+  | V5 -> Routine (packed * 4)
+  | V6
+  | V7 -> Routine (packed * 4 + (routine_offset story))
+  | V8 -> Routine (packed * 8)
+
+let decode_string_packed_address story (Packed_zstring packed) =
+  match version story with
+  | V1
+  | V2
+  | V3 -> Zstring (packed * 2)
+  | V4
+  | V5 -> Zstring (packed * 4)
+  | V6
+  | V7 -> Zstring (packed * 4 + (string_offset story))
+  | V8 -> Zstring (packed * 8)
