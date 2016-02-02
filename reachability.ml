@@ -7,37 +7,35 @@ the routine. Given the address of an instruction, what are all the reachable ins
 in this routine? Note that this could miss instructions if a jump is made to a location
 read from a variable. *)
 
-(* Suppose an instruction either has a branch portion to an address,
-or a jump to an address. What is that address? *)
-let branch_target instr =
-  let br_target =
-    match Instruction.branch instr with
-    | None -> None
-    | Some (_, Return_false) -> None
-    | Some (_, Return_true) -> None
-    | Some (_, Branch_address address) -> Some address in
-  let jump_target =
-    match (Instruction.opcode instr, Instruction.operands instr) with
-    | (OP1_140, [Large offset]) ->
-      let offset = signed_word offset in
-      Some (Instruction.jump_address instr offset)
-    | _ -> None in
-  match (br_target, jump_target) with
-  | (Some b, _) -> Some b
-  | (_, Some j) -> Some j
-  | _ -> None
+let following_instruction instr =
+  if Instruction.continues_to_following (Instruction.opcode instr) then
+    let (Instruction addr) = (Instruction.address instr) in
+    let length = (Instruction.length instr) in
+    [Instruction (addr + length)]
+  else
+    []
+
+let branch_target_instruction instr =
+  match Instruction.branch instr with
+  | None
+  | Some (_, Return_false)
+  | Some (_, Return_true) -> []
+  | Some (_, Branch_address address) -> [address]
+
+let jump_target_instruction instr =
+  match (Instruction.opcode instr, Instruction.operands instr) with
+  | (OP1_140, [Large offset]) ->
+    let offset = signed_word offset in
+    [ Instruction.jump_address instr offset ]
+  | _ -> []
 
 let all_reachable_addresses_in_routine story instr_address =
   let immediately_reachable_addresses address =
     let instr = Instruction.decode story address in
-    let next =
-      if Instruction.continues_to_following (Instruction.opcode instr) then
-        [Instruction.following instr]
-      else
-        [] in
-    match (branch_target instr) with
-    | Some address -> address :: next
-    | _ -> next in
+    let following = following_instruction instr in
+    let branch = branch_target_instruction instr in
+    let jump = jump_target_instruction instr in
+    following @ branch @ jump in
   reflexive_closure instr_address immediately_reachable_addresses
 
 let display_reachable_instructions story address =

@@ -78,6 +78,12 @@ type t =
   text : string option;
 }
 
+let address instruction =
+  instruction.address
+
+let length instruction =
+  instruction.length
+
 let opcode instruction =
   instruction.opcode
 
