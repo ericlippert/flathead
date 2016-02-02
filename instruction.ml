@@ -80,6 +80,12 @@ type t =
 
 let opcode instruction =
   instruction.opcode
+  
+let address instruction =
+  instruction.address
+
+let length instruction =
+  instruction.length
 
 let operands instruction =
   instruction.operands
