@@ -80,7 +80,7 @@ type t =
 
 let opcode instruction =
   instruction.opcode
-  
+
 let address instruction =
   instruction.address
 
@@ -106,7 +106,7 @@ let following instruction =
 let jump_address instruction offset =
   let (Instruction addr) = instruction.address in
   Instruction (addr + instruction.length + offset - 2)
-  
+
 let is_call ver opcode =
   match opcode with
   | OP1_143 (* call_1n in v5, logical not in v1-4 *)
@@ -146,7 +146,7 @@ let has_store opcode ver =
   | EXT_0   | EXT_1   | EXT_2   | EXT_3   | EXT_4   | EXT_9
   | EXT_10  | EXT_19  | EXT_29 -> true
   | _ -> false
-  
+
 let continues_to_following opcode =
   match opcode with
   | OP2_28 (* throw *)
@@ -303,18 +303,22 @@ let opcode_name opcode ver =
 let display instr story =
   let ver = Story.version story in
   let display_operands () =
-    let display_remainder operands = 
+    let display_remainder operands =
       let to_string operand =
         match operand with
         | Large large -> Printf.sprintf "%04x " large
         | Small small -> Printf.sprintf "%02x " small
         | Variable variable -> (display_variable variable) ^ " " in
       accumulate_strings to_string operands in
-  match call_address instr story with
-  | Some (Routine addr) -> (Printf.sprintf "%04x " addr) ^ display_remainder (List.tl instr.operands)
-  | _ -> display_remainder instr.operands in
-    
-    
+  match (instr.opcode, instr.operands) with
+  | (OP1_140, [Large offset]) ->
+    let offset = signed_word offset in
+    let (Instruction addr) = jump_address instr offset in
+    Printf.sprintf "%04x " addr
+  | _ -> match call_address instr story with
+    | Some (Routine addr) ->
+      (Printf.sprintf "%04x " addr) ^ display_remainder (List.tl instr.operands)
+    | _ -> display_remainder instr.operands in
 
   let display_store () =
     match instr.store with
