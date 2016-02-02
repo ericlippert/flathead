@@ -43,5 +43,5 @@ let display_reachable_instructions story address =
   let sorted = List.sort compare reachable in
   let to_string addr =
     let instr = Instruction.decode story addr in
-    Instruction.display instr (Story.version story)  in
+    Instruction.display instr story in
   accumulate_strings to_string sorted
