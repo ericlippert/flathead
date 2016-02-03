@@ -24,7 +24,7 @@ let push stack item =
   let item = unsigned_word item in
   { items = item :: stack.items }
 
-let display_stack stack =
+let display stack =
   let to_string item =
     Printf.sprintf " %04x" item in
   accumulate_strings to_string stack.items
