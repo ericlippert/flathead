@@ -48,6 +48,4 @@ let write_local frameset local value =
   set_current_frame frameset (Frame.write_local (current_frame frameset) local value)
 
 let display frameset =
-  let to_string frame = 
-    Frame.display frame in
-  (accumulate_strings to_string frameset.frames) ^ (Frame.display frameset.initial_frame) 
+  (accumulate_strings Frame.display frameset.frames) ^ (Frame.display frameset.initial_frame) 
