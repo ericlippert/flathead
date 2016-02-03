@@ -19,14 +19,6 @@ let write_local local_store (Local local) value =
 let read_local local_store (Local local) =
   IntMap.find local local_store.locals
 
-let display local_store =
-  let to_string local value =
-    Printf.sprintf "local%01x=%04x " (local - 1) value in
-  let folder local value acc =
-    acc ^ (to_string local value) in
-  let locals = local_store.locals in
-  IntMap.fold folder locals ""
-
 let add local_store (Local n) default_value =
   let locals = IntMap.add n default_value local_store.locals in
   let count = max local_store.count n in
@@ -41,4 +33,12 @@ let create_default_locals story routine_address =
       let default_value = Routine.local_default_value story routine_address i in
       let new_store = add acc (Local i) default_value in
       aux new_store (i + 1) in
-aux empty 1
+  aux empty 1
+
+let display local_store =
+  let to_string local value =
+    Printf.sprintf "local%01x=%04x " (local - 1) value in
+  let folder local value acc =
+    acc ^ (to_string local value) in
+  let locals = local_store.locals in
+  IntMap.fold folder locals ""

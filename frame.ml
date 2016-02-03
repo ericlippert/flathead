@@ -9,6 +9,14 @@ type t =
   store : variable_location option
 }
 
+let empty = 
+{ 
+  stack = Evaluation_stack.empty; 
+  local_store = Local_store.empty;
+  resume_at = Instruction 0;
+  store = None
+}
+
 let resume_at frame =
   frame.resume_at
 
