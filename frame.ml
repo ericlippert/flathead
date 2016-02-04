@@ -17,6 +17,16 @@ let empty =
   store = None
 }
 
+let make story arguments routine_address resume_at store =
+  let default_store = Local_store.create_default_locals story routine_address in
+  let local_store = Local_store.write_arguments default_store arguments in
+  {
+    stack = Evaluation_stack.empty;
+    local_store;
+    resume_at;
+    store
+  }
+
 let resume_at frame =
   frame.resume_at
 

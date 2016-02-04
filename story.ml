@@ -74,6 +74,17 @@ let v3_or_lower v =
 
 let v4_or_higher v =
   not (v3_or_lower v)
+  
+(* Bytes 6 and 7 are the initial pc for the main routine. In version 6 (only)
+this is the (packed!) address of a routine, so the *following* byte is the first
+instruction. In all other versions the main routine is indicated just by
+its first instruction. *)
+
+let initial_program_counter story =
+  let initial_program_counter_offset = Word_address 6 in
+  let pc = read_word story initial_program_counter_offset in
+  if (version story) = V6 then Instruction (pc * 4 + 1)
+  else Instruction pc
 
 let dictionary_base story =
   let dictionary_base_offset = Word_address 8 in
@@ -82,6 +93,10 @@ let dictionary_base story =
 let object_table_base story =
   let object_table_base_offset = Word_address 10 in
   Object_base (read_word story object_table_base_offset)
+  
+let global_variables_table_base story =
+  let global_variables_table_base_offset = Word_address 12 in
+  Global_table_base (read_word story global_variables_table_base_offset)
 
 let static_memory_base_offset = Word_address 14
 
