@@ -36,8 +36,8 @@ let push_stack interpreter value =
 let program_counter interpreter =
   interpreter.program_counter
 
-let set_program_counter interpreter new_program_counter =
-  { interpreter with program_counter = new_program_counter }
+let set_program_counter interpreter program_counter =
+  { interpreter with program_counter }
 
 let read_local interpreter local =
   Frameset.read_local interpreter.frames local
