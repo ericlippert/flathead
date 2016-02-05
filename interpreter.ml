@@ -111,10 +111,8 @@ VAR:250 call_vn2 routine up-to-7-arguments
 The "s" versions store the result; the "n" versions discard it. *)
 
 let handle_call routine_address arguments interpreter instruction =
-  let routine_address = Packed_routine routine_address in
-  let routine_address = Story.decode_routine_packed_address interpreter.story routine_address in
-  if routine_address = Routine 0 then
-  (* Spec: When the address 0 is called as a routine, nothing happens and the
+  if routine_address = 0 then
+    (* Spec: When the address 0 is called as a routine, nothing happens and the
      return value is false. *)
     let result = 0 in
     let store = Instruction.store instruction in
@@ -122,6 +120,8 @@ let handle_call routine_address arguments interpreter instruction =
     let addr = Instruction.following instruction in
     set_program_counter store_interpreter addr
   else
+    let routine_address = Packed_routine routine_address in
+    let routine_address = Story.decode_routine_packed_address interpreter.story routine_address in
     let resume_at = Instruction.following instruction in
     let store = Instruction.store instruction in
     let frame = Frame.make interpreter.story arguments routine_address resume_at store in
