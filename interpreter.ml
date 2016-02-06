@@ -93,6 +93,20 @@ let interpret_return interpreter value =
  let result_interpreter = set_program_counter pop_frame_interpreter next_pc in
  interpret_store result_interpreter store value
 
+let interpret_branch interpreter instruction result =
+  let result = not (result = 0) in 
+  let following = Instruction.following instruction in
+  match Instruction.branch instruction with
+  | None -> set_program_counter interpreter following 
+  | Some (sense, Return_false) ->
+    if result = sense then interpret_return interpreter 0
+    else set_program_counter interpreter following 
+  | Some (sense, Return_true) ->
+    if result = sense then interpret_return interpreter 1
+    else set_program_counter interpreter following 
+  | Some (sense, Branch_address branch_target) ->
+    if result = sense then set_program_counter interpreter branch_target
+    else set_program_counter interpreter following 
 
 let display_current_instruction interpreter =
   let address = interpreter.program_counter in
