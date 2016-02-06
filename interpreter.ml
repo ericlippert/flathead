@@ -107,6 +107,25 @@ let interpret_branch interpreter instruction result =
   | Some (sense, Branch_address branch_target) ->
     if result = sense then set_program_counter interpreter branch_target
     else set_program_counter interpreter following 
+    
+let interpret_instruction interpreter instruction handler =
+  let (result, handler_interpreter) = handler interpreter in
+  let store = Instruction.store instruction in
+  let store_interpreter = interpret_store handler_interpreter store result in
+  interpret_branch store_interpreter instruction result
+
+let interpret_value_instruction interpreter instruction handler =
+  let result = handler interpreter in
+  let store = Instruction.store instruction in
+  let store_interpreter = interpret_store interpreter store result in
+  interpret_branch store_interpreter instruction result
+
+let interpret_effect_instruction interpreter instruction handler =
+  let handler_interpreter = handler interpreter in
+  let result = 0 in
+  let store = Instruction.store instruction in
+  let store_interpreter = interpret_store handler_interpreter store result in
+  interpret_branch store_interpreter instruction result
 
 let display_current_instruction interpreter =
   let address = interpreter.program_counter in
