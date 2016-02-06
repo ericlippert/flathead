@@ -84,6 +84,15 @@ let interpret_store interpreter store result =
   match store with
   | None -> interpreter
   | Some variable -> write_variable interpreter variable result
+  
+let interpret_return interpreter value =
+ let frame = current_frame interpreter in
+ let next_pc = Frame.resume_at frame in
+ let store = Frame.store frame in
+ let pop_frame_interpreter = remove_frame interpreter in
+ let result_interpreter = set_program_counter pop_frame_interpreter next_pc in
+ interpret_store result_interpreter store value
+
 
 let display_current_instruction interpreter =
   let address = interpreter.program_counter in
@@ -128,6 +137,12 @@ let handle_call routine_address arguments interpreter instruction =
     let pc = Routine.first_instruction interpreter.story routine_address in
     set_program_counter (add_frame interpreter frame) pc
 
+(* Spec: 1OP:139 ret value
+  Returns from the current routine with the value given *)
+
+let handle_ret result interpreter =
+    interpret_return interpreter result
+
 (* Move the interpreter on to the next instruction *)
 let step_instruction interpreter =
   let instruction = Instruction.decode interpreter.story interpreter.program_counter in
@@ -135,6 +150,7 @@ let step_instruction interpreter =
   let (arguments, interpreter) = operands_to_arguments interpreter operands in
   let opcode = Instruction.opcode instruction in
   match (opcode, arguments) with
+  | (OP1_139, [result]) -> handle_ret result interpreter 
   | (VAR_224, routine :: args) -> handle_call routine args interpreter instruction
   | _ -> failwith (Printf.sprintf "TODO: %s " (Instruction.display instruction interpreter.story))
   (* End step_instruction *)
