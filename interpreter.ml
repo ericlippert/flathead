@@ -519,6 +519,8 @@ let handle_mul a b interpreter =
   the interpreter with a suitable error message. *)
 
 let handle_div a b interpreter =
+  let a = signed_word a in
+  let b = signed_word b in
   a / b
 
 (* Spec: 2OP:24 mod a b -> (result)
@@ -526,6 +528,8 @@ let handle_div a b interpreter =
   the interpreter with a suitable error message. *)
 
 let handle_mod a b interpreter =
+  let a = signed_word a in
+  let b = signed_word b in
   a mod b
 
 (* This routine handles all call instructions:
