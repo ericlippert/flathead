@@ -184,20 +184,19 @@ let interpret_return interpreter value =
  don't need to call interpret_branch here.  *)
 
 let interpret_branch interpreter instruction result =
-  let next_instruction () =
-    let addr = Instruction.following instruction in
-    set_program_counter interpreter addr in
+  let result = not (result = 0) in 
+  let following = Instruction.following instruction in
   match Instruction.branch instruction with
-  | None -> next_instruction ()
+  | None -> set_program_counter interpreter following 
   | Some (sense, Return_false) ->
-    if (result <> 0) = sense then interpret_return interpreter 0
-    else next_instruction ()
+    if result = sense then interpret_return interpreter 0
+    else set_program_counter interpreter following 
   | Some (sense, Return_true) ->
-    if (result <> 0) = sense then interpret_return interpreter 1
-    else next_instruction ()
+    if result = sense then interpret_return interpreter 1
+    else set_program_counter interpreter following 
   | Some (sense, Branch_address branch_target) ->
-    if (result <> 0) = sense then set_program_counter interpreter branch_target
-    else next_instruction ()
+    if result = sense then set_program_counter interpreter branch_target
+    else set_program_counter interpreter following 
 
 let interpret_instruction interpreter instruction handler =
   let (result, handler_interpreter) = handler interpreter in
