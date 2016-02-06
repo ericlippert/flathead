@@ -138,6 +138,41 @@ let display interpreter =
   let instr = display_current_instruction interpreter in
   Printf.sprintf "\n---\n%s\n%s\n" frames instr
 
+(* Spec: 2OP:20 add a b -> (result)
+  Signed 16-bit addition. *)
+
+let handle_add a b interpreter =
+  a + b
+
+(* Spec: 2OP:21 sub a b -> (result)
+  Signed 16-bit subtraction. *)
+
+let handle_sub a b interpreter =
+  a - b
+
+(* Spec: 2OP:22 mul a b -> (result)
+  Signed 16-bit multiplication. *)
+
+let handle_mul a b interpreter =
+  a * b
+
+(* Spec: 2OP:23 div a b -> (result)
+  Signed 16-bit division.  Division by zero should halt
+  the interpreter with a suitable error message. *)
+
+let handle_div a b interpreter =
+  let a = signed_word a in
+  let b = signed_word b in
+  a / b
+
+(* Spec: 2OP:24 mod a b -> (result)
+  Remainder after signed 16-bit division. Division by zero should halt
+  the interpreter with a suitable error message. *)
+
+let handle_mod a b interpreter =
+  let a = signed_word a in
+  let b = signed_word b in
+  a mod b
 
 (* This routine handles all call instructions:
 
@@ -181,8 +216,16 @@ let step_instruction interpreter =
   let instruction = Instruction.decode interpreter.story interpreter.program_counter in
   let operands = Instruction.operands instruction in
   let (arguments, interpreter) = operands_to_arguments interpreter operands in
+  let interpret_instruction = interpret_instruction interpreter instruction in
+  let value = interpret_value_instruction interpreter instruction in
+  let effect = interpret_effect_instruction interpreter instruction in
   let opcode = Instruction.opcode instruction in
   match (opcode, arguments) with
+  | (OP2_20, [a; b]) -> value (handle_add a b)
+  | (OP2_21, [a; b]) -> value (handle_sub a b)
+  | (OP2_22, [a; b]) -> value (handle_mul a b)
+  | (OP2_23, [a; b]) -> value (handle_div a b)
+  | (OP2_24, [a; b]) -> value (handle_mod a b)
   | (OP1_139, [result]) -> handle_ret result interpreter 
   | (VAR_224, routine :: args) -> handle_call routine args interpreter instruction
   | _ -> failwith (Printf.sprintf "TODO: %s " (Instruction.display instruction interpreter.story))
