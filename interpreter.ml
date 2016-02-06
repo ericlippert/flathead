@@ -308,21 +308,12 @@ Note that je is one of the rare "2OP" instructions that can take 3 or 4
 operands. *)
 
 let handle_je2 a b interpreter =
-  let a = signed_word a in
-  let b = signed_word b in
   if a = b then 1 else 0
 
 let handle_je3 a b c interpreter =
-  let a = signed_word a in
-  let b = signed_word b in
-  let c = signed_word c in
   if a = b || a = c then 1 else 0
 
 let handle_je4 a b c d interpreter =
-  let a = signed_word a in
-  let b = signed_word b in
-  let c = signed_word c in
-  let d = signed_word d in
   if a = b || a = c || a = d then 1 else 0
 
 (* Spec: 2OP:2 jl a b ?(label)
@@ -392,24 +383,18 @@ let handle_jin obj1 obj2 interpreter =
   Jump if all of the flags in bitmap are set (i.e. if bitmap & flags == flags) *)
 
 let handle_test bitmap flags interpreter =
-  let bitmap = unsigned_word bitmap in
-  let flags = unsigned_word flags in
   if (bitmap land flags) = flags then 1 else 0
 
 (* Spec: 2OP:8 8 or a b -> (result)
   Bitwise OR. *)
 
 let handle_or a b interpreter =
-  let a = unsigned_word a in
-  let b = unsigned_word b in
   a lor b
 
 (* Spec: 2OP:9 and a b -> (result)
 Bitwise AND. *)
 
 let handle_and a b interpreter =
-  let a = unsigned_word a in
-  let b = unsigned_word b in
   a land b
 
 (* Spec: 2OP:10 test_attr object attribute ?(label)
@@ -444,7 +429,6 @@ that takes a variable number as an operand. *)
 
 let handle_store variable value interpreter =
   let variable = Instruction.decode_variable variable in
-  let value = unsigned_word value in
   write_variable interpreter variable value
 
 (* Spec: 2OP:14 insert_obj object destination
@@ -465,7 +449,6 @@ which must lie in static or dynamic memory). *)
 
 let handle_loadw arr idx interpreter =
   let arr = Word_address arr in
-  let idx = unsigned_word idx in
   Story.read_word interpreter.story (inc_word_addr_by arr idx)
 
 (* Spec: 2OP:16 loadb array byte-index -> (result)
@@ -474,7 +457,6 @@ which must lie in static or dynamic memory). *)
 
 let handle_loadb arr idx interpreter =
   let arr = Byte_address arr in
-  let idx = unsigned_word idx in
   Story.read_byte interpreter.story (inc_byte_addr_by arr idx)
 
 (* Spec: 2OP:17 get_prop object property -> (result)
@@ -518,43 +500,33 @@ let handle_get_next_prop obj prop interpreter =
   Signed 16-bit addition. *)
 
 let handle_add a b interpreter =
-  let a = signed_word a in
-  let b = signed_word b in
-  signed_word (a + b)
+  a + b
 
 (* Spec: 2OP:21 sub a b -> (result)
   Signed 16-bit subtraction. *)
 
 let handle_sub a b interpreter =
-  let a = signed_word a in
-  let b = signed_word b in
-  signed_word (a - b)
+  a - b
 
 (* Spec: 2OP:22 mul a b -> (result)
   Signed 16-bit multiplication. *)
 
 let handle_mul a b interpreter =
-  let a = signed_word a in
-  let b = signed_word b in
-  signed_word (a * b)
+  a * b
 
 (* Spec: 2OP:23 div a b -> (result)
   Signed 16-bit division.  Division by zero should halt
   the interpreter with a suitable error message. *)
 
 let handle_div a b interpreter =
-  let a = signed_word a in
-  let b = signed_word b in
-  signed_word (a / b)
+  a / b
 
 (* Spec: 2OP:24 mod a b -> (result)
   Remainder after signed 16-bit division. Division by zero should halt
   the interpreter with a suitable error message. *)
 
 let handle_mod a b interpreter =
-  let a = signed_word a in
-  let b = signed_word b in
-  signed_word (a mod b)
+  a mod b
 
 (* This routine handles all call instructions:
 
@@ -613,7 +585,6 @@ let handle_throw value frame_number interpreter =
   Jump if a = 0. *)
 
 let handle_jz a interpreter =
-  let a = unsigned_word a in
   if a = 0 then 1 else 0
 
 (* Spec: 1OP:129 get_sibling object -> (result) ?(label)
@@ -661,7 +632,7 @@ argument the number of a variable. *)
 let handle_inc variable interpreter =
   let variable = Instruction.decode_variable variable in
   let (original, read_interpreter) = read_variable interpreter variable in
-  let incremented = signed_word (original + 1) in
+  let incremented = original + 1 in
   write_variable read_interpreter variable incremented
 
 (* Spec: 1OP:134 dec (variable)
@@ -673,7 +644,7 @@ let handle_inc variable interpreter =
 let handle_dec variable interpreter =
   let variable = Instruction.decode_variable variable in
   let (original, read_interpreter) = read_variable interpreter variable in
-  let decremented = signed_word (original - 1) in
+  let decremented = original - 1 in
   write_variable read_interpreter variable decremented
 
 (* Spec: 1OP:135 print_addr byte-address-of-string
@@ -757,8 +728,7 @@ it was moved into the extended set to make room for call_1n. *)
 not made an EXT instruction. *)
 
 let handle_not x interpreter =
-  let x = unsigned_word x in
-  unsigned_word (lnot x)
+  lnot x
 
 (* Spec: 0OP:176 rtrue
   Return true (i.e., 1) from the current routine. *)
@@ -1019,8 +989,6 @@ let handle_piracy interpreter =
 
 let handle_storew arr ind value interpreter =
   let arr = Word_address arr in
-  let ind = unsigned_word ind in
-  let value = unsigned_word value in
   let addr = inc_word_addr_by arr ind in
   { interpreter with story = Story.write_word interpreter.story addr value }
 
@@ -1029,8 +997,6 @@ let handle_storew arr ind value interpreter =
   address array+byteindex (which must lie in dynamic memory). *)
 let handle_storeb arr ind value interpreter =
   let arr = Byte_address arr in
-  let ind = unsigned_word ind in
-  let value = unsigned_word value in
   let addr = inc_byte_addr_by arr ind  in
   { interpreter with story = Story.write_byte interpreter.story addr value }
 
@@ -1046,7 +1012,6 @@ let handle_storeb arr ind value interpreter =
 let handle_putprop obj prop value interpreter =
   let obj = Object obj in
   let prop = Property prop in
-  let value = unsigned_word value in
   { interpreter with story = Object.write_property interpreter.story obj prop value }
 
 (* Spec: VAR:234 3 split_window lines
@@ -1068,7 +1033,6 @@ the specification details here I'll put them inline. *)
 
 let handle_sread2 text_addr parse_addr interpreter instruction =
   (* TODO: make a wrapper type for pointer-to-text-buffer *)
-  let text_addr = unsigned_word text_addr in
   let parse_addr = Parse_buffer parse_addr in
   (* This instruction is broken up into two halves. The first determines the size of
   the text buffer needed and then gives back an interpreter set to "I need input".
@@ -1486,7 +1450,7 @@ let handle_scan_table3 x table len interpreter =
       Word_address 0
     else
       let addr = inc_word_addr_by table i in
-      let y = unsigned_word (Story.read_word interpreter.story addr) in
+      let y = Story.read_word interpreter.story addr in
       if x = y then addr
       else aux (i + 1) in
   let (Word_address result) = aux 0 in
@@ -1600,14 +1564,12 @@ let handle_restore4 table bytes name interpreter prompt =
     shifting left (i.e. increasing) if places is positive, right if negative.
     In a right shift, the sign is zeroed instead of being shifted on.
     (See also art_shift.) *)
+    
 let handle_log_shift number places interpreter =
-  let number = unsigned_word number in
   let places = signed_word places in
-  let result =
-    if places < 0 then number lsr ( - places)
-    else if places > 0 then number lsl places
-    else number in
-  unsigned_word result
+  if places < 0 then number lsr ( - places)
+  else if places > 0 then number lsl places
+  else number
 
 (* Spec:  EXT:3 art_shift number places -> (result)
 Does an arithmetic shift of number by the given number of places, shifting
@@ -1616,13 +1578,11 @@ right shift, the sign bit is preserved as well as being
 shifted on down. (The alternative behaviour is log_shift.) *)
 
 let handle_art_shift number places interpreter =
-  let number = unsigned_word number in
+  let number = signed_word number in
   let places = signed_word places in
-  let result =
-    if places < 0 then number asr ( - places)
-    else if places > 0 then number lsl places
-    else number in
-  signed_word result
+  if places < 0 then number asr ( - places)
+  else if places > 0 then number lsl places
+  else number 
 
 (* Spec: EXT:4 set_font font -> (result)
   If the requested font is available, then it is chosen for the current
