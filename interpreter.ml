@@ -173,7 +173,7 @@ let interpret_store interpreter store result =
   | None -> interpreter
   | Some variable -> write_variable interpreter variable result
 
-let interpret_return interpreter instruction value =
+let interpret_return interpreter value =
  let frame = current_frame interpreter in
  let next_pc = Frame.resume_at frame in
  let store = Frame.store frame in
@@ -190,10 +190,10 @@ let interpret_branch interpreter instruction result =
   match Instruction.branch instruction with
   | None -> next_instruction ()
   | Some (sense, Return_false) ->
-    if (result <> 0) = sense then interpret_return interpreter instruction 0
+    if (result <> 0) = sense then interpret_return interpreter 0
     else next_instruction ()
   | Some (sense, Return_true) ->
-    if (result <> 0) = sense then interpret_return interpreter instruction 1
+    if (result <> 0) = sense then interpret_return interpreter 1
     else next_instruction ()
   | Some (sense, Branch_address branch_target) ->
     if (result <> 0) = sense then set_program_counter interpreter branch_target
@@ -707,7 +707,7 @@ let handle_print_obj obj interpreter =
   Returns from the current routine with the value given *)
 
 let handle_ret result interpreter instruction =
-    interpret_return interpreter instruction result
+    interpret_return interpreter result
 
 (* Spec: 1OP:140 jump ?(label)
 Jump (unconditionally) to the given label. (This is not a branch instruction
@@ -765,13 +765,13 @@ let handle_not x interpreter =
   Return true (i.e., 1) from the current routine. *)
 
 let handle_rtrue interpreter instruction =
-  interpret_return interpreter instruction 1
+  interpret_return interpreter 1
 
 (* Spec: 0OP:177 rfalse
   Return false (i.e., 0) from the current routine. *)
 
 let handle_rfalse interpreter instruction =
-  interpret_return interpreter instruction 0
+  interpret_return interpreter 0
 
 (* Spec: 0OP:178 print
   Print the quoted (literal) Z-encoded string. *)
@@ -791,7 +791,7 @@ let handle_print_ret interpreter instruction =
     match Instruction.text instruction with
     | Some text -> print interpreter (text ^ "\n")
     | None -> interpreter in
-  interpret_return printed_interpreter instruction 1
+  interpret_return printed_interpreter 1
 
 (* Spec: 0OP:180 nop
   Probably the official "no operation" instruction, which, appropriately,
@@ -948,7 +948,7 @@ let handle_restart interpreter instruction =
 let handle_ret_popped interpreter instruction =
   let result = peek_stack interpreter in
   let popped_interpreter = pop_stack interpreter in
-  interpret_return popped_interpreter instruction result
+  interpret_return popped_interpreter result
 
 (* 0OP:185 pop
   Throws away the top item on the stack. (This was useful to lose unwanted
