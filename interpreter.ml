@@ -138,12 +138,24 @@ let read_global interpreter global =
 
 let write_global interpreter global value =
   { interpreter with story = Globals.write interpreter.story global value }
+  
+let read_variable_in_place interpreter variable =
+  match variable with
+  | Stack -> peek_stack interpreter
+  | Local_variable local -> read_local interpreter local
+  | Global_variable global -> read_global interpreter global
 
 let read_variable interpreter variable =
   match variable with
   | Stack -> (peek_stack interpreter, pop_stack interpreter)
   | Local_variable local -> (read_local interpreter local, interpreter)
   | Global_variable global -> (read_global interpreter global, interpreter)
+  
+let write_variable_in_place interpreter variable value =
+  match variable with
+  | Stack -> push_stack (pop_stack interpreter) value
+  | Local_variable local -> write_local interpreter local value
+  | Global_variable global -> write_global interpreter global value
 
 let write_variable interpreter variable value =
   match variable with
@@ -345,10 +357,10 @@ then global 50 is decremented. *)
 let handle_dec_chk variable value interpreter =
   let variable = Instruction.decode_variable variable in
   let value = signed_word value in
-  let (original, read_interpreter) = read_variable interpreter variable in
+  let original = read_variable_in_place interpreter variable in
   let original = signed_word original in
   let decremented = signed_word (original - 1) in
-  let write_interpreter = write_variable read_interpreter variable decremented in
+  let write_interpreter = write_variable_in_place interpreter variable decremented in
   let result = if decremented < value then 1 else 0 in
   (result, write_interpreter)
 
@@ -358,10 +370,10 @@ let handle_dec_chk variable value interpreter =
 let handle_inc_chk variable value interpreter =
   let variable = Instruction.decode_variable variable in
   let value = signed_word value in
-  let (original, read_interpreter) = read_variable interpreter variable in
+  let original = read_variable_in_place interpreter variable in
   let original = signed_word original in
   let decremented = signed_word (original + 1) in
-  let write_interpreter = write_variable read_interpreter variable decremented in
+  let write_interpreter = write_variable_in_place interpreter variable decremented in
   let result = if decremented > value then 1 else 0 in
   (result, write_interpreter)
 
@@ -429,7 +441,7 @@ that takes a variable number as an operand. *)
 
 let handle_store variable value interpreter =
   let variable = Instruction.decode_variable variable in
-  write_variable interpreter variable value
+  write_variable_in_place interpreter variable value
 
 (* Spec: 2OP:14 insert_obj object destination
   Moves object O to become the first child of the destination object D.
@@ -635,9 +647,9 @@ argument the number of a variable. *)
 
 let handle_inc variable interpreter =
   let variable = Instruction.decode_variable variable in
-  let (original, read_interpreter) = read_variable interpreter variable in
+  let original = read_variable_in_place interpreter variable in
   let incremented = original + 1 in
-  write_variable read_interpreter variable incremented
+  write_variable_in_place interpreter variable incremented
 
 (* Spec: 1OP:134 dec (variable)
   Decrement variable by 1. This is signed, so 0 decrements to -1.
@@ -647,9 +659,9 @@ let handle_inc variable interpreter =
 
 let handle_dec variable interpreter =
   let variable = Instruction.decode_variable variable in
-  let (original, read_interpreter) = read_variable interpreter variable in
+  let original = read_variable_in_place interpreter variable in
   let decremented = original - 1 in
-  write_variable read_interpreter variable decremented
+  write_variable_in_place interpreter variable decremented
 
 (* Spec: 1OP:135 print_addr byte-address-of-string
   Print (Z-encoded) string at given byte address, in dynamic or static memory *)
@@ -718,9 +730,13 @@ let handle_load variable interpreter =
   to be read from. So, for example, if the operand is sp then the
   value of the operand is the top of the stack, and the top of the stack
   contains a number. That number is then interpreted as a variable, and
-  the value read from *that* variable is the result of the load. *)
+  the value read from *that* variable is the result of the load. 
+  
+  However, if the value of the operand is zero then the value stored
+  is the value on top of the stack, but the stack is not popped. *)
+  
   let variable = Instruction.decode_variable variable in
-  read_variable interpreter variable
+  read_variable_in_place interpreter variable
 
 (* Spec:  1OP:143 not value -> (result)
           VAR:248 not value -> (result)
@@ -1202,7 +1218,7 @@ let handle_pull1 x interpreter =
     let variable = Instruction.decode_variable x in
     let value = peek_stack interpreter in
     let popped_interpreter = pop_stack interpreter in
-    let store_interpreter = write_variable popped_interpreter variable value in
+    let store_interpreter = write_variable_in_place popped_interpreter variable value in
     (0, store_interpreter)
 
 let handle_pull0 interpreter =
@@ -1672,7 +1688,7 @@ let step_instruction interpreter =
   | (OP1_139, [result]) -> handle_ret result interpreter instruction
   | (OP1_140, [offset]) -> handle_jump offset interpreter instruction
   | (OP1_141, [paddr]) -> effect (handle_print_paddr paddr)
-  | (OP1_142, [variable]) -> interpret_instruction (handle_load variable)
+  | (OP1_142, [variable]) -> value (handle_load variable)
   | (OP1_143, [x]) ->
     if Story.v4_or_lower (Story.version interpreter.story) then value (handle_not x)
     else handle_call x [] interpreter instruction
