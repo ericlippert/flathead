@@ -173,6 +173,22 @@ let handle_jg a b interpreter =
   let a = signed_word a in
   let b = signed_word b in
   if a > b then 1 else 0
+  
+(* Spec: 2OP:15 loadw array word-index -> (result)
+Stores array-->word-index (i.e., the word at address array+2*word-index,
+which must lie in static or dynamic memory). *)
+
+let handle_loadw arr idx interpreter =
+  let arr = Word_address arr in
+  Story.read_word interpreter.story (inc_word_addr_by arr idx)
+
+(* Spec: 2OP:16 loadb array byte-index -> (result)
+Stores array->byte-index (i.e., the byte at address array+byte-index,
+which must lie in static or dynamic memory). *)
+
+let handle_loadb arr idx interpreter =
+  let arr = Byte_address arr in
+  Story.read_byte interpreter.story (inc_byte_addr_by arr idx)
 
 (* Spec: 2OP:20 add a b -> (result)
   Signed 16-bit addition. *)
@@ -252,13 +268,50 @@ let handle_jz a interpreter =
 
 let handle_ret result interpreter =
     interpret_return interpreter result
+    
+(* Spec: 1OP:140 jump ?(label)
+Jump (unconditionally) to the given label. (This is not a branch instruction
+and the operand is a 2-byte signed offset to apply to the program counter.)
+It is legal for this to jump into a different routine (which should not
+change the routine call state), although it is considered bad practice to
+do so and the Txd disassembler is confused by it.
+
+Note: the revised specification clarifies:
+
+The destination of the jump opcode is
+Address after instruction + Offset - 2
+This is analogous to the calculation for branch offsets. *)
+
+let handle_jump offset interpreter instruction =
+  let offset = signed_word offset in
+  let target = Instruction.jump_address instruction offset in
+  set_program_counter interpreter target
+
+(* VAR:225 storew array wordindex value
+  array->wordindex = value
+  i.e. stores the given value in the word at address array + 2 * wordindex
+  (which must lie in dynamic memory).  *)
+
+let handle_storew arr ind value interpreter =
+  let arr = Word_address arr in
+  let addr = inc_word_addr_by arr ind in
+  { interpreter with story = Story.write_word interpreter.story addr value }
+
+(* Spec: VAR:226 storeb array byteindex value
+  array->byteindex = value, i.e. stores the given value in the byte at
+  address array+byteindex (which must lie in dynamic memory). *)
+  
+let handle_storeb arr ind value interpreter =
+  let arr = Byte_address arr in
+  let addr = inc_byte_addr_by arr ind  in
+  { interpreter with story = Story.write_byte interpreter.story addr value }
 
 (* Move the interpreter on to the next instruction *)
 let step_instruction interpreter =
   let instruction = Instruction.decode interpreter.story interpreter.program_counter in
   let operands = Instruction.operands instruction in
   let (arguments, interpreter) = operands_to_arguments interpreter operands in
-  let interpret_instruction = interpret_instruction interpreter instruction in
+(*let interpret_instruction = interpret_instruction interpreter instruction in*)
   let value = interpret_value_instruction interpreter instruction in
   let effect = interpret_effect_instruction interpreter instruction in
   let opcode = Instruction.opcode instruction in
@@ -268,6 +321,8 @@ let step_instruction interpreter =
   | (OP2_1, [a; b; c; d]) -> value (handle_je4 a b c d)
   | (OP2_2, [a; b]) -> value (handle_jl a b)
   | (OP2_3, [a; b]) -> value (handle_jg a b)
+  | (OP2_15, [arr; idx]) -> value (handle_loadw arr idx)
+  | (OP2_16, [arr; idx]) -> value (handle_loadb arr idx)
   | (OP2_20, [a; b]) -> value (handle_add a b)
   | (OP2_21, [a; b]) -> value (handle_sub a b)
   | (OP2_22, [a; b]) -> value (handle_mul a b)
@@ -275,6 +330,9 @@ let step_instruction interpreter =
   | (OP2_24, [a; b]) -> value (handle_mod a b)
   | (OP1_128, [a]) -> value (handle_jz a)
   | (OP1_139, [result]) -> handle_ret result interpreter 
+  | (OP1_140, [offset]) -> handle_jump offset interpreter instruction
   | (VAR_224, routine :: args) -> handle_call routine args interpreter instruction
+  | (VAR_225, [arr; ind; value]) -> effect (handle_storew arr ind value)
+  | (VAR_226, [arr; ind; value]) -> effect (handle_storeb arr ind value)
   | _ -> failwith (Printf.sprintf "TODO: %s " (Instruction.display instruction interpreter.story))
   (* End step_instruction *)
