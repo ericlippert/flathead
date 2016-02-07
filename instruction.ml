@@ -175,6 +175,19 @@ let has_branch opcode ver =
   | VAR_247 | VAR_255
   | EXT_6   | EXT_14 | EXT_24  | EXT_27 -> true
   | _ -> false
+  
+let has_indirection instruction ver = 
+    match (instruction.opcode, ver) with
+    | (VAR_233, V6) -> false  (* pull *)
+    | (OP2_4, _)   (* dec_chk *)
+    | (OP2_5, _)   (* inc_chk *)
+    | (OP2_13, _)  (* store *)
+    | (OP1_133, _) (* inc *)
+    | (OP1_134, _) (* dec *)
+    | (OP1_142, _) (* load *)
+    | (VAR_233, _) (* pull *)
+      -> true
+    | _ -> false
 
 let opcode_name opcode ver =
   match opcode with
@@ -310,12 +323,22 @@ let display instr ver =
       let (Instruction target) = jump_address instr offset in
       Printf.sprintf "%04x " target
     | _ ->
+      let to_string_indirect operand = 
+        match operand with
+        | Large large -> (display_variable (decode_variable large)) ^ " "
+        | Small small -> (display_variable (decode_variable small)) ^ " "
+        | Variable variable -> "[" ^ (display_variable variable) ^ "] " in
       let to_string operand =
         match operand with
         | Large large -> Printf.sprintf "%04x " large
         | Small small -> Printf.sprintf "%02x " small
         | Variable variable -> (display_variable variable) ^ " " in
-      accumulate_strings to_string instr.operands in
+      if has_indirection instr ver then
+        let var = to_string_indirect (List.hd instr.operands) in
+        let rest = accumulate_strings to_string (List.tl instr.operands) in
+        var ^ rest 
+      else 
+        accumulate_strings to_string instr.operands in
 
   let display_store () =
     match instr.store with
