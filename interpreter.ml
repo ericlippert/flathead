@@ -137,6 +137,42 @@ let display interpreter =
   let frames = Frameset.display interpreter.frames in
   let instr = display_current_instruction interpreter in
   Printf.sprintf "\n---\n%s\n%s\n" frames instr
+  
+(* Spec: 2OP:1 je a b ?label
+Jump if a is equal to any of the subsequent operands. (Thus @je a never
+jumps and @je a b jumps if a = b.) *)
+
+(* Note: Already we are off to a bad start; the revision to the spec says:
+
+je can take between 2 and 4 operands. je with just 1 operand is not permitted.
+
+Note that je is one of the rare "2OP" instructions that can take 3 or 4
+operands. *)
+
+let handle_je2 a b interpreter =
+  if a = b then 1 else 0
+
+let handle_je3 a b c interpreter =
+  if a = b || a = c then 1 else 0
+
+let handle_je4 a b c d interpreter =
+  if a = b || a = c || a = d then 1 else 0
+
+(* Spec: 2OP:2 jl a b ?(label)
+  Jump if a < b  using a signed 16-bit comparison. *)
+
+let handle_jl a b interpreter =
+  let a = signed_word a in
+  let b = signed_word b in
+  if a < b then 1 else 0
+
+(* Spec: 2OP:3 3 jg a b ?(label)
+  Jump if a > b using a signed 16-bit comparison. *)
+
+let handle_jg a b interpreter =
+  let a = signed_word a in
+  let b = signed_word b in
+  if a > b then 1 else 0
 
 (* Spec: 2OP:20 add a b -> (result)
   Signed 16-bit addition. *)
@@ -204,6 +240,12 @@ let handle_call routine_address arguments interpreter instruction =
     let frame = Frame.make interpreter.story arguments routine_address resume_at store in
     let pc = Routine.first_instruction interpreter.story routine_address in
     set_program_counter (add_frame interpreter frame) pc
+    
+(* Spec: 1OP:128 jz a ?(label)
+  Jump if a = 0. *)
+
+let handle_jz a interpreter =
+  if a = 0 then 1 else 0
 
 (* Spec: 1OP:139 ret value
   Returns from the current routine with the value given *)
@@ -221,11 +263,17 @@ let step_instruction interpreter =
   let effect = interpret_effect_instruction interpreter instruction in
   let opcode = Instruction.opcode instruction in
   match (opcode, arguments) with
+  | (OP2_1, [a; b]) -> value (handle_je2 a b)
+  | (OP2_1, [a; b; c]) -> value (handle_je3 a b c)
+  | (OP2_1, [a; b; c; d]) -> value (handle_je4 a b c d)
+  | (OP2_2, [a; b]) -> value (handle_jl a b)
+  | (OP2_3, [a; b]) -> value (handle_jg a b)
   | (OP2_20, [a; b]) -> value (handle_add a b)
   | (OP2_21, [a; b]) -> value (handle_sub a b)
   | (OP2_22, [a; b]) -> value (handle_mul a b)
   | (OP2_23, [a; b]) -> value (handle_div a b)
   | (OP2_24, [a; b]) -> value (handle_mod a b)
+  | (OP1_128, [a]) -> value (handle_jz a)
   | (OP1_139, [result]) -> handle_ret result interpreter 
   | (VAR_224, routine :: args) -> handle_call routine args interpreter instruction
   | _ -> failwith (Printf.sprintf "TODO: %s " (Instruction.display instruction interpreter.story))
