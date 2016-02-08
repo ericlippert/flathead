@@ -175,6 +175,19 @@ let has_branch opcode ver =
   | EXT_6   | EXT_14 | EXT_24  | EXT_27 -> true
   | _ -> false
 
+let has_indirection instruction ver = 
+    match (instruction.opcode, ver) with
+    | (VAR_233, V6) -> false  (* pull *)
+    | (OP2_4, _)   (* dec_chk *)
+    | (OP2_5, _)   (* inc_chk *)
+    | (OP2_13, _)  (* store *)
+    | (OP1_133, _) (* inc *)
+    | (OP1_134, _) (* dec *)
+    | (OP1_142, _) (* load *)
+    | (VAR_233, _) (* pull *)
+      -> true
+    | _ -> false
+    
 let opcode_name opcode ver =
   match opcode with
   | ILLEGAL -> "ILLEGAL"
@@ -299,26 +312,49 @@ let opcode_name opcode ver =
   | EXT_27  -> "make_menu"
   | EXT_28  -> "picture_table"
   | EXT_29  -> "buffer_screen"
+  
+let display_indirect_operand operand = 
+  match operand with
+  | Large large -> (display_variable (decode_variable large)) ^ " "
+  | Small small -> (display_variable (decode_variable small)) ^ " "
+  | Variable variable -> "[" ^ (display_variable variable) ^ "] " 
 
+let display_operand operand =
+  match operand with
+  | Large large -> Printf.sprintf "%04x " large
+  | Small small -> Printf.sprintf "%02x " small
+  | Variable variable -> (display_variable variable) ^ " " 
+  
+let display_jump instr =
+  (* For jumps, display the absolute target rather than the relative target. *)
+  match instr.operands with
+  | [Large offset] -> 
+    let offset = signed_word offset in
+    let (Instruction target) = jump_address instr offset in
+    Printf.sprintf "%04x " target
+  | _ -> accumulate_strings display_operand instr.operands
+  
+let display_call instr story =
+  match call_address instr story with
+    | Some (Routine addr) ->
+      let routine = (Printf.sprintf "%04x " addr) in
+      let args = accumulate_strings display_operand (List.tl instr.operands) in
+      routine ^ args
+    | _ -> accumulate_strings display_operand instr.operands
+    
+let display_indirect_operands operands =
+  let var = display_indirect_operand (List.hd operands) in
+  let rest = accumulate_strings display_operand (List.tl operands) in
+  var ^ rest 
+   
 let display instr story =
   let ver = Story.version story in
+
   let display_operands () =
-    let display_remainder operands =
-      let to_string operand =
-        match operand with
-        | Large large -> Printf.sprintf "%04x " large
-        | Small small -> Printf.sprintf "%02x " small
-        | Variable variable -> (display_variable variable) ^ " " in
-      accumulate_strings to_string operands in
-  match (instr.opcode, instr.operands) with
-  | (OP1_140, [Large offset]) ->
-    let offset = signed_word offset in
-    let (Instruction addr) = jump_address instr offset in
-    Printf.sprintf "%04x " addr
-  | _ -> match call_address instr story with
-    | Some (Routine addr) ->
-      (Printf.sprintf "%04x " addr) ^ display_remainder (List.tl instr.operands)
-    | _ -> display_remainder instr.operands in
+    if instr.opcode = OP1_140 then display_jump instr
+    else if is_call ver instr.opcode then display_call instr story
+    else if has_indirection instr ver then display_indirect_operands instr.operands
+    else accumulate_strings display_operand instr.operands in
 
   let display_store () =
     match instr.store with
