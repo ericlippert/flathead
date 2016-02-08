@@ -327,11 +327,11 @@ let halt debugger =
       else frame_instruction in
     let story = Interpreter.story debugger.interpreter in
     let instr = Instruction.decode story current_instruction in
-    let current = Instruction.display instr (Story.version story) in
+    let current = Instruction.display instr story in
     let reachable = Reachability.all_reachable_addresses_in_routine story first_instruction in
     let sorted = List.sort compare reachable in
     let decode instr =
-      (instr, Instruction.display (Instruction.decode story instr) (Story.version story)) in
+      (instr, Instruction.display (Instruction.decode story instr) story) in
     let map = List.map decode sorted in
     let rec aux before after map =
       match map with

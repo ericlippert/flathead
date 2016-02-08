@@ -240,7 +240,7 @@ let set_status_line interpreter =
 let display_current_instruction interpreter =
   let address = interpreter.program_counter in
   let instruction = Instruction.decode interpreter.story address in
-  Instruction.display instruction (Story.version interpreter.story)
+  Instruction.display instruction interpreter.story
 
 (* Debugging method *)
 let display interpreter =
@@ -1786,9 +1786,9 @@ let step_instruction interpreter =
   | (EXT_26, _)
   | (EXT_27, _)
   | (EXT_28, _)
-  | (EXT_29, _)   -> failwith (Printf.sprintf "TODO: %s " (Instruction.display instruction (Story.version interpreter.story)))
+  | (EXT_29, _)   -> failwith (Printf.sprintf "TODO: %s " (Instruction.display instruction interpreter.story))
 
-  | _ -> failwith (Printf.sprintf "unexpected instruction %s" (Instruction.display instruction (Story.version interpreter.story)))
+  | _ -> failwith (Printf.sprintf "unexpected instruction %s" (Instruction.display instruction interpreter.story))
   (* End step_instruction *)
 
 (* Steps the interpreter to its next public-facing state. However this need
