@@ -217,6 +217,20 @@ let handle_inc_chk variable value interpreter =
   let result = if incremented > value then 1 else 0 in
   (result, write_interpreter)
   
+(* Spec: 2OP:6 jin obj1 obj2 ?(label)
+  Jump if obj1 is a direct child of obj2, i.e., if parent of obj1 is obj2. *)
+
+(* TODO: The spec is unclear as to what happens if obj1 is an invalid object
+number, such as 0. On the one hand, that's not even an object, so asking
+if this object is a child of another is an invalid question. On the other
+hand, an invalid object is not a direct child of any object.*)
+
+let handle_jin obj1 obj2 interpreter =
+  let obj1 = Object obj1 in
+  let obj2 = Object obj2 in
+  let parent = Object.parent interpreter.story obj1 in
+  if parent = obj2 then 1 else 0
+  
 (* Spec: 2OP:13 store (variable) value
   Set the variable referenced by the operand to value *)
 
@@ -227,6 +241,18 @@ let handle_store variable value interpreter =
   let variable = Instruction.decode_variable variable in
   write_variable_in_place interpreter variable value
   
+(* Spec: 2OP:14 insert_obj object destination
+  Moves object O to become the first child of the destination object D.
+  (Thus, after the operation the child of D is O, and the sibling of O
+  is whatever was previously the child of D.) All children of O move with it.
+  (Initially O can be at any point in the object tree; it may legally
+  have parent zero.) *)
+
+let handle_insert_obj obj destination interpreter =
+  let obj = Object obj in
+  let destination = Object destination in
+  { interpreter with story = Object.insert interpreter.story obj destination }
+
 (* Spec: 2OP:15 loadw array word-index -> (result)
 Stores array-->word-index (i.e., the word at address array+2*word-index,
 which must lie in static or dynamic memory). *)
@@ -316,6 +342,31 @@ let handle_call routine_address arguments interpreter instruction =
 let handle_jz a interpreter =
   if a = 0 then 1 else 0
   
+(* Spec: 1OP:129 get_sibling object -> (result) ?(label)
+  Get next object in tree, branching if this exists, i.e. is not 0 *)
+
+let handle_get_sibling obj interpreter =
+  let obj = Object obj in
+  let (Object sibling) = Object.sibling interpreter.story obj in
+  sibling
+
+(* Spec: 1OP:130 get_child object -> (result) ?(label)
+  Get first object contained in given object, branching if this exists,
+  i.e., is not 0 *)
+
+let handle_get_child obj interpreter =
+  let obj = Object obj in
+  let (Object child) = Object.child interpreter.story obj in
+  child
+
+(* Spec: 1OP:131 get_parent object -> (result)
+  Get parent object (note that this has no "branch if exists" clause). *)
+
+let handle_get_parent obj interpreter =
+  let obj = Object obj in
+  let (Object parent) = Object.parent interpreter.story obj in
+  parent
+  
 (* Spec: 1OP:133 inc (variable)
   Increment variable by 1. (This is signed, so -1 increments to 0.)
 
@@ -339,6 +390,13 @@ let handle_dec variable interpreter =
   let original = read_variable_in_place interpreter variable in
   let decremented = original - 1 in
   write_variable_in_place interpreter variable decremented
+  
+(* Spec: 1OP:137 remove_obj object
+Detach the object from its parent, so that it no longer has any parent.
+(Its children remain in its possession.) *)
+let handle_remove_obj obj interpreter =
+  let obj = Object obj in
+  { interpreter with story = Object.remove interpreter.story obj}
 
 (* Spec: 1OP:139 ret value
   Returns from the current routine with the value given *)
@@ -442,7 +500,9 @@ let step_instruction interpreter =
   | (OP2_3, [a; b]) -> value (handle_jg a b)
   | (OP2_4, [variable; value]) -> interpret_instruction (handle_dec_chk variable value)
   | (OP2_5, [variable; value]) -> interpret_instruction (handle_inc_chk variable value)
+  | (OP2_6, [obj1; obj2]) -> value (handle_jin obj1 obj2)
   | (OP2_13, [variable; value]) -> effect (handle_store variable value)
+  | (OP2_14, [obj; destination]) -> effect (handle_insert_obj obj destination)
   | (OP2_15, [arr; idx]) -> value (handle_loadw arr idx)
   | (OP2_16, [arr; idx]) -> value (handle_loadb arr idx)
   | (OP2_20, [a; b]) -> value (handle_add a b)
@@ -451,8 +511,12 @@ let step_instruction interpreter =
   | (OP2_23, [a; b]) -> value (handle_div a b)
   | (OP2_24, [a; b]) -> value (handle_mod a b)
   | (OP1_128, [a]) -> value (handle_jz a)
+  | (OP1_129, [obj]) -> value (handle_get_sibling obj)
+  | (OP1_130, [obj]) -> value (handle_get_child obj)
+  | (OP1_131, [obj]) -> value (handle_get_parent obj)
   | (OP1_133, [variable]) -> effect (handle_inc variable)
   | (OP1_134, [variable]) -> effect (handle_dec variable)
+  | (OP1_137, [obj]) -> effect (handle_remove_obj obj)
   | (OP1_139, [result]) -> handle_ret result interpreter 
   | (OP1_140, [offset]) -> handle_jump offset interpreter instruction
   | (OP1_142, [variable]) -> value (handle_load variable)

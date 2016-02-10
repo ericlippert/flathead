@@ -40,12 +40,26 @@ let parent story obj =
   else
     Object (Story.read_word story (Word_address (addr + 6)))
 
+let set_parent story obj (Object new_parent) =
+  let (Object_address addr) = address story obj in
+  if Story.v3_or_lower (Story.version story) then
+    Story.write_byte story (Byte_address (addr + 4)) new_parent
+  else
+    Story.write_word story (Word_address (addr + 6)) new_parent
+    
 let sibling story obj =
   let (Object_address addr) = address story obj in
   if Story.v3_or_lower (Story.version story) then
     Object (Story.read_byte story (Byte_address (addr + 5)))
   else
     Object (Story.read_word story (Word_address (addr + 8)))
+    
+let set_sibling story obj (Object new_sibling) =
+  let (Object_address addr) = address story obj in
+  if Story.v3_or_lower (Story.version story) then
+    Story.write_byte story (Byte_address (addr + 5)) new_sibling
+  else
+    Story.write_word story (Word_address (addr + 8)) new_sibling
 
 let child story obj =
   let (Object_address addr) = address story obj in
@@ -53,6 +67,13 @@ let child story obj =
     Object (Story.read_byte story (Byte_address(addr + 6)))
   else
     Object (Story.read_word story (Word_address(addr + 10)))
+    
+let set_child story obj (Object new_child) =
+  let (Object_address addr) = address story obj in
+  if Story.v3_or_lower (Story.version story) then
+    Story.write_byte story (Byte_address (addr + 6)) new_child
+  else
+    Story.write_word story (Word_address (addr + 10)) new_child
 
 (* The last two bytes in an object description are a pointer to a
 block that contains additional properties. *)
@@ -77,6 +98,48 @@ let name story n =
   let length = Story.read_byte story (Byte_address addr) in
   if length = 0 then "<unnamed>"
   else Zstring.read story (Zstring (addr + 1))
+  
+let find_previous_sibling story obj =
+  let rec aux current =
+    let next_sibling = sibling story current in
+    if next_sibling = obj then current
+    else aux next_sibling in
+  let parent = parent story obj in
+  let first_child = child story parent in
+  aux first_child
+
+(* Takes a child object and detatches it from its parent *)
+
+let remove story obj =
+  let original_parent = parent story obj in
+  if original_parent = invalid_object then
+    story (* Already detatched *)
+  else
+    (* First edit: if the child is the parent's first child then
+      make the next sibling the new first child.  If the child
+      is not the first child then the previous sibling
+      needs to point to the next sibling. *)
+    let edit1 = (
+      let sibling = sibling story obj in
+      if obj = child story original_parent then
+        set_child story original_parent sibling
+      else
+        let prev_sibling = find_previous_sibling story obj in
+        set_sibling story prev_sibling sibling) in
+    (* Second edit: the child now has no parent. *)
+    set_parent edit1 obj invalid_object
+
+(* Takes a child object and a parent object, and causes the child to be the
+first child of the parent. *)
+let insert story new_child new_parent =
+  (* Detatch the new child from its old parent *)
+  let edit1 = remove story new_child in
+  (* Hook up the new child to its new parent *)
+  let edit2 = set_parent edit1 new_child new_parent in
+  (* Hook up the sibling chain *)
+  let edit3 = set_sibling edit2 new_child (child edit2 new_parent) in
+  (* Make the child the new first child of the parent *)
+  set_child edit3 new_parent new_child
 
 let display_object_table story =
   let count = count story in
