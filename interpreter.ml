@@ -236,6 +236,24 @@ let handle_jin obj1 obj2 interpreter =
   let parent = Object.parent interpreter.story obj1 in
   if parent = obj2 then 1 else 0
   
+(* Spec: 2OP:7 test bitmap flags ?(label)
+  Jump if all of the flags in bitmap are set (i.e. if bitmap & flags == flags) *)
+
+let handle_test bitmap flags interpreter =
+  if (bitmap land flags) = flags then 1 else 0
+
+(* Spec: 2OP:8 8 or a b -> (result)
+  Bitwise OR. *)
+
+let handle_or a b interpreter =
+  a lor b
+
+(* Spec: 2OP:9 and a b -> (result)
+Bitwise AND. *)
+
+let handle_and a b interpreter =
+  a land b
+  
 (* Spec: 2OP:13 store (variable) value
   Set the variable referenced by the operand to value *)
 
@@ -470,6 +488,18 @@ let handle_load variable interpreter =
   let variable = Instruction.decode_variable variable in
   read_variable_in_place interpreter variable
   
+(* Spec: 0OP:176 rtrue
+  Return true (i.e., 1) from the current routine. *)
+
+let handle_rtrue interpreter instruction =
+  interpret_return interpreter 1
+
+(* Spec: 0OP:177 rfalse
+  Return false (i.e., 0) from the current routine. *)
+
+let handle_rfalse interpreter instruction =
+  interpret_return interpreter 0
+  
 (* Spec: 0OP:178 print
   Print the quoted (literal) Z-encoded string. *)
 
@@ -490,12 +520,34 @@ let handle_print_ret interpreter instruction =
     | None -> interpreter in
   interpret_return printed_interpreter 1
   
+(* Spec:0OP:184 ret_popped
+  Pops top of stack and returns that. (This is equivalent to ret sp, but
+  is one byte cheaper.) *)
+
+let handle_ret_popped interpreter instruction =
+  let result = peek_stack interpreter in
+  let popped_interpreter = pop_stack interpreter in
+  interpret_return popped_interpreter result
+
+(* 0OP:185 pop
+  Throws away the top item on the stack. (This was useful to lose unwanted
+  routine call results in early Versions.) *)
+
+let handle_pop interpreter =
+  pop_stack interpreter
+  
+(* Spec: 0OP:185 catch -> (result)
+  Opposite to throw (and occupying the same opcode that pop used in
+  Versions 3 and 4). catch returns the current "stack frame". *)
+
+let handle_catch interpreter =
+  failwith "TODO: catch instruction not yet implemented"
+  
 (* Spec: 0OP:187 new_line
   Print carriage return. *)
 
 let handle_new_line interpreter =
   print interpreter "\n"
-  
 
 (* VAR:225 storew array wordindex value
   array->wordindex = value
@@ -577,6 +629,9 @@ let step_instruction interpreter =
   | (OP2_4, [variable; value]) -> interpret_instruction (handle_dec_chk variable value)
   | (OP2_5, [variable; value]) -> interpret_instruction (handle_inc_chk variable value)
   | (OP2_6, [obj1; obj2]) -> value (handle_jin obj1 obj2)
+  | (OP2_7, [bitmap; flags]) -> value (handle_test bitmap flags)
+  | (OP2_8, [a; b]) -> value (handle_or a b)
+  | (OP2_9, [a; b]) -> value (handle_and a b)
   | (OP2_13, [variable; value]) -> effect (handle_store variable value)
   | (OP2_14, [obj; destination]) -> effect (handle_insert_obj obj destination)
   | (OP2_15, [arr; idx]) -> value (handle_loadw arr idx)
@@ -599,8 +654,14 @@ let step_instruction interpreter =
   | (OP1_140, [offset]) -> handle_jump offset interpreter instruction
   | (OP1_141, [paddr]) -> effect (handle_print_paddr paddr)
   | (OP1_142, [variable]) -> value (handle_load variable)
+  | (OP0_176, []) -> handle_rtrue interpreter instruction
+  | (OP0_177, []) -> handle_rfalse interpreter instruction
   | (OP0_178, []) -> handle_print interpreter instruction
   | (OP0_179, []) -> handle_print_ret interpreter instruction
+  | (OP0_184, []) -> handle_ret_popped interpreter instruction
+  | (OP0_185, []) ->
+    if Story.v4_or_lower (Story.version interpreter.story) then effect handle_pop
+    else value handle_catch
   | (OP0_187, []) -> effect handle_new_line
   | (VAR_224, routine :: args) -> handle_call routine args interpreter instruction
   | (VAR_225, [arr; ind; value]) -> effect (handle_storew arr ind value)
