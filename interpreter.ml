@@ -150,6 +150,11 @@ let display interpreter =
   let instr = display_current_instruction interpreter in
   Printf.sprintf "\n---\n%s\n%s\n" frames instr
   
+let print interpreter text =
+  Printf.printf "%s" text;
+  flush stdout;
+  interpreter
+  
 (* Spec: 2OP:1 je a b ?label
 Jump if a is equal to any of the subsequent operands. (Thus @je a never
 jumps and @je a b jumps if a = b.) *)
@@ -391,12 +396,30 @@ let handle_dec variable interpreter =
   let decremented = original - 1 in
   write_variable_in_place interpreter variable decremented
   
+(* Spec: 1OP:135 print_addr byte-address-of-string
+  Print (Z-encoded) string at given byte address, in dynamic or static memory *)
+
+let handle_print_addr addr interpreter =
+  let addr = Zstring addr in
+  let text = Zstring.read interpreter.story addr in
+  print interpreter text
+
 (* Spec: 1OP:137 remove_obj object
 Detach the object from its parent, so that it no longer has any parent.
 (Its children remain in its possession.) *)
 let handle_remove_obj obj interpreter =
   let obj = Object obj in
   { interpreter with story = Object.remove interpreter.story obj}
+  
+(* Spec: 1OP:138 print_obj object
+  Print short name of object (the Z-encoded string in the object header,
+  not a property). If the object number is invalid, the interpreter should
+  halt with a suitable error message. *)
+
+let handle_print_obj obj interpreter =
+  let obj = Object obj in
+  let text = Object.name interpreter.story obj in
+  print interpreter text
 
 (* Spec: 1OP:139 ret value
   Returns from the current routine with the value given *)
@@ -422,6 +445,15 @@ let handle_jump offset interpreter instruction =
   let target = Instruction.jump_address instruction offset in
   set_program_counter interpreter target
   
+(* Spec: 1OP:141 print_paddr packed-address-of-string
+  Print the (Z-encoded) string at the given packed address in high memory. *)
+
+let handle_print_paddr packed_address interpreter =
+  let packed_address = Packed_zstring packed_address in
+  let address = Story.decode_string_packed_address interpreter.story packed_address in
+  let text = Zstring.read interpreter.story address in
+  print interpreter text
+
 (* Spec: 1OP:142 load (variable) -> (result)
   The value of the variable referred to by the operand is stored in the result. *)
 
@@ -437,6 +469,33 @@ let handle_load variable interpreter =
   
   let variable = Instruction.decode_variable variable in
   read_variable_in_place interpreter variable
+  
+(* Spec: 0OP:178 print
+  Print the quoted (literal) Z-encoded string. *)
+
+let handle_print interpreter instruction =
+  let printed_interpreter = match Instruction.text instruction with
+  | Some text -> print interpreter text
+  | None -> interpreter in
+  interpret_branch printed_interpreter instruction 0
+
+(* Spec: 0OP:179 print_ret
+  Print the quoted (literal) Z-encoded string, then print a new-line
+  and then return true (i.e., 1) *)
+
+let handle_print_ret interpreter instruction =
+  let printed_interpreter =
+    match Instruction.text instruction with
+    | Some text -> print interpreter (text ^ "\n")
+    | None -> interpreter in
+  interpret_return printed_interpreter 1
+  
+(* Spec: 0OP:187 new_line
+  Print carriage return. *)
+
+let handle_new_line interpreter =
+  print interpreter "\n"
+  
 
 (* VAR:225 storew array wordindex value
   array->wordindex = value
@@ -457,6 +516,23 @@ let handle_storeb arr ind value interpreter =
   let addr = inc_byte_addr_by arr ind  in
   { interpreter with story = Story.write_byte interpreter.story addr value }
   
+(* Spec: VAR:229 print_char output-character-code
+  Print a ZSCII character. The operand must be a character code defined in
+  ZSCII for output (see Section 3). In particular, it must certainly not be
+  negative or larger than 1023. *)
+
+let handle_print_char code interpreter =
+  let text = string_of_char (char_of_int code) in
+  print interpreter text
+
+(* Spec: VAR:230 print_num value
+  Print (signed) number in decimal. *)
+
+let handle_print_num value interpreter =
+  let value = signed_word value in
+  let text = Printf.sprintf "%d" value in
+  print interpreter text
+
 (* Spec: VAR:233 pull (variable)
                  pull stack -> (result)
 Pulls value off a stack. (If the stack underflows, the interpreter should halt with a suitable error
@@ -516,13 +592,21 @@ let step_instruction interpreter =
   | (OP1_131, [obj]) -> value (handle_get_parent obj)
   | (OP1_133, [variable]) -> effect (handle_inc variable)
   | (OP1_134, [variable]) -> effect (handle_dec variable)
+  | (OP1_135, [address]) -> effect (handle_print_addr address)
   | (OP1_137, [obj]) -> effect (handle_remove_obj obj)
+  | (OP1_138, [obj]) -> effect (handle_print_obj obj)
   | (OP1_139, [result]) -> handle_ret result interpreter 
   | (OP1_140, [offset]) -> handle_jump offset interpreter instruction
+  | (OP1_141, [paddr]) -> effect (handle_print_paddr paddr)
   | (OP1_142, [variable]) -> value (handle_load variable)
+  | (OP0_178, []) -> handle_print interpreter instruction
+  | (OP0_179, []) -> handle_print_ret interpreter instruction
+  | (OP0_187, []) -> effect handle_new_line
   | (VAR_224, routine :: args) -> handle_call routine args interpreter instruction
   | (VAR_225, [arr; ind; value]) -> effect (handle_storew arr ind value)
   | (VAR_226, [arr; ind; value]) -> effect (handle_storeb arr ind value)
+  | (VAR_229, [code]) -> effect (handle_print_char code)
+  | (VAR_230, [number]) -> effect (handle_print_num number)
   | (VAR_233, []) -> interpret_instruction handle_pull0
   | (VAR_233, [x]) -> interpret_instruction (handle_pull1 x)
   | _ -> failwith (Printf.sprintf "TODO: %s " (Instruction.display instruction interpreter.story))
