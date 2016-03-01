@@ -254,6 +254,30 @@ Bitwise AND. *)
 let handle_and a b interpreter =
   a land b
   
+(* Spec: 2OP:10 test_attr object attribute ?(label)
+  Jump if object has attribute. *)
+
+let handle_test_attr obj attr interpreter =
+  let obj = Object obj in
+  let attr = Attribute attr in
+  if Object.attribute interpreter.story obj attr then 1 else 0
+
+(* Spec:  2OP:11 set_attr object attribute
+  Make object have the attribute numbered attribute. *)
+
+let handle_set_attr obj attr interpreter =
+  let obj = Object obj in
+  let attr = Attribute attr in
+  { interpreter with story = Object.set_attribute interpreter.story obj attr }
+
+(* Spec: 2OP:12 clear_attr object attribute
+  Make object not have the attribute numbered attribute. *)
+
+let handle_clear_attr obj attr interpreter =
+  let obj = Object obj in
+  let attr = Attribute attr in
+  { interpreter with story = Object.clear_attribute interpreter.story obj attr }
+  
 (* Spec: 2OP:13 store (variable) value
   Set the variable referenced by the operand to value *)
 
@@ -632,6 +656,9 @@ let step_instruction interpreter =
   | (OP2_7, [bitmap; flags]) -> value (handle_test bitmap flags)
   | (OP2_8, [a; b]) -> value (handle_or a b)
   | (OP2_9, [a; b]) -> value (handle_and a b)
+  | (OP2_10, [obj; attr]) -> value (handle_test_attr obj attr)
+  | (OP2_11, [obj; attr]) -> effect (handle_set_attr obj attr)
+  | (OP2_12, [obj; attr]) -> effect (handle_clear_attr obj attr)
   | (OP2_13, [variable; value]) -> effect (handle_store variable value)
   | (OP2_14, [obj; destination]) -> effect (handle_insert_obj obj destination)
   | (OP2_15, [arr; idx]) -> value (handle_loadw arr idx)

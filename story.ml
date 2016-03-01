@@ -35,6 +35,32 @@ let write_word story address value =
   let low = value land 0xFF in
   let story = write_byte story (address_of_high_byte address) high in
   write_byte story (address_of_low_byte address) low
+  
+let read_bit story address bit =
+  fetch_bit bit (read_byte story address)
+
+let read_word_bit story address bit =
+  fetch_bit bit (read_word story address)
+
+let write_set_bit story address bit =
+  let orig_byte = read_byte story address in
+  let new_byte = set_bit bit orig_byte in
+  write_byte story address new_byte
+
+let write_clear_bit story address bit =
+  let orig_byte = read_byte story address in
+  let new_byte = clear_bit bit orig_byte in
+  write_byte story address new_byte
+
+let write_set_bit_to story address bit value =
+  let orig_byte = read_byte story address in
+  let new_byte = set_bit_to bit orig_byte value in
+  write_byte story address new_byte
+
+let write_set_word_bit_to story address bit value =
+  let orig_word = read_word story address in
+  let new_word = set_bit_to bit orig_word value in
+  write_word story address new_word
 
 let header_size = 64
 

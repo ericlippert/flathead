@@ -32,6 +32,31 @@ let address story (Object obj) =
   let (Object_tree_base tree_base) = tree_base story in
   let entry_size = entry_size story in
   Object_address (tree_base + (obj - 1) * entry_size)
+  
+let attribute_count story =
+  if Story.v3_or_lower (Story.version story) then 32 else 48
+
+let attribute_address story obj (Attribute attribute) =
+  if attribute < 0 || attribute >= (attribute_count story) then
+    failwith "bad attribute"
+  else
+    let offset = attribute / 8 in
+    let (Object_address obj_addr) = address story obj in
+    let bit = Bit_number (7 - (attribute mod 8)) in
+    Attribute_address ((Byte_address (obj_addr + offset)), bit)
+
+let attribute story obj attribute =
+  let (Attribute_address (address, bit)) = attribute_address story obj attribute in
+  Story.read_bit story address bit
+
+let set_attribute story obj attribute =
+  let (Attribute_address (address, bit)) = attribute_address story obj attribute in
+  Story.write_set_bit story address bit
+
+let clear_attribute story obj attribute =
+  let (Attribute_address (address, bit)) = attribute_address story obj attribute in
+  Story.write_clear_bit story address bit
+
 
 let parent story obj =
   let (Object_address addr) = address story obj in
