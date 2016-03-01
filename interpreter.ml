@@ -315,6 +315,43 @@ which must lie in static or dynamic memory). *)
 let handle_loadb arr idx interpreter =
   let arr = Byte_address arr in
   Story.read_byte interpreter.story (inc_byte_addr_by arr idx)
+  
+(* Spec: 2OP:17 get_prop object property -> (result)
+  Read property from object (resulting in the default value if it had no
+  such declared property). If the property has length 1, the value is only
+  that byte. If it has length 2, the first two bytes of the property are
+  taken as a word value. It is illegal for the opcode to be used if the
+  property has length greater than 2, and the result is unspecified. *)
+
+let handle_get_prop obj prop interpreter =
+  let obj = Object obj in
+  let prop = Property prop in
+  Object.property interpreter.story obj prop
+
+(* Spec: 2OP:18 get_prop_addr object property -> (result)
+  Get the byte address (in dynamic memory) of the property data for the
+  given object's property. This must return 0 if the object hasn't got
+  the property. *)
+
+let handle_get_prop_addr obj prop interpreter =
+  let obj = Object obj in
+  let prop = Property prop in
+  let (Property_data addr) = Object.property_address interpreter.story obj prop in
+  addr
+
+(* Spec: 2OP:19 get_next_prop object property -> (result)
+  Gives the number of the next property provided by the quoted object.
+  This may be zero, indicating the end of the property list; if called
+  with zero, it gives the first property number present. It is illegal to try
+  to find the next property of a property which does not exist, and an
+  interpreter should halt with an error message (if it can efficiently check
+  this condition). *)
+
+let handle_get_next_prop obj prop interpreter =
+  let obj = Object obj in
+  let prop = Property prop in
+  let (Property next) = Object.next_property interpreter.story obj prop in
+  next
 
 (* Spec: 2OP:20 add a b -> (result)
   Signed 16-bit addition. *)
@@ -413,6 +450,17 @@ let handle_get_parent obj interpreter =
   let obj = Object obj in
   let (Object parent) = Object.parent interpreter.story obj in
   parent
+  
+(* Spec: 1OP:132 get_prop_len property-address -> (result)
+  Get length of property data (in bytes) for the given object's property.
+  It is illegal to try to find the property length of a property which does
+  not exist for the given object, and an interpreter should halt with an error
+  message (if it can efficiently check this condition). *)
+
+let handle_get_prop_len property_address interpreter =
+  (* TODO: Make a wrapper type for property addresses *)
+  let property_address = Property_data property_address in
+  Object.property_length_from_address interpreter.story property_address
   
 (* Spec: 1OP:133 inc (variable)
   Increment variable by 1. (This is signed, so -1 increments to 0.)
@@ -592,6 +640,20 @@ let handle_storeb arr ind value interpreter =
   let addr = inc_byte_addr_by arr ind  in
   { interpreter with story = Story.write_byte interpreter.story addr value }
   
+(* Spec: VAR:227 put_prop object property value
+  Writes the given value to the given property of the given object. If the
+  property does not exist for that object, the interpreter should halt with a
+  suitable error message. If the property length is 1, then the interpreter
+  should store only the least significant byte of the value. (For instance,
+  storing -1 into a 1-byte property results in the property value 255.)
+  As with get_prop the property length must not be more than 2: if it is,
+  the behaviour of the opcode is undefined. *)
+
+let handle_putprop obj prop value interpreter =
+  let obj = Object obj in
+  let prop = Property prop in
+  { interpreter with story = Object.write_property interpreter.story obj prop value }
+  
 (* Spec: VAR:229 print_char output-character-code
   Print a ZSCII character. The operand must be a character code defined in
   ZSCII for output (see Section 3). In particular, it must certainly not be
@@ -663,6 +725,9 @@ let step_instruction interpreter =
   | (OP2_14, [obj; destination]) -> effect (handle_insert_obj obj destination)
   | (OP2_15, [arr; idx]) -> value (handle_loadw arr idx)
   | (OP2_16, [arr; idx]) -> value (handle_loadb arr idx)
+  | (OP2_17, [obj; prop]) -> value (handle_get_prop obj prop)
+  | (OP2_18, [obj; prop]) -> value (handle_get_prop_addr obj prop)
+  | (OP2_19, [obj; prop]) -> value (handle_get_next_prop obj prop)
   | (OP2_20, [a; b]) -> value (handle_add a b)
   | (OP2_21, [a; b]) -> value (handle_sub a b)
   | (OP2_22, [a; b]) -> value (handle_mul a b)
@@ -672,6 +737,7 @@ let step_instruction interpreter =
   | (OP1_129, [obj]) -> value (handle_get_sibling obj)
   | (OP1_130, [obj]) -> value (handle_get_child obj)
   | (OP1_131, [obj]) -> value (handle_get_parent obj)
+  | (OP1_132, [property_address]) -> value (handle_get_prop_len property_address)
   | (OP1_133, [variable]) -> effect (handle_inc variable)
   | (OP1_134, [variable]) -> effect (handle_dec variable)
   | (OP1_135, [address]) -> effect (handle_print_addr address)
@@ -693,6 +759,7 @@ let step_instruction interpreter =
   | (VAR_224, routine :: args) -> handle_call routine args interpreter instruction
   | (VAR_225, [arr; ind; value]) -> effect (handle_storew arr ind value)
   | (VAR_226, [arr; ind; value]) -> effect (handle_storeb arr ind value)
+  | (VAR_227, [obj; prop; value]) -> effect (handle_putprop obj prop value)
   | (VAR_229, [code]) -> effect (handle_print_char code)
   | (VAR_230, [number]) -> effect (handle_print_num number)
   | (VAR_233, []) -> interpret_instruction handle_pull0

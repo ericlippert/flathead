@@ -14,11 +14,25 @@ open Type
 *)
 
 let invalid_object = Object 0
+let invalid_data = Property_data 0
+let invalid_property = Property 0
 
 let default_property_table_size story =
   if Story.v3_or_lower (Story.version story) then 31 else 63
 
 let default_property_table_entry_size = 2
+
+let default_property_table_base story =
+  let (Object_base base)= Story.object_table_base story in
+  Property_defaults_table base
+
+let default_property_value story (Property n) =
+  if n < 1 || n > (default_property_table_size story) then
+    failwith "invalid index into default property table"
+  else
+    let (Property_defaults_table base) = default_property_table_base story in
+    let addr = Word_address ((base + (n - 1) * default_property_table_entry_size)) in
+    Story.read_word story addr
 
 let tree_base story =
   let (Object_base base) = Story.object_table_base story in
@@ -165,6 +179,146 @@ let insert story new_child new_parent =
   let edit3 = set_sibling edit2 new_child (child edit2 new_parent) in
   (* Make the child the new first child of the parent *)
   set_child edit3 new_parent new_child
+  
+(* Not every object has every property. An object's properties are a
+   zero-terminated block of memory where the first byte indicates the
+   property number and the number of bytes in the property value.
+   This block begins after the length-prefixed object name. *)
+
+(* Takes the address of a property block -- past the string,
+pointing to the block header.
+Returns the length of the header, the length of the data, and the
+property number. *)
+
+let decode_property_data story (Property_address address) =
+  let b = Story.read_byte story (Byte_address address) in
+  if b = 0 then
+    (0, 0, invalid_property)
+  else if Story.v3_or_lower (Story.version story) then
+    (* In version 3 it's easy. The number of bytes of property data
+    is indicated by the top 3 bits; the property number is indicated
+    by the bottom 5 bits, and the header is one byte. *)
+    (1, (fetch_bits bit7 size3 b) + 1, Property (fetch_bits bit4 size5 b))
+  else
+    (* In version 4 the property number is the bottom 6 bits. *)
+    let prop = Property (fetch_bits bit5 size6 b) in
+    (* If the high bit of the first byte is set then the length is
+      indicated by the bottom six bits of the *following* byte.
+      The following byte needs to have its high bit set as well.
+      (See below).
+
+      If the high bit is not set then the length is indicated by
+      the sixth bit. *)
+    if fetch_bit bit7 b then
+      let b2 = Story.read_byte story (Byte_address (address + 1)) in
+      let len = fetch_bits bit5 size6 b2 in
+      (2, (if len = 0 then 64 else len), prop)
+    else
+      (1, (if fetch_bit bit6 b then 2 else 1), prop)
+
+(* This method produces a list of (number, data_length, data_address) tuples *)
+let property_addresses story obj =
+  let rec aux acc address =
+    let (Property_address addr) = address in
+    let b = Story.read_byte story (Byte_address addr) in
+    if b = 0 then
+      acc
+    else
+      let (header_length, data_length, prop) =
+        decode_property_data story address in
+      let this_property =
+        (prop, data_length, Property_data (addr + header_length)) in
+      let next_addr = Property_address (addr + header_length + data_length) in
+      aux (this_property :: acc) next_addr in
+  let (Property_header header) = property_header_address story obj in
+  let property_name_address = header in
+  let property_name_word_length = Story.read_byte story (Byte_address property_name_address) in
+  let first_property_address =
+    Property_address (property_name_address + 1 + property_name_word_length * 2) in
+  aux [] first_property_address
+
+(* Given the adddress of the data block, how long is it?  In version 3
+this is easy; we just look at the previous byte. In version 4 there could
+be two bytes before the data, but the one immediately before the data is
+always the size byte. If its high bit is on then the bottom six bits are the
+size. If the high bit is not on then the size is determined by bit 6. *)
+let property_length_from_address story (Property_data address) =
+  if address = 0 then
+    0
+  else
+    let b = Story.read_byte story (Byte_address (address - 1)) in
+    if Story.v3_or_lower (Story.version story) then
+      1 + (fetch_bits bit7 size3 b)
+    else
+      if fetch_bit bit7 b then
+        let len = fetch_bits bit5 size6 b in
+        if len = 0 then 64 else len
+      else
+        if fetch_bit bit6 b then 2 else 1
+
+(* Given an object and property number, what is the address
+   of the associated property block? Or zero if there is none. *)
+let property_address story obj prop =
+  let rec aux addresses =
+    match addresses with
+    | [] -> invalid_data
+    | (number, _, address) :: tail ->
+      if number = prop then address
+      else aux tail in
+  aux (property_addresses story obj)
+
+(* Fetch the one or two byte value associated with a given property of a given object.
+If the object does not have that property then fetch the default property value. *)
+let property story obj prop =
+  (* We simply do a linear search for the property, even though they are
+     stored in sorted order. The blocks we are searching are first, variable
+     size, which makes them inconvenient to binary search. And second, are
+     small, making binary search not worth the bother. *)
+  let rec aux addresses =
+    match addresses with
+    | [] -> default_property_value story prop
+    | (number, length, (Property_data address)) :: tail ->
+      if number = prop then (
+        if length = 1 then
+          Story.read_byte story (Byte_address address)
+        else if length = 2 then
+          Story.read_word story (Word_address address)
+        else
+          let (Object n) = obj in
+          let (Property p) = prop in
+          failwith (Printf.sprintf "object %d property %d length %d bad property length" n p length))
+      else
+        aux tail in
+  aux (property_addresses story obj)
+
+(* Given a property number, find the first property of an object
+greater than it. Note that this assumes that properties are enumerated in
+order by property_addresses. Returns zero if there is no such property. *)
+let next_property story obj (Property prop) =
+  let rec aux addrs =
+    match addrs with
+    | [] -> invalid_property
+    | (Property number, _, _) :: tail ->
+      if number > prop then Property number
+      else aux tail in
+  aux (property_addresses story obj)
+
+(* Writes a one or two byte property associated with a given object. *)
+(* The property must exist and must be one or two bytes. *)
+let write_property story obj prop value =
+  let rec aux addresses =
+    match addresses with
+    | [] -> (invalid_data, 0)
+    | (number, length, address) :: tail ->
+      if number = prop then (address, length)
+      else aux tail in
+  let (address, length) = aux (property_addresses story obj) in
+  if address = invalid_data then failwith "invalid property";
+  let (Property_data address) = address in
+  match length with
+  | 1 -> Story.write_byte story (Byte_address address) value
+  | 2 -> Story.write_word story (Word_address address) value
+  | _ -> failwith "property cannot be set"
 
 let display_object_table story =
   let count = count story in
